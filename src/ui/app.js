@@ -36,6 +36,18 @@ import { simulate } from "../sim/simulator.js";
 import { runChecks, summarizeCheckResults } from "../checks/runner.js";
 import { formatMetricValue } from "../core/units.js";
 import {
+  bindLearningEvents,
+  collectAnswers,
+  countSolved,
+  getModal,
+  getProblemProgress,
+  markSolved,
+  openModal,
+  renderModalHtml,
+  renderProblemPanelHtml,
+  resetProblemView,
+} from "./learning.js";
+import {
   addComponent,
   addWire,
   clearBoard,
@@ -132,6 +144,7 @@ const APP_SHELL = `
     </main>
 
     <footer class="app-status" id="status"></footer>
+    <div id="modal-root"></div>
   </div>
 `;
 
@@ -563,6 +576,42 @@ function render(root) {
   renderBoard(root, state);
   renderInspector(root, state);
   renderStatus(root, state);
+  renderLearningModal(root, state);
+
+  bindLearningEvents(root, {
+    rerender: forceRender,
+    onNext: () => {
+      const next = getNextProblem(state.currentProblem?.id);
+      if (next) void handleProblemSelect(next.id);
+    },
+  });
+}
+
+function getParamDefsForType(type) {
+  return componentRegistry.has(type) ? componentRegistry.getParamDefinitions(type) : [];
+}
+
+function renderLearningModal(root, state) {
+  const modalRoot = root.querySelector("#modal-root");
+  if (!modalRoot) return;
+  modalRoot.innerHTML = renderModalHtml(state.currentProblem, {
+    nextProblem: getNextProblem(state.currentProblem?.id),
+    getParamDefs: getParamDefsForType,
+  });
+}
+
+/**
+ * 同じ分野の次の問題（index.json の順）を返します。
+ */
+function getNextProblem(problemId) {
+  if (!problemId) return null;
+  const i = problemIndex.findIndex((p) => p.id === problemId);
+  return i >= 0 && i + 1 < problemIndex.length ? problemIndex[i + 1] : null;
+}
+
+function isCategoryActive(categoryId) {
+  const active = CONFIG.ui.activeCategories;
+  return !Array.isArray(active) || active.includes(categoryId);
 }
 
 /* ==========================================================================
@@ -638,10 +687,12 @@ function renderProblemMenu(root) {
 
     const buttons = categories
       .map((category) => {
+        const active = isCategoryActive(category.id);
         return `
-          <button class="problem-menu-cat" data-menu-category="${escapeHtml(category.id)}" title="${escapeHtml(category.description ?? category.nameJa ?? "")}">
+          <button class="problem-menu-cat ${active ? "" : "is-disabled"}" ${active ? `data-menu-category="${escapeHtml(category.id)}"` : "disabled"} title="${escapeHtml(category.description ?? category.nameJa ?? "")}">
             <span class="cat-id">${escapeHtml(category.id)}</span>
             <span class="cat-name">${escapeHtml(category.nameJa ?? "")}</span>
+            ${active ? "" : `<span class="cat-soon">準備中</span>`}
           </button>
         `;
       })
@@ -694,12 +745,17 @@ function renderProblemMenu(root) {
         ${problemIndex
           .map((problem) => {
             const activeClass = problem.id === currentId ? "active" : "";
+            const record = getProblemProgress(problem.id);
+            const mark = record?.solved
+              ? `<span class="solved-mark" title="クリア済み">✓</span>`
+              : `<span class="solved-mark is-empty"></span>`;
             const difficulty = Number.isFinite(problem.difficulty)
               ? `<span class="badge">Lv.${escapeHtml(problem.difficulty)}</span>`
               : "";
 
             return `
               <button class="problem-menu-item ${activeClass}" data-menu-problem="${escapeHtml(problem.id)}">
+                ${mark}
                 <span class="pid">${escapeHtml(problem.id)}</span>
                 <span class="ptitle">${escapeHtml(problem.title ?? "")}</span>
                 ${difficulty}
@@ -716,6 +772,7 @@ function renderProblemMenu(root) {
       <div class="problem-menu-head">
         <button data-menu-back>← カテゴリ</button>
         <span class="problem-menu-title">カテゴリ ${escapeHtml(categoryId ?? "")} の問題</span>
+        ${problemIndex.length ? `<span class="problem-menu-progress">クリア ${countSolved(problemIndex.map((p) => p.id))} / ${problemIndex.length}</span>` : ""}
       </div>
       ${listHtml}
     </div>
@@ -1085,16 +1142,20 @@ async function handleProblemSelect(problemId) {
         connect: Array.isArray(fc.connect) ? [...fc.connect] : [],
         locked: true,
         rotation,
+        // 問題データに position があればそれを使う（回路の形が分かる配置にするため）
         position: clampPositionToBoard(
-          {
-            x: snapValue(30 + col * stepX),
-            y: snapValue(30 + row * 110),
-          },
+          fc.position && Number.isFinite(fc.position.x) && Number.isFinite(fc.position.y)
+            ? { x: snapValue(fc.position.x), y: snapValue(fc.position.y) }
+            : {
+                x: snapValue(30 + col * stepX),
+                y: snapValue(30 + row * 110),
+              },
           rotation
         ),
       });
     });
 
+    resetProblemView(problem);
     setCurrentProblem(problem);
 
     wireMode = false;
@@ -1146,7 +1207,11 @@ function renderBoard(root, state) {
   `;
 
   // --- 問題パネル ---
-  const problemPanelHtml = problem ? renderProblemPanel(problem) : "";
+  const problemPanelHtml = problem
+    ? renderProblemPanelHtml(problem, {
+        solved: Boolean(getProblemProgress(problem.id)?.solved),
+      })
+    : "";
 
   // --- SVG（ワイヤ + 部品） ---
   const wiresSvg = buildWiresSvg(state);
@@ -1176,36 +1241,6 @@ function renderBoard(root, state) {
   `;
 
   bindBoardEvents(root, state);
-}
-
-function renderProblemPanel(problem) {
-  const hintHtml = problem.hint
-    ? `
-      <details>
-        <summary>ヒント</summary>
-        <p>${escapeHtml(problem.hint)}</p>
-      </details>
-    `
-    : "";
-
-  const goalHtml = problem.learningGoal
-    ? `<p class="muted">学習目標: ${escapeHtml(problem.learningGoal)}</p>`
-    : "";
-
-  const difficultyHtml = Number.isFinite(problem.difficulty)
-    ? ` <span class="muted">Lv.${escapeHtml(problem.difficulty)}</span>`
-    : "";
-
-  return `
-    <div class="board-problem-panel">
-      <h2 class="panel-title">
-        ${escapeHtml(problem.id)}: ${escapeHtml(problem.title)}${difficultyHtml}
-      </h2>
-      <p>${escapeHtml(problem.statement)}</p>
-      ${hintHtml}
-      ${goalHtml}
-    </div>
-  `;
 }
 
 /**
@@ -1295,7 +1330,8 @@ function buildComponentsSvg(state) {
         .map((pinName, index) => {
           const point = geo[index] ?? { x: box.w / 2, y: box.h / 2 };
           const labelPos = getPinLabelPosition(point, box.w, box.h);
-          const netText = wireMode ? connect[index] || "-" : null;
+          const netText =
+            wireMode || component.locked ? connect[index] || "-" : null;
           const labelText = netText !== null ? `${pinName}:${netText}` : pinName;
 
           return `
@@ -2676,18 +2712,32 @@ async function handleCheck() {
 
     setSimulationResult(simulationResult);
 
+    const { answers, errors: answerErrors } = collectAnswers(state.currentProblem);
+
+    if (answerErrors.length > 0) {
+      setCheckResults([]);
+      setStatus(answerErrors.join(" / "), "warning");
+      return;
+    }
+
     const results = await runChecks(
       state.currentProblem,
       simulationResult,
-      state.board
+      state.board,
+      { answers }
     );
-
-    setCheckResults(results);
 
     const summary = summarizeCheckResults(results);
 
     if (summary.ok) {
-      setStatus("すべてのチェックに合格しました。", "success");
+      markSolved(state.currentProblem.id);
+      openModal("clear");
+    }
+
+    setCheckResults(results);
+
+    if (summary.ok) {
+      setStatus("すべてのチェックに合格しました。クリア！", "success");
     } else {
       setStatus(
         `${summary.failed} 件のチェックに不合格です。`,
@@ -2755,7 +2805,10 @@ function bindGlobalKeyboard() {
     }
 
     if (event.key === "Escape") {
-      if (wireDraft) {
+      if (getModal()) {
+        openModal(null);
+        forceRender();
+      } else if (wireDraft) {
         wireDraft = null;
         setStatus("配線を取り消しました。", "info");
         forceRender();

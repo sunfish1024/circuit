@@ -1449,7 +1449,7 @@ label {
 
 .board-problem-panel {
   flex: none;
-  max-height: 180px;
+  max-height: 46vh;
   overflow: auto;
   padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--color-border);
@@ -1886,4 +1886,367 @@ label {
 
 .board-pin-label {
   font-size: 10.5px;   /* 8px -> 実効 7.9px */
+}
+
+
+/* ==========================================================================
+   学習UI（問題文・ヒント・回答・解説・進捗）
+   ========================================================================== */
+
+.board-problem-panel.is-collapsed {
+  max-height: none;
+}
+
+.problem-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  position: sticky;
+  top: calc(-1 * var(--space-2));
+  padding: var(--space-1) 0;
+  background: #0d1526;
+  z-index: 1;
+}
+
+.problem-head .panel-title {
+  margin: 0;
+  font-size: var(--text-md, 15px);
+}
+
+.problem-head .spacer {
+  flex: 1;
+}
+
+.problem-body {
+  padding-bottom: var(--space-2);
+}
+
+.md {
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--color-text);
+}
+
+.board-problem-panel .md p {
+  font-size: 13.5px;
+  margin: 6px 0;
+}
+
+.md .md-h {
+  margin: 12px 0 4px;
+  font-size: 13.5px;
+  color: var(--color-accent);
+  border-left: 3px solid var(--color-accent);
+  padding-left: 8px;
+}
+
+.md h5.md-h,
+.md h6.md-h {
+  border-left: none;
+  padding-left: 0;
+  color: var(--color-text);
+}
+
+.md ul,
+.md ol {
+  margin: 4px 0;
+  padding-left: 1.4em;
+}
+
+.md li {
+  margin: 2px 0;
+}
+
+.md code,
+.ref-table code {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.92em;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.16);
+}
+
+.md strong {
+  color: #f8fafc;
+}
+
+.md-quote {
+  margin: 6px 0;
+  padding: 4px 10px;
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-warning-soft);
+  border-radius: 4px;
+}
+
+.md-table-wrap {
+  overflow-x: auto;
+  margin: 6px 0;
+}
+
+.md-table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.md-table th,
+.md-table td {
+  border: 1px solid var(--color-border);
+  padding: 3px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-table th {
+  background: var(--color-surface-2);
+}
+
+.md-display {
+  overflow-x: auto;
+  margin: 6px 0;
+}
+
+.md-math {
+  font-family: ui-monospace, Consolas, monospace;
+  color: #fde68a;
+}
+
+.md-math-display {
+  display: block;
+  text-align: center;
+}
+
+.md-figure {
+  margin: 8px 0;
+  text-align: center;
+}
+
+.md-figure svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.problem-sec-title {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  color: var(--color-accent);
+}
+
+.problem-answers {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.05);
+}
+
+.answer-item {
+  margin: 6px 0 10px;
+}
+
+.answer-prompt {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.answer-prompt .md p,
+.answer-prompt p {
+  margin: 0;
+}
+
+.answer-no {
+  flex: none;
+  font-weight: 700;
+  color: var(--color-accent);
+  font-size: 12px;
+}
+
+.answer-choice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 4px 8px;
+  margin: 2px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.answer-choice:hover {
+  background: var(--color-accent-soft);
+}
+
+.answer-choice p {
+  margin: 0 !important;
+}
+
+.answer-numeric {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.answer-numeric input {
+  width: 260px;
+  max-width: 100%;
+}
+
+.answer-unit {
+  font-weight: 700;
+}
+
+.problem-hints {
+  margin-top: 8px;
+}
+
+.hint-step {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-warning-soft);
+  border-radius: 4px;
+}
+
+.hint-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-warning);
+}
+
+.problem-actions-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.problem-menu-cat.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cat-soon {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-muted);
+}
+
+.solved-mark {
+  width: 1.1em;
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.problem-menu-progress {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-success);
+}
+
+/* モーダル */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--color-overlay);
+}
+
+.modal {
+  position: relative;
+  width: min(480px, 100%);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 24px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-wide {
+  width: min(860px, 100%);
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.modal-x {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.modal-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 6px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.clear-banner {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-align: center;
+  color: var(--color-success);
+  text-shadow: 0 0 18px rgba(52, 211, 153, 0.45);
+  animation: clear-pop 0.45s ease-out;
+}
+
+@keyframes clear-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.explain-sec {
+  margin: 10px 0 14px;
+}
+
+.explain-title {
+  margin: 0 0 4px;
+  padding-bottom: 3px;
+  font-size: 14px;
+  color: var(--color-accent);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.explain-mistakes .explain-title {
+  color: var(--color-warning);
+}
+
+.ref-answers {
+  margin: 6px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clear-banner {
+    animation: none;
+  }
 }
