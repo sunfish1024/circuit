@@ -1,0 +1,1889 @@
+/* ==========================================================================
+   電子回路学習ゲーム
+   共通スタイル
+
+   役割:
+   - アプリ全体のレイアウト
+   - ヘッダー / パレット / ボード / インスペクタ / ステータスバー
+   - ボタン、フォーム、テーブル、パネル、バッジ、ダイアログ
+   - 回路ボード用の汎用スタイル
+
+   注意:
+   - このCSSは「共通部分」です。
+   - 個別分野固有の強い見た目は、必要なら後で分野別CSSに分離します。
+   - クラス名は今後の src/ui/ 系ファイルと一致させていきます。
+   ========================================================================== */
+
+
+/* ==========================================================================
+   1. デザイントークン
+   ========================================================================== */
+
+:root {
+  /* 色 */
+  --color-bg: #0f172a;
+  --color-surface: #111827;
+  --color-surface-2: #1f2937;
+  --color-surface-3: #0b1220;
+  --color-border: #374151;
+  --color-border-strong: #4b5563;
+
+  --color-text: #e5e7eb;
+  --color-text-muted: #9ca3af;
+  --color-text-faint: #6b7280;
+
+  --color-accent: #38bdf8;
+  --color-accent-soft: rgba(56, 189, 248, 0.12);
+
+  --color-success: #34d399;
+  --color-success-soft: rgba(52, 211, 153, 0.10);
+
+  --color-warning: #fbbf24;
+  --color-warning-soft: rgba(251, 191, 36, 0.10);
+
+  --color-danger: #f87171;
+  --color-danger-soft: rgba(248, 113, 113, 0.10);
+
+  --color-overlay: rgba(2, 6, 23, 0.62);
+
+  /* ボード */
+  --color-board: #081120;
+  --color-board-grid: rgba(148, 163, 184, 0.10);
+  --color-board-grid-strong: rgba(148, 163, 184, 0.18);
+  --board-grid-size: 20px;
+
+  --color-wire: #93c5fd;
+  --color-wire-selected: #38bdf8;
+  --color-pin: #cbd5e1;
+  --color-pin-hover: #38bdf8;
+
+  /* 間隔 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* 角丸 */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+
+  /* 影 */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.24);
+  --shadow-3: 0 18px 60px rgba(0, 0, 0, 0.34);
+
+  /* 文字 */
+  --font-sans:
+    "Segoe UI",
+    "Hiragino Sans",
+    "Noto Sans JP",
+    "Yu Gothic UI",
+    "Meiryo",
+    sans-serif;
+
+  --font-mono:
+    "Cascadia Code",
+    "JetBrains Mono",
+    "Consolas",
+    "Menlo",
+    monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+
+  /* レイアウト */
+  --palette-width: 290px;
+  --inspector-width: 330px;
+  --header-height: 52px;
+  --statusbar-height: 32px;
+
+  /* 重なり */
+  --z-header: 100;
+  --z-dialog: 1000;
+  --z-tooltip: 1200;
+}
+
+
+/* ==========================================================================
+   2. リセット / 基本
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+h1 {
+  font-size: var(--text-xl);
+}
+
+h2 {
+  font-size: var(--text-md);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
+
+h3 {
+  font-size: var(--text-md);
+}
+
+p {
+  margin: 0;
+}
+
+img,
+svg,
+canvas,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+pre,
+.mono {
+  font-family: var(--font-mono);
+}
+
+pre {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: auto;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(56, 189, 248, 0.28);
+}
+
+
+/* ==========================================================================
+   3. アプリシェル
+   ========================================================================== */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.app-header {
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(15, 23, 42, 0.96);
+  position: relative;
+  z-index: var(--z-header);
+}
+
+.app-title {
+  font-size: var(--text-lg);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.app-subtitle {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.app-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns:
+    var(--palette-width)
+    minmax(0, 1fr)
+    var(--inspector-width);
+  background: var(--color-surface);
+}
+
+.app-status {
+  min-height: var(--statusbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-1) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  background: rgba(15, 23, 42, 0.96);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.app-status-left,
+.app-status-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.app-status-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ==========================================================================
+   4. ペイン共通
+   ========================================================================== */
+
+.pane {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-3);
+  background: var(--color-surface);
+}
+
+.palette {
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.board {
+  position: relative;
+  background-color: var(--color-board);
+  background-image:
+    linear-gradient(
+      to right,
+      var(--color-board-grid) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      var(--color-board-grid) 1px,
+      transparent 1px
+    );
+  background-size:
+    var(--board-grid-size)
+    var(--board-grid-size);
+  background-position: 0 0;
+  overflow: auto;
+}
+
+.inspector {
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.pane-section {
+  margin-bottom: var(--space-5);
+}
+
+.pane-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.panel {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+}
+
+.panel-title {
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+
+/* ==========================================================================
+   5. ボタン
+   ========================================================================== */
+
+button {
+  appearance: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.3;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    opacity 120ms ease,
+    transform 60ms ease;
+}
+
+button:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+button.active,
+button.is-active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+button.primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #082f49;
+  font-weight: 700;
+}
+
+button.primary:hover {
+  color: #082f49;
+  filter: brightness(1.06);
+}
+
+button.danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: var(--color-danger);
+}
+
+button.danger:hover {
+  background: var(--color-danger-soft);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-text-muted);
+}
+
+button.ghost:hover {
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+button.small {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+}
+
+button.large {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-md);
+}
+
+button.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.button-group {
+  display: inline-flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+
+/* ==========================================================================
+   6. フォーム
+   ========================================================================== */
+
+input,
+select,
+textarea {
+  width: 100%;
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-3);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-faint);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--color-border-strong);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+label {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.field-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.field-help {
+  font-size: var(--text-xs);
+  color: var(--color-text-faint);
+}
+
+.field-row {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: auto;
+}
+
+.checkbox-field input {
+  width: auto;
+  min-height: auto;
+}
+
+
+/* ==========================================================================
+   7. パレット
+   ========================================================================== */
+
+.palette-search {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-surface);
+  padding-bottom: var(--space-2);
+}
+
+.category-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.category-button {
+  min-width: 42px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.component-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.component-button {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+}
+
+.component-button:hover {
+  background: var(--color-surface-3);
+}
+
+/* パレット内の回路記号プレビュー */
+
+.component-symbol {
+  width: 64px;
+  height: 40px;
+  flex-shrink: 0;
+  background: rgba(8, 17, 32, 0.55);
+  border-radius: var(--radius-sm);
+}
+
+.component-symbol .sym-stroke {
+  fill: none;
+  stroke: var(--color-text);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.component-symbol .sym-thin {
+  fill: none;
+  stroke: var(--color-text);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.component-symbol .sym-fill {
+  fill: var(--color-text);
+  stroke: none;
+}
+
+.component-symbol .sym-fill-thin {
+  fill: var(--color-text);
+  stroke: none;
+}
+
+.component-symbol .sym-label {
+  fill: var(--color-text);
+  font-size: 12px;
+  font-family: var(--font-sans);
+}
+
+.component-symbol .sym-label-sm {
+  fill: var(--color-text);
+  font-size: 9.5px;
+  font-family: var(--font-sans);
+}
+
+.component-button-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.component-button-name {
+  font-weight: 700;
+}
+
+.component-button-type {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.palette-empty {
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+
+/* ==========================================================================
+   8. ボード
+   ========================================================================== */
+
+.board-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(15, 23, 42, 0.82);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.board-toolbar-left,
+.board-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.board-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.board-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.board-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.board-empty,
+.board-message {
+  margin: var(--space-6);
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  background: rgba(15, 23, 42, 0.55);
+  max-width: 640px;
+}
+
+.board-component {
+  cursor: move;
+}
+
+.board-component.is-selected,
+.board-component.selected {
+  filter: drop-shadow(0 0 3px var(--color-accent));
+}
+
+.board-component.is-dragging,
+.board-component.dragging {
+  opacity: 0.85;
+}
+
+.board-pin {
+  fill: var(--color-pin);
+  stroke: rgba(0, 0, 0, 0.30);
+  stroke-width: 1;
+  cursor: crosshair;
+}
+
+.board-pin:hover {
+  fill: var(--color-pin-hover);
+}
+
+.board-pin.is-active,
+.board-pin.active {
+  fill: var(--color-accent);
+}
+
+.board-wire {
+  stroke: var(--color-wire);
+  stroke-width: 2;
+  fill: none;
+  cursor: pointer;
+}
+
+.board-wire.is-selected,
+.board-wire.selected {
+  stroke: var(--color-wire-selected);
+  stroke-width: 2.5;
+}
+
+.board-node {
+  fill: var(--color-accent);
+}
+
+.board-label {
+  font-size: 11px;
+  fill: var(--color-text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+.board-value {
+  font-size: 10px;
+  fill: var(--color-text-faint);
+  pointer-events: none;
+  user-select: none;
+}
+
+
+/* ==========================================================================
+   9. インスペクタ
+   ========================================================================== */
+
+.inspector-empty {
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.inspector-section {
+  margin-bottom: var(--space-5);
+}
+
+.inspector-title {
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.property-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.property-table th,
+.property-table td {
+  border: 1px solid var(--color-border);
+  padding: var(--space-2);
+  text-align: left;
+  vertical-align: top;
+}
+
+.property-table th {
+  width: 38%;
+  background: rgba(15, 23, 42, 0.55);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+
+/* ==========================================================================
+   10. テーブル
+   ========================================================================== */
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  background: rgba(15, 23, 42, 0.60);
+  color: var(--color-text-muted);
+  font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.table tbody tr {
+  transition: background-color 100ms ease;
+}
+
+.table tbody tr:hover {
+  background: rgba(56, 189, 248, 0.05);
+}
+
+.table-row.is-selected,
+.table-row.selected {
+  background: var(--color-accent-soft);
+  outline: 1px solid rgba(56, 189, 248, 0.28);
+}
+
+.table-actions {
+  white-space: nowrap;
+}
+
+
+/* ==========================================================================
+   11. ステータス / チェック結果 / バッジ
+   ========================================================================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badge-success {
+  color: var(--color-success);
+  border-color: rgba(52, 211, 153, 0.35);
+  background: var(--color-success-soft);
+}
+
+.badge-warning {
+  color: var(--color-warning);
+  border-color: rgba(251, 191, 36, 0.35);
+  background: var(--color-warning-soft);
+}
+
+.badge-danger {
+  color: var(--color-danger);
+  border-color: rgba(248, 113, 113, 0.35);
+  background: var(--color-danger-soft);
+}
+
+.badge-info {
+  color: var(--color-accent);
+  border-color: rgba(56, 189, 248, 0.35);
+  background: var(--color-accent-soft);
+}
+
+.check-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.check-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  background: var(--color-surface-2);
+}
+
+.check-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.check-item-message {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.check-item.is-ok,
+.check-item.ok {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: var(--color-success-soft);
+}
+
+.check-item.is-ng,
+.check-item.ng {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: var(--color-danger-soft);
+}
+
+.check-item.is-warn,
+.check-item.warn {
+  border-color: rgba(251, 191, 36, 0.35);
+  background: var(--color-warning-soft);
+}
+
+
+/* ==========================================================================
+   12. ダイアログ / モーダル
+   ========================================================================== */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: var(--color-overlay);
+}
+
+.dialog {
+  width: min(760px, 100%);
+  max-height: min(84vh, 900px);
+  overflow: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  padding: var(--space-5);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.dialog-title {
+  font-size: var(--text-lg);
+}
+
+.dialog-body {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+
+/* ==========================================================================
+   13. メッセージ / 空状態 / エラー
+   ========================================================================== */
+
+.empty-message {
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.error {
+  padding: var(--space-4);
+  border: 1px solid rgba(248, 113, 113, 0.40);
+  border-radius: var(--radius-lg);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.success {
+  padding: var(--space-4);
+  border: 1px solid rgba(52, 211, 153, 0.40);
+  border-radius: var(--radius-lg);
+  color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.warning {
+  padding: var(--space-4);
+  border: 1px solid rgba(251, 191, 36, 0.40);
+  border-radius: var(--radius-lg);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.boot-message {
+  max-width: 620px;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  box-shadow: var(--shadow-2);
+}
+
+
+/* ==========================================================================
+   14. ユーティリティ
+   ========================================================================== */
+
+.hidden {
+  display: none !important;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.faint {
+  color: var(--color-text-faint);
+}
+
+.small {
+  font-size: var(--text-xs);
+}
+
+.medium {
+  font-size: var(--text-sm);
+}
+
+.large {
+  font-size: var(--text-lg);
+}
+
+.bold {
+  font-weight: 700;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.gap-1 {
+  gap: var(--space-1);
+}
+
+.gap-2 {
+  gap: var(--space-2);
+}
+
+.gap-3 {
+  gap: var(--space-3);
+}
+
+.gap-4 {
+  gap: var(--space-4);
+}
+
+.mt-0 {
+  margin-top: 0;
+}
+
+.mt-2 {
+  margin-top: var(--space-2);
+}
+
+.mt-3 {
+  margin-top: var(--space-3);
+}
+
+.mt-4 {
+  margin-top: var(--space-4);
+}
+
+.mb-0 {
+  margin-bottom: 0;
+}
+
+.mb-2 {
+  margin-bottom: var(--space-2);
+}
+
+.mb-3 {
+  margin-bottom: var(--space-3);
+}
+
+.mb-4 {
+  margin-bottom: var(--space-4);
+}
+
+
+/* ==========================================================================
+   15. スクロールバー
+   ========================================================================== */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
+
+
+/* ==========================================================================
+   16. レスポンシブ
+   ========================================================================== */
+
+@media (max-width: 1240px) {
+  :root {
+    --palette-width: 250px;
+    --inspector-width: 290px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .app-main {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .inspector {
+    display: none;
+  }
+
+  /*
+    インスペクタを完全に消すと編集機能が不足するため、
+    将来的にはトグル式パネルやダイアログ化を追加する。
+  */
+}
+
+@media (max-width: 768px) {
+  :root {
+    --header-height: auto;
+  }
+
+  .app {
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: var(--space-3);
+  }
+
+  .app-main {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .palette,
+  .board,
+  .inspector {
+    border: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .palette {
+    max-height: 34vh;
+  }
+
+  .board {
+    min-height: 60vh;
+  }
+
+  .inspector {
+    display: block;
+    max-height: 40vh;
+  }
+
+  .board-canvas {
+    min-width: 760px;
+    min-height: 560px;
+  }
+}
+
+
+/* ==========================================================================
+   17. 印刷用（必要最小限）
+   ========================================================================== */
+
+@media print {
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  .app-header,
+  .palette,
+  .inspector,
+  .app-status,
+  .board-toolbar {
+    display: none !important;
+  }
+
+  .board {
+    border: 1px solid #000000;
+  }
+}
+
+/* ==========================================================================
+   18. 問題メニュー（ヘッダーのドロップダウン）
+   ========================================================================== */
+
+.problem-menu-wrap {
+  position: relative;
+}
+
+.problem-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 580px;
+  max-width: 92vw;
+  max-height: min(72vh, 660px);
+  overflow: auto;
+  z-index: var(--z-dialog);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  padding: var(--space-3);
+}
+
+.problem-menu-title {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.problem-menu-grid {
+  margin-top: var(--space-2);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(122px, 1fr));
+  gap: var(--space-2);
+}
+
+.problem-menu-cat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.problem-menu-cat .cat-id {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.problem-menu-cat .cat-name {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+
+.problem-menu-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.problem-menu-list {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.problem-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.problem-menu-item .pid {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.problem-menu-item .ptitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  text-align: left;
+}
+
+.problem-menu-empty {
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+
+/* ==========================================================================
+   19. グラフィカルボード（レイアウト再定義）
+   ========================================================================== */
+
+/* ボードペイン: ツールバー / 問題パネル / キャンバスの縦積み。
+   スクロールは .board-container が担当するため、
+   .board 自体は overflow:hidden に変更する。 */
+.board {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-image: none;
+}
+
+.board-toolbar {
+  position: static;
+  flex: none;
+}
+
+.board-problem-panel {
+  flex: none;
+  max-height: 180px;
+  overflow: auto;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.board-problem-panel .panel-title {
+  margin-bottom: 4px;
+}
+
+.board-problem-panel p {
+  margin: 4px 0;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+
+.board-problem-panel details {
+  margin: 2px 0;
+}
+
+.board-problem-panel summary {
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+}
+
+.board-problem-panel details p {
+  color: var(--color-text-muted);
+}
+
+.board-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* グリッド背景はスクロールに追従させるためキャンバス側に置く */
+.board-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  background-color: var(--color-board);
+  background-image:
+    linear-gradient(
+      to right,
+      var(--color-board-grid) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      var(--color-board-grid) 1px,
+      transparent 1px
+    );
+  background-size:
+    var(--board-grid-size)
+    var(--board-grid-size);
+}
+
+.board-svg {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.board-empty {
+  position: absolute;
+  top: 140px;
+  left: 24px;
+  z-index: 5;
+}
+
+.board-canvas.wire-mode {
+  cursor: crosshair;
+}
+
+/* --- 部品シンボル --- */
+
+.board-comp-rect {
+  fill: #16213a;
+  stroke: #64748b;
+  stroke-width: 1.2;
+}
+
+.board-component:hover .board-comp-rect {
+  stroke: #94a3b8;
+}
+
+.board-component.is-selected .board-comp-rect {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+
+/* 回路記号（src/ui/symbols.js が生成する SVG 断片） */
+
+.board-component {
+  --symbol-color: var(--color-text);
+}
+
+.board-component:hover {
+  --symbol-color: #cbd5e1;
+}
+
+.board-component.is-selected {
+  --symbol-color: var(--color-accent);
+}
+
+.symbol-body .sym-stroke {
+  fill: none;
+  stroke: var(--symbol-color, var(--color-text));
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.symbol-body .sym-thin {
+  fill: none;
+  stroke: var(--symbol-color, var(--color-text));
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.symbol-body .sym-fill {
+  fill: var(--symbol-color, var(--color-text));
+  stroke: none;
+}
+
+.symbol-body .sym-fill-thin {
+  fill: var(--symbol-color, var(--color-text));
+  stroke: none;
+}
+
+.symbol-body .sym-label {
+  fill: var(--symbol-color, var(--color-text));
+  font-size: 10px;
+  font-family: var(--font-sans);
+  pointer-events: none;
+  user-select: none;
+}
+
+.symbol-body .sym-label-sm {
+  fill: var(--symbol-color, var(--color-text));
+  font-size: 8px;
+  font-family: var(--font-sans);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 部品のヒット領域（透明・ドラッグ用） */
+
+.board-comp-hit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+/* 回転ハンドル（選択中の部品の右上に表示） */
+
+.comp-rotate-handle {
+  cursor: pointer;
+}
+
+.comp-rotate-handle circle {
+  fill: var(--color-accent);
+  stroke: var(--color-panel, #0f172a);
+  stroke-width: 1.5;
+}
+
+.comp-rotate-handle text {
+  fill: #0b1220;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-sans);
+  pointer-events: none;
+  user-select: none;
+}
+
+.comp-rotate-handle:hover circle {
+  fill: #93c5fd;
+}
+
+/* インスペクタの回転ボタン */
+
+.rotation-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rotation-controls .rotation-value {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* 選択枠（通常は非表示） */
+
+.board-comp-select {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.board-component.is-selected .board-comp-select {
+  opacity: 1;
+}
+
+.board-comp-id {
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--color-text);
+  pointer-events: none;
+  user-select: none;
+}
+
+.board-comp-type {
+  font-size: 9px;
+  fill: var(--color-text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+.board-comp-params {
+  font-size: 8.5px;
+  fill: var(--color-text-faint);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* --- ピン --- */
+
+.board-pin-hit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.board-canvas:not(.wire-mode) .board-pin-hit {
+  pointer-events: none;
+}
+
+.board-canvas.wire-mode .board-pin {
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+}
+
+.board-pin-label {
+  font-size: 8px;
+  fill: #8fa3bf;
+  pointer-events: none;
+  user-select: none;
+}
+
+.board-canvas.wire-mode .board-pin-label {
+  fill: var(--color-accent);
+}
+
+/* --- ワイヤ --- */
+
+.board-wire-hit {
+  stroke: transparent;
+  stroke-width: 12px;
+  fill: none;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.board-wire-draft {
+  stroke: var(--color-warning);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  fill: none;
+  pointer-events: none;
+}
+
+.wire-del {
+  cursor: pointer;
+}
+
+.wire-del circle {
+  fill: #7f1d1d;
+  stroke: var(--color-danger);
+  stroke-width: 1.2;
+}
+
+.wire-del text {
+  fill: #fecaca;
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* --- パレット / その他 --- */
+
+.palette-hint {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.component-button {
+  touch-action: none;
+}
+
+.toolbar-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.board-stats {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.drag-ghost {
+  position: fixed;
+  z-index: 2000;
+  pointer-events: none;
+  padding: 6px 14px;
+  background: var(--color-accent);
+  color: #082f49;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-2);
+}
+
+/* 閉じている（空）ときはメニュー容器を非表示にする */
+.problem-menu:empty {
+  display: none;
+}
+
+
+/* ==========================================================================
+   20. シミュレーション結果パネル
+   ========================================================================== */
+
+.sim-result .sim-mode {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.sim-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 4px 0 10px;
+}
+
+.sim-table th,
+.sim-table td {
+  border-bottom: 1px solid var(--color-border);
+  padding: 3px 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sim-table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.sim-table th:first-child,
+.sim-table td:first-child {
+  text-align: left;
+}
+
+.sim-table-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  margin: 10px 0 2px;
+}
+
+.sim-more {
+  font-size: 10px;
+  color: var(--color-text-faint);
+  margin: 2px 0 6px;
+}
+
+.sim-messages {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.sim-messages-error li {
+  color: var(--color-danger);
+}
+
+.sim-messages-warning li {
+  color: var(--color-warning);
+}
+
+.sim-message-error {
+  color: var(--color-danger);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 6px 0;
+}
+
+
+/* ==========================================================================
+   21. 部品スケール縮小に伴うラベルフォントの補正
+   部品グループは scale(0.75) で描画されるため、
+   CSS 側のフォントサイズを 1/0.75 倍にして見かけのサイズを維持する。
+   ========================================================================== */
+
+.symbol-body .sym-label {
+  font-size: 13.5px;   /* 10px -> 実効 10.1px */
+}
+
+.symbol-body .sym-label-sm {
+  font-size: 10.5px;   /* 8px -> 実効 7.9px */
+}
+
+.board-comp-id {
+  font-size: 16px;     /* 12px -> 実効 12px */
+}
+
+.board-comp-params {
+  font-size: 11.5px;   /* 8.5px -> 実効 8.6px */
+}
+
+.board-pin-label {
+  font-size: 10.5px;   /* 8px -> 実効 7.9px */
+}
