@@ -21,7 +21,7 @@ const imp = (p) => import(pathToFileURL(path.join(ROOT, p)).href);
 const { simulate } = await imp("src/sim/simulator.js");
 const { setupReady } = await imp("src/sim/setup.js");
 await setupReady;
-const { runChecks, runSingleCheck } = await imp("src/checks/runner.js");
+const { runChecks, runSingleCheck, measureWaveform } = await imp("src/checks/runner.js");
 const { validateProblem } = await imp("src/core/validation.js");
 const { componentRegistry } = await imp("src/components/registry.js");
 const { buildComponentDefMap, buildCheckTypeDefMap } = await imp("src/core/loader.js");
@@ -1113,6 +1113,429 @@ const db = (x) => 20 * Math.log10(Math.abs(x));
   expect("verify digital --reverse: 入出力の入れ替えは全問で不合格（報告なし）", !/甘い判定の可能性/.test(vrev.out) && /誤答がすべて不合格 4 問/.test(vrev.out), vrev.out);
   const vd = runV("--drop", "D-0");
   expect("verify digital --drop: 部品を外すと全問で不合格（報告なし）", !/甘い判定の可能性/.test(vd.out) && /誤答がすべて不合格 4 問/.test(vd.out), vd.out);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------------------------------------------------------- 分野F/J: 整流・平滑・DC-DC コンバータ・インバータ・サイリスタ・トランス */
+// 許容誤差の根拠（このブロック）:
+// - 切り替わる素子（D 系・SCR/TRIAC・SW_V）がある回路は、交流 1 周期 400 点以上・PWM 1 周期 100 点以上で、
+//   素子の状態が変わった刻みは 1/64 まで二分して切り替わり時刻を求める。台形則の位相誤差 (ωh)²/12 ≈ 2e-5、
+//   切り替わり時刻の誤差 ≤ T/25600 → 平均・実効値は 0.2〜0.5% で比較する。
+// - リプル（pp）は小さな量の差なので相対誤差が大きくなる。整流＋C は同じ理想モデル（Vf 一定・Rs）の
+//   半解析解（指数放電と正弦波の交点）と比べて 1%、教科書の近似 ΔV ≈ I/(2fC) とは 10%
+//   （近似は「放電時間 = T/2」「放電電流一定」を仮定するので、実際の放電時間 T/2 − 充電時間だけ小さく出る）。
+// - コンバータは理想に近い部品（SW_V の Ron = 10mΩ、ダイオード Vf = 0・Rs = 1mΩ）で、初期値（C の initialV、
+//   L の initialI）を定常に合わせ、出力の RC 時定数の 8 倍以上たってから測る。Ron の損失（D·I²·Ron / Pout ≈ 0.1%）が
+//   理論式からのずれ → 平均は 0.5%。インダクタ電流のリプル ΔI = (Vin−Vout)·D·T/L は区間内で直線なので 2%。
+//   出力リプル ΔV = ΔI/(8fC) はリプル電流の一部が負荷 R に流れる分（Xc/R ≈ 2%）だけ小さく出る → 5%。
+{
+  const T50 = 1 / 50;
+  const interpAt = (ts, vs, t) => {
+    let k = 1;
+    while (k < ts.length - 1 && ts[k] < t) k++;
+    return vs[k - 1] + ((vs[k] - vs[k - 1]) * (t - ts[k - 1])) / (ts[k] - ts[k - 1]);
+  };
+  const simT = async (b, simulation) => simulate(b, { mode: "transient", problem: { simulation } });
+  const run1 = async (sim, b, chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b, context: {} });
+  const meas = (sim, which, measure, fromSec, toSec, q = "i") => {
+    const arr = sim.transient.nodes[which] ?? sim.transient.elements[which]?.[q];
+    return measureWaveform(sim.transient.time, arr, measure, fromSec, toSec);
+  };
+
+  // --- 半波整流（理想ダイオード: Vf=0, Rs=1mΩ）: 平均 Vm/π、実効値 Vm/2 ---
+  {
+    const Vm = 10;
+    const b = board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: Vm, freqHz: 50 }), comp("D1", "D", ["vin", "out"], { Vf: 0 }),
+      comp("RL", "R", ["out", "gnd"], { R: 1000 }), comp("TP1", "TP", ["out"]));
+    const sim = await simT(b, { tStop: 0.1, diodeRs: 1e-3 });
+    expect("半波整流: 解析成功", sim.ok, JSON.stringify(sim.errors));
+    near("半波整流（理想）: 平均 = Vm/π", meas(sim, "out", "average", 0.02, 0.1), (Vm / Math.PI) * (1000 / 1000.001), 0.002);
+    near("半波整流（理想）: 実効値 = Vm/2", meas(sim, "out", "rms", 0.02, 0.1), Vm / 2, 0.002);
+    expect("半波整流: 刻みは交流周期の 1/400 以下", sim.transient.dt <= T50 / 400 * 1.0001, String(sim.transient.dt));
+    const r = await run1(sim, b, { type: "transientMeasure", node: "out", measure: "average", fromSec: 0.02, toSec: 0.1, expected: Vm / Math.PI, tolerancePct: 1 });
+    expect("transientMeasure average: 半波整流の平均 Vm/π で合格", r.ok, r.message);
+    // ダイオードを逆向きにすると平均が負（−Vm/π）→ 不合格
+    const rev = board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: Vm, freqHz: 50 }), comp("D1", "D", ["out", "vin"], { Vf: 0 }),
+      comp("RL", "R", ["out", "gnd"], { R: 1000 }), comp("TP1", "TP", ["out"]));
+    const simRev = await simT(rev, { tStop: 0.1, diodeRs: 1e-3 });
+    const rr = await run1(simRev, rev, { type: "transientMeasure", node: "out", measure: "average", fromSec: 0.02, toSec: 0.1, expected: Vm / Math.PI, tolerancePct: 1 });
+    expect("半波整流: ダイオード逆向きは不合格", !rr.ok, rr.message);
+    near("半波整流: ダイオード逆向きの平均は −Vm/π", meas(simRev, "out", "average", 0.02, 0.1), -Vm / Math.PI, 0.002);
+  }
+
+  // --- 半波整流（Vf=0.7、既定 Rs=1Ω）: 平均 = (1/2π)[2Vm cosθ1 − Vf(π−2θ1)]·RL/(RL+Rs)、θ1 = asin(Vf/Vm) ---
+  {
+    const Vm = 10, Vf = 0.7, RL = 1000;
+    const b = board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: Vm, freqHz: 50 }), comp("D1", "D", ["vin", "out"], { Vf }),
+      comp("RL", "R", ["out", "gnd"], { R: RL }));
+    const sim = await simT(b, { tStop: 0.1 });
+    const th = Math.asin(Vf / Vm);
+    const exact = ((2 * Vm * Math.cos(th) - Vf * (Math.PI - 2 * th)) / (2 * Math.PI)) * (RL / (RL + 1));
+    near("半波整流（Vf=0.7）: 平均（導通角を考えた式）", meas(sim, "out", "average", 0.02, 0.1), exact, 0.002);
+    near("半波整流（Vf=0.7）: 最大値 = (Vm − Vf)·RL/(RL+Rs)", meas(sim, "out", "max", 0.02, 0.1), (Vm - Vf) * (RL / (RL + 1)), 0.001);
+  }
+
+  // --- ブリッジ整流＋平滑コンデンサ: リプルを半解析解・教科書近似 I/(2fC) と比較 ---
+  {
+    const Vm = 14.142, Vf = 0.7, R = 1000, C = 1e-3, f = 50, w = 2 * Math.PI * f;
+    const b = board(comp("V1", "V_AC", ["a", "b"], { Vpk: Vm, freqHz: f }),
+      comp("D1", "D", ["a", "out"], { Vf }), comp("D2", "D", ["b", "out"], { Vf }),
+      comp("D3", "D", ["gnd", "a"], { Vf }), comp("D4", "D", ["gnd", "b"], { Vf }),
+      comp("C1", "C", ["out", "gnd"], { C }), comp("RL", "R", ["out", "gnd"], { R }), comp("TP1", "TP", ["out"]));
+    const sim = await simT(b, { tStop: 0.3, diodeRs: 1e-3 });
+    expect("ブリッジ整流: 解析成功", sim.ok, JSON.stringify(sim.errors));
+    // 半解析解（理想ダイオード 2 個ぶん 2Vf、Rs→0）: C は |Vm sin| − 2Vf に追従し、
+    // dv/dt が放電の傾き −v/RC と等しくなる角 θoff（ωRC·Vm cosθ + Vm sinθ − 2Vf = 0）で離れて指数放電、
+    // 次の半周期の上り |Vm sin| − 2Vf と交わる点が最小値。
+    const Vp = Vm - 2 * Vf;
+    const g = (x) => w * R * C * Vm * Math.cos(x) + Vm * Math.sin(x) - 2 * Vf;
+    let lo = Math.PI / 2, hi = Math.PI;
+    for (let k = 0; k < 100; k++) { const m = (lo + hi) / 2; if (g(m) > 0) lo = m; else hi = m; }
+    const thOff = lo, vOff = Vm * Math.sin(thOff) - 2 * Vf;
+    const dec = (x) => vOff * Math.exp(-(x - thOff) / (w * R * C)); // 放電（x は角度）
+    let a1 = Math.PI + 0.01, a2 = Math.PI * 1.5; // 次の半周期の上り: Vm sin(x − π) − 2Vf
+    for (let k = 0; k < 100; k++) { const m = (a1 + a2) / 2; if (dec(m) > Vm * Math.sin(m - Math.PI) - 2 * Vf) a1 = m; else a2 = m; }
+    const ripple = Vp - dec(a1);
+    const pp = meas(sim, "out", "pp", 0.2, 0.3);
+    near("ブリッジ＋C: リプル = 半解析解（指数放電と正弦波の交点）", pp, ripple, 0.01);
+    const Iavg = meas(sim, "RL", "average", 0.2, 0.3, "i");
+    near("ブリッジ＋C: リプル ≈ I/(2fC)（教科書の近似、10%）", pp, Iavg / (2 * f * C), 0.1);
+    near("ブリッジ＋C: 最大値 = Vm − 2Vf", meas(sim, "out", "max", 0.2, 0.3), Vp, 0.002);
+    const r = await run1(sim, b, { type: "transientMeasure", node: "out", measure: "pp", fromSec: 0.2, toSec: 0.3, expected: ripple, tolerancePct: 3 });
+    expect("transientMeasure pp: ブリッジ整流のリプルで合格", r.ok, r.message);
+    // C を 2 倍にするとリプルはほぼ半分 → 不合格
+    const b2 = board(...b.components.filter((c) => c.type !== "GND").map((c) => (c.id === "C1" ? { ...c, params: { C: 2 * C } } : c)));
+    const r2 = await run1(await simT(b2, { tStop: 0.3, diodeRs: 1e-3 }), b2, { type: "transientMeasure", node: "out", measure: "pp", fromSec: 0.2, toSec: 0.3, expected: ripple, tolerancePct: 3 });
+    expect("transientMeasure pp: C を 2 倍にすると不合格", !r2.ok, r2.message);
+  }
+
+  // --- 理想トランス（turnsRatio = Np/Ns = 10）: 二次の実効値 = 一次/10、一次電力 = 二次電力 ---
+  {
+    const b = board(comp("V1", "V_AC", ["p", "gnd"], { Vpk: 141.42, freqHz: 50 }), comp("T1", "XFMR", ["p", "gnd", "s", "gnd"], { turnsRatio: 10 }),
+      comp("RL", "R", ["s", "gnd"], { R: 100 }));
+    const sim = await simT(b, { tStop: 0.06 });
+    expect("XFMR: 過渡解析で未対応の警告が出ない", sim.ok && !(sim.warnings || []).some((w) => /未対応/.test(w)), JSON.stringify(sim.warnings));
+    near("XFMR: 二次電圧の実効値 = 100V/10", meas(sim, "s", "rms", 0.02, 0.06), 10, 0.002);
+    near("XFMR: 一次電流の実効値 = 二次電流/10", meas(sim, "T1", "rms", 0.02, 0.06, "i"), 0.1 / 10, 0.002);
+    const pin = await run1(sim, b, { type: "transientMeasure", element: "V1", measure: "power", fromSec: 0.02, toSec: 0.06, expected: 1, tolerancePct: 0.5 });
+    expect("transientMeasure power: 電源の供給電力 = 二次の負荷電力 1W", pin.ok, pin.message);
+    const eta = await run1(sim, b, { type: "efficiency", inputs: ["V1"], outputs: ["RL"], fromSec: 0.02, toSec: 0.06, expected: 1, toleranceAbs: 0.002 });
+    expect("efficiency: 理想トランスは η = 1", eta.ok, eta.message);
+  }
+
+  // --- 力率: V_AC に R と L の直列。PF = R/|Z| = cos φ ---
+  {
+    const f = 50, R = 10, L = 0.03, w = 2 * Math.PI * f;
+    const b = board(comp("V1", "V_AC", ["a", "gnd"], { Vpk: 141.42, freqHz: f }), comp("R1", "R", ["a", "m"], { R }), comp("L1", "L", ["m", "gnd"], { L }));
+    const sim = await simT(b, { tStop: 0.1 });
+    const pf = R / Math.hypot(R, w * L);
+    const r = await run1(sim, b, { type: "transientMeasure", element: "V1", measure: "powerFactor", fromSec: 0.06, toSec: 0.1, expected: pf, tolerancePct: 0.5 });
+    expect(`transientMeasure powerFactor: RL 直列の力率 = ${pf.toFixed(4)}`, r.ok, r.message);
+    const rR = await run1(sim, b, { type: "transientMeasure", element: "R1", measure: "powerFactor", fromSec: 0.06, toSec: 0.1, expected: 1, tolerancePct: 0.2 });
+    expect("transientMeasure powerFactor: 抵抗そのものの力率は 1", rR.ok, rR.message);
+  }
+
+  // --- デューティ比: V_PULSE（幅 30%）---
+  {
+    const b = board(comp("V1", "V_PULSE", ["g", "gnd"], { Vlow: 0, Vhigh: 5, riseSec: 1e-9, fallSec: 1e-9, widthSec: 15e-6, periodSec: 50e-6 }), comp("R1", "R", ["g", "gnd"], { R: 1000 }));
+    const sim = await simT(b, { tStop: 5e-4 });
+    const r = await run1(sim, b, { type: "transientMeasure", node: "g", measure: "duty", fromSec: 1e-4, toSec: 5e-4, expected: 0.3, toleranceAbs: 0.005 });
+    expect("transientMeasure duty: 幅 15µs / 周期 50µs → 0.3", r.ok, r.message);
+    const r2 = await run1(sim, b, { type: "transientMeasure", node: "g", measure: "duty", threshold: 6, fromSec: 1e-4, toSec: 5e-4, expected: 0, toleranceAbs: 0.005 });
+    expect("transientMeasure duty: しきい値 6V（Vhigh より上）なら 0", r2.ok, r2.message);
+  }
+
+  // --- DC-DC コンバータ（SW_V + 理想ダイオード、fsw = 20kHz）---
+  const fsw = 20e3, Tsw = 1 / fsw;
+  const pwm = (D, net = "g") => comp("VG", "V_PULSE", [net, "gnd"], { Vlow: 0, Vhigh: 5, riseSec: 1e-9, fallSec: 1e-9, widthSec: D * Tsw, periodSec: Tsw });
+  const conv = { diodeRs: 1e-3 };
+  {
+    // 降圧: Vin=12, D=0.4 → Vout = 4.8V、L=500µH、C=100µF、R=5Ω
+    const Vin = 12, D = 0.4, L = 500e-6, C = 100e-6, R = 5;
+    const Vo = D * Vin, Io = Vo / R, dI = ((Vin - Vo) * D * Tsw) / L;
+    const parts = (Dd = D, sw = ["vin", "sw", "g", "gnd"], diode = ["gnd", "sw"]) => board(
+      comp("V1", "V_DC", ["vin", "gnd"], { V: Vin }), pwm(Dd), comp("S1", "SW_V", sw, {}), comp("D1", "D", diode, { Vf: 0 }),
+      comp("L1", "L", ["sw", "out"], { L, initialI: Io - dI / 2 }), comp("C1", "C", ["out", "gnd"], { C, initialV: Vo }),
+      comp("RL", "R", ["out", "gnd"], { R }), comp("TP1", "TP", ["out"]));
+    const b = parts();
+    const t0 = Date.now();
+    const sim = await simT(b, { ...conv, tStop: 9e-3 });
+    const ms = Date.now() - t0;
+    expect("降圧: 解析成功", sim.ok, JSON.stringify(sim.errors));
+    expect(`降圧: 9ms（180 周期）の解析が 3 秒以内（${ms}ms, ${sim.transient.steps} 点）`, ms < 3000);
+    const from = 8e-3, to = 9e-3;
+    near("降圧: Vout = D·Vin", meas(sim, "out", "average", from, to), Vo, 0.005);
+    near("降圧: インダクタ電流の平均 = Vout/R", meas(sim, "L1", "average", from, to, "i"), Io, 0.005);
+    near("降圧: インダクタ電流のリプル ΔI = (Vin−Vout)·D·T/L", meas(sim, "L1", "pp", from, to, "i"), dI, 0.02);
+    near("降圧: 出力リプル ΔV = ΔI/(8fC)", meas(sim, "out", "pp", from, to), dI / (8 * fsw * C), 0.05);
+    near("降圧: スイッチ節点のデューティ比 = D", measureWaveform(sim.transient.time, sim.transient.nodes.sw, "duty", from, to), D, 0.01);
+    const eta = await run1(sim, b, { type: "efficiency", inputs: ["V1"], outputs: ["RL"], fromSec: from, toSec: to, expected: 1, toleranceAbs: 0.005 });
+    expect("efficiency: 理想に近い降圧コンバータは η ≈ 1（Ron の損失 0.1%）", eta.ok, eta.message);
+    const swI = meas(sim, "S1", "average", from, to, "i");
+    near("降圧: SW_V の平均電流 = D·Io（入力電流）", swI, D * Io, 0.01);
+    // 誤答: スイッチの制御を反転（ctrl_p と ctrl_n の取り違え）→ 出力ほぼ 0
+    const bad = parts(D, ["vin", "sw", "gnd", "g"]);
+    const rb = await run1(await simT(bad, { ...conv, tStop: 9e-3 }), bad, { type: "transientMeasure", node: "out", measure: "average", fromSec: from, toSec: to, expected: Vo, tolerancePct: 2 });
+    expect("降圧: SW_V の制御端子を逆につなぐと不合格", !rb.ok, rb.message);
+    // 誤答: ダイオード逆向き（Vin がダイオードで短絡されないよう sw→gnd 向き）→ L の電流が流れ続けられず出力が下がる
+    const badD = parts(D, undefined, ["sw", "gnd"]);
+    const rd = await run1(await simT(badD, { ...conv, tStop: 9e-3 }), badD, { type: "transientMeasure", node: "out", measure: "average", fromSec: from, toSec: to, expected: Vo, tolerancePct: 2 });
+    expect("降圧: 還流ダイオード逆向きは不合格", !rd.ok, rd.message);
+  }
+  {
+    // 降圧（ダイオード Vf=0.5V の損失あり）: Vout = D·Vin − (1−D)·Vf、η = Pout / (Pout + (1−D)·Vf·Io)
+    const Vin = 12, D = 0.4, Vf = 0.5, L = 500e-6, C = 100e-6, R = 5;
+    const Vo = D * Vin - (1 - D) * Vf, Io = Vo / R, dI = ((Vin - Vo) * D * Tsw) / L;
+    const b = board(comp("V1", "V_DC", ["vin", "gnd"], { V: Vin }), pwm(D), comp("S1", "SW_V", ["vin", "sw", "g", "gnd"], { Ron: 1e-6 }),
+      comp("D1", "D", ["gnd", "sw"], { Vf }), comp("L1", "L", ["sw", "out"], { L, initialI: Io - dI / 2 }),
+      comp("C1", "C", ["out", "gnd"], { C, initialV: Vo }), comp("RL", "R", ["out", "gnd"], { R }));
+    const sim = await simT(b, { ...conv, tStop: 9e-3 });
+    near("降圧（Vf=0.5）: Vout = D·Vin − (1−D)·Vf", meas(sim, "out", "average", 8e-3, 9e-3), Vo, 0.005);
+    const etaTh = (Vo * Io) / (Vo * Io + (1 - D) * Vf * Io);
+    const eta = await run1(sim, b, { type: "efficiency", inputs: ["V1"], outputs: ["RL"], fromSec: 8e-3, toSec: 9e-3, expected: etaTh, toleranceAbs: 0.005 });
+    expect(`efficiency: ダイオードの導通損失で η = ${etaTh.toFixed(4)}`, eta.ok, eta.message);
+    const pd = await run1(sim, b, { type: "transientMeasure", element: "D1", measure: "power", fromSec: 8e-3, toSec: 9e-3, expected: (1 - D) * Vf * Io, tolerancePct: 2 });
+    expect("transientMeasure power: ダイオードの損失 = (1−D)·Vf·Io", pd.ok, pd.message);
+  }
+  {
+    // 昇圧: Vin=5, D=0.5 → Vout = Vin/(1−D) = 10V、Io = 0.5A、Iin = 1A、ΔV = Io·D·T/C
+    const Vin = 5, D = 0.5, L = 500e-6, C = 100e-6, R = 20;
+    const Vo = Vin / (1 - D), Io = Vo / R, Iin = Io / (1 - D), dI = (Vin * D * Tsw) / L;
+    const b = board(comp("V1", "V_DC", ["vin", "gnd"], { V: Vin }), pwm(D), comp("L1", "L", ["vin", "sw"], { L, initialI: Iin - dI / 2 }),
+      comp("S1", "SW_V", ["sw", "gnd", "g", "gnd"], {}), comp("D1", "D", ["sw", "out"], { Vf: 0 }),
+      comp("C1", "C", ["out", "gnd"], { C, initialV: Vo }), comp("RL", "R", ["out", "gnd"], { R }));
+    const sim = await simT(b, { ...conv, tStop: 12e-3 });
+    near("昇圧: Vout = Vin/(1−D)", meas(sim, "out", "average", 11e-3, 12e-3), Vo, 0.005);
+    near("昇圧: 入力電流（L の平均）= Io/(1−D)", meas(sim, "L1", "average", 11e-3, 12e-3, "i"), Iin, 0.01);
+    near("昇圧: 出力リプル ΔV = Io·D·T/C", meas(sim, "out", "pp", 11e-3, 12e-3), (Io * D * Tsw) / C, 0.03);
+  }
+  {
+    // 昇降圧（反転）: Vin=12, D=0.4 → Vout = −D/(1−D)·Vin = −8V
+    const Vin = 12, D = 0.4, L = 500e-6, C = 100e-6, R = 10;
+    const Vo = (-D / (1 - D)) * Vin, Io = -Vo / R, IL = Io / (1 - D), dI = (Vin * D * Tsw) / L;
+    const b = board(comp("V1", "V_DC", ["vin", "gnd"], { V: Vin }), pwm(D), comp("S1", "SW_V", ["vin", "sw", "g", "gnd"], {}),
+      comp("L1", "L", ["sw", "gnd"], { L, initialI: IL - dI / 2 }), comp("D1", "D", ["out", "sw"], { Vf: 0 }),
+      comp("C1", "C", ["out", "gnd"], { C, initialV: Vo }), comp("RL", "R", ["out", "gnd"], { R }));
+    const sim = await simT(b, { ...conv, tStop: 12e-3 });
+    near("昇降圧: Vout = −D/(1−D)·Vin", meas(sim, "out", "average", 11e-3, 12e-3), Vo, 0.005);
+  }
+  {
+    // フライバック（XFMR に励磁インダクタンス Lm、巻数比 n = Np/Ns = 2）:
+    // CCM: Vout = Vin·D/((1−D)·n)、DCM: Vout = Vin·D·√(R·T/(2Lm))（入力エネルギー ½Lm·Ipk² が毎周期すべて出力へ）
+    const Vin = 12, D = 0.4, n = 2, R = 10, C = 100e-6;
+    const fly = (Lm, Vo0, i0) => board(comp("V1", "V_DC", ["vin", "gnd"], { V: Vin }), pwm(D),
+      comp("T1", "XFMR", ["vin", "sw", "sb", "sa"], { turnsRatio: n, Lm, LmInitialI: i0 }),
+      comp("S1", "SW_V", ["sw", "gnd", "g", "gnd"], {}), comp("RW", "R", ["sb", "gnd"], { R: 1e-6 }),
+      comp("D1", "D", ["sa", "out"], { Vf: 0 }), comp("C1", "C", ["out", "gnd"], { C, initialV: Vo0 }), comp("RL", "R", ["out", "gnd"], { R }));
+    const VoC = (Vin * D) / ((1 - D) * n), LmC = 2e-3;
+    const IonAvg = (VoC * VoC) / R / (Vin * D), dIC = (Vin * D * Tsw) / LmC;
+    const simC = await simT(fly(LmC, VoC, IonAvg - dIC / 2), { ...conv, tStop: 10e-3 });
+    near("フライバック CCM: Vout = Vin·D/((1−D)·n)", meas(simC, "out", "average", 9e-3, 10e-3), VoC, 0.005);
+    near("フライバック CCM: 励磁電流のリプル = Vin·D·T/Lm", meas(simC, "T1#Lm", "pp", 9e-3, 10e-3, "i"), dIC, 0.01);
+    const LmD = 200e-6, VoD = Vin * D * Math.sqrt((R * Tsw) / (2 * LmD));
+    const simD = await simT(fly(LmD, VoD, 0), { ...conv, tStop: 10e-3 });
+    near("フライバック DCM: Vout = Vin·D·√(R·T/(2Lm))", meas(simD, "out", "average", 9e-3, 10e-3), VoD, 0.01);
+  }
+  {
+    // 降圧の電流不連続モード（DCM）: K = 2L/(R·T) < 1−D のとき M = 2/(1+√(1+4K/D²))
+    const Vin = 12, D = 0.4, L = 20e-6, C = 100e-6, R = 50;
+    const K = (2 * L) / (R * Tsw), M = 2 / (1 + Math.sqrt(1 + (4 * K) / (D * D)));
+    const b = board(comp("V1", "V_DC", ["vin", "gnd"], { V: Vin }), pwm(D), comp("S1", "SW_V", ["vin", "sw", "g", "gnd"], {}),
+      comp("D1", "D", ["gnd", "sw"], { Vf: 0 }), comp("L1", "L", ["sw", "out"], { L }),
+      comp("C1", "C", ["out", "gnd"], { C, initialV: M * Vin }), comp("RL", "R", ["out", "gnd"], { R }));
+    const sim = await simT(b, { ...conv, tStop: 10e-3 });
+    expect(`降圧 DCM: K = ${K.toFixed(3)} < 1−D`, K < 1 - D);
+    near("降圧 DCM: Vout = M·Vin（M = 2/(1+√(1+4K/D²))）", meas(sim, "out", "average", 9e-3, 10e-3), M * Vin, 0.01);
+    const mn = await run1(sim, b, { type: "transientMeasure", element: "L1", quantity: "i", signed: true, measure: "min", fromSec: 9e-3, toSec: 10e-3, expected: 0, toleranceAbs: 1e-3 });
+    expect("降圧 DCM: インダクタ電流の最小値が 0（電流が途切れる）", mn.ok, mn.message);
+    expect("降圧 DCM: ダイオードのオフ時刻をイベント細分化で求めている", sim.transient.refinedSteps > 0);
+  }
+  {
+    // MOSFET（K=0 のスイッチモード）を PWM で駆動する降圧（ゲートはソース＝sw 基準のドライバ）
+    const Vin = 12, D = 0.4, L = 500e-6, C = 100e-6, R = 5;
+    const Vo = D * Vin, Io = Vo / R, dI = ((Vin - Vo) * D * Tsw) / L;
+    const b = board(comp("V1", "V_DC", ["vin", "gnd"], { V: Vin }),
+      comp("VG", "V_PULSE", ["g", "sw"], { Vlow: 0, Vhigh: 10, riseSec: 1e-9, fallSec: 1e-9, widthSec: D * Tsw, periodSec: Tsw }),
+      comp("M1", "M_N", ["vin", "g", "sw"], { Vth: 2, K: 0, RdsOn: 0.01 }), comp("D1", "D", ["gnd", "sw"], { Vf: 0 }),
+      comp("L1", "L", ["sw", "out"], { L, initialI: Io - dI / 2 }), comp("C1", "C", ["out", "gnd"], { C, initialV: Vo }), comp("RL", "R", ["out", "gnd"], { R }));
+    const sim = await simT(b, { ...conv, tStop: 9e-3 });
+    near("降圧（M_N K=0 を PWM 駆動）: Vout = D·Vin", meas(sim, "out", "average", 8e-3, 9e-3), Vo, 0.005);
+  }
+  {
+    // フルブリッジ・インバータ（SW_V 4 個、invert で相補駆動）＋ RL 負荷:
+    // 出力は ±Vdc の方形波（実効値 Vdc）。電流のピーク Ipk = (Vdc/R)·tanh(T/(4τ))、τ = L/R
+    const Vdc = 10, R = 10, L = 5e-3, f = 1000, T = 1 / f, tau = L / R;
+    const ctl = comp("VG", "V_PULSE", ["g", "gnd"], { Vlow: 0, Vhigh: 5, riseSec: 1e-9, fallSec: 1e-9, widthSec: T / 2, periodSec: T });
+    const b = board(comp("V1", "V_DC", ["vdc", "gnd"], { V: Vdc }), ctl,
+      comp("S1", "SW_V", ["vdc", "a", "g", "gnd"], {}), comp("S2", "SW_V", ["a", "gnd", "g", "gnd"], { invert: true }),
+      comp("S3", "SW_V", ["vdc", "b", "g", "gnd"], { invert: true }), comp("S4", "SW_V", ["b", "gnd", "g", "gnd"], {}),
+      comp("RL", "R", ["a", "m"], { R }), comp("LL", "L", ["m", "b"], { L }));
+    const sim = await simT(b, { tStop: 10e-3 });
+    const vab = sim.transient.nodes.a.map((v, k) => v - sim.transient.nodes.b[k]);
+    near("フルブリッジ: 出力電圧の実効値 = Vdc（方形波）", measureWaveform(sim.transient.time, vab, "rms", 5e-3, 10e-3), Vdc, 0.002);
+    near("フルブリッジ: 出力電圧の平均 = 0", measureWaveform(sim.transient.time, vab, "average", 5e-3, 10e-3), 0, 0, 0.02);
+    near("フルブリッジ: RL 負荷電流のピーク = (Vdc/R)·tanh(T/4τ)", meas(sim, "LL", "max", 5e-3, 10e-3, "i"), (Vdc / R) * Math.tanh(T / (4 * tau)), 0.005);
+    const pf = await run1(sim, b, { type: "transientMeasure", node: "a", nodeRef: "b", measure: "acRms", fromSec: 5e-3, toSec: 10e-3, expected: Vdc, tolerancePct: 0.5 });
+    expect("transientMeasure nodeRef: フルブリッジの差動出力（交流分の実効値）", pf.ok, pf.message);
+  }
+
+  // --- サイリスタ（SCR）の位相制御整流: Vt=0 のとき Vavg = Vm/(2π)·(1 + cos α) ---
+  {
+    const Vm = 100, f = 50, T = 1 / f;
+    const scr = (alphaDeg, pulseW = 2e-4) => board(comp("V1", "V_AC", ["a", "gnd"], { Vpk: Vm, freqHz: f }),
+      comp("X1", "SCR", ["a", "gk", "out"], { Vt: 0 }),
+      comp("VG", "V_PULSE", ["gp", "out"], { Vlow: 0, Vhigh: 5, delaySec: (alphaDeg / 360) * T, riseSec: 1e-6, fallSec: 1e-6, widthSec: pulseW, periodSec: T }),
+      comp("RG", "R", ["gp", "gk"], { R: 100 }), comp("RL", "R", ["out", "gnd"], { R: 100 }));
+    for (const deg of [30, 90, 135]) {
+      const sim = await simT(scr(deg), { tStop: 0.1 });
+      const a = (deg * Math.PI) / 180;
+      near(`SCR 位相制御 α=${deg}°: Vavg = Vm/(2π)(1+cosα)`, meas(sim, "out", "average", 0.02, 0.1), (Vm / (2 * Math.PI)) * (1 + Math.cos(a)), 0.005);
+    }
+    // ラッチ: ゲートパルス（0.2ms）が終わっても半周期の終わりまで導通する。ラッチしなければ平均はパルス幅ぶんだけ（≈ 0.3V）
+    const sim90 = await simT(scr(90), { tStop: 0.1 });
+    const sec = sim90.transient.elements.X1;
+    near("SCR: ゲートパルス後も導通（t = α + 3ms で i = Vm·sin/R）",
+      interpAt(sim90.transient.time, sec.i, 0.04 + T / 4 + 3e-3), (Vm * Math.sin(Math.PI / 2 + 2 * Math.PI * f * 3e-3)) / 100, 0.01);
+    near("SCR: 負の半周期は阻止（電流 0）", meas(sim90, "X1", "max", 0.04 + T / 2 + 1e-3, 0.04 + T - 1e-3, "i"), 0, 0, 1e-6);
+    // 逆向き（A と K を入れ替え）では正しい平均にならない
+    const rev = board(comp("V1", "V_AC", ["a", "gnd"], { Vpk: Vm, freqHz: f }), comp("X1", "SCR", ["out", "gk", "a"], { Vt: 0 }),
+      comp("VG", "V_PULSE", ["gp", "a"], { Vlow: 0, Vhigh: 5, delaySec: T / 4, riseSec: 1e-6, fallSec: 1e-6, widthSec: 2e-4, periodSec: T }),
+      comp("RG", "R", ["gp", "gk"], { R: 100 }), comp("RL", "R", ["out", "gnd"], { R: 100 }));
+    near("SCR 逆向き: 平均が正にならない（ゲートが別の端子基準になり点弧しても負の半周期）", Math.max(meas(await simT(rev, { tStop: 0.1 }), "out", "average", 0.02, 0.1), 0), 0, 0, 0.5);
+  }
+
+  // --- TRIAC の交流位相制御（半周期ごとにゲートパルス）: Vrms = (Vm/√2)·√(1 − α/π + sin2α/(2π)) ---
+  {
+    const Vm = 100, f = 50, T = 1 / f;
+    for (const deg of [60, 90]) {
+      const b = board(comp("V1", "V_AC", ["a", "gnd"], { Vpk: Vm, freqHz: f }), comp("X1", "TRIAC", ["a", "gt", "out"], { Vt: 0 }),
+        comp("VG", "V_PULSE", ["gp", "out"], { Vlow: 0, Vhigh: 5, delaySec: (deg / 360) * T, riseSec: 1e-6, fallSec: 1e-6, widthSec: 2e-4, periodSec: T / 2 }),
+        comp("RG", "R", ["gp", "gt"], { R: 100 }), comp("RL", "R", ["out", "gnd"], { R: 100 }));
+      const sim = await simT(b, { tStop: 0.1 });
+      const a = (deg * Math.PI) / 180;
+      near(`TRIAC α=${deg}°: 負荷電圧の実効値`, meas(sim, "out", "rms", 0.02, 0.1), (Vm / Math.SQRT2) * Math.sqrt(1 - a / Math.PI + Math.sin(2 * a) / (2 * Math.PI)), 0.005);
+      near(`TRIAC α=${deg}°: 平均は 0（両方向に導通）`, meas(sim, "out", "average", 0.02, 0.1), 0, 0, 0.05);
+    }
+  }
+
+  // --- DIAC: |V| ≥ Vbo で導通し Vbo − dV にブレークバック、電流が Ih を下回ると消弧 ---
+  {
+    // C（初期 0V）を 1mA の定電流で充電 → 30V で DIAC が導通して R に放電 → 鋸歯状波（弛張発振）
+    const b = board(comp("I1", "I_DC", ["c", "gnd"], { I: 1e-3 }), comp("C1", "C", ["c", "gnd"], { C: 1e-6 }),
+      comp("X1", "DIAC", ["c", "k"], { Vbo: 30, dV: 5 }), comp("R1", "R", ["k", "gnd"], { R: 10 }));
+    const sim = await simT(b, { tStop: 0.1 });
+    near("DIAC: コンデンサ電圧の最大値 = Vbo", meas(sim, "c", "max", 0, 0.1), 30, 0.005);
+    // 導通中は C が DIAC（Vbo − dV = 25V）と R を通して放電し、電流 (Vc − 25)/R が Ih = 5mA を下回る
+    // Vc = 25 + Ih·R = 25.05V で消弧 → 振れ幅 = dV − Ih·R = 4.95V
+    near("DIAC: 鋸歯状波の振れ幅 = dV − Ih·R（ブレークバックで放電して消弧）", meas(sim, "c", "pp", 0.04, 0.1), 5 - 0.005 * 10, 0.005);
+    near("DIAC: 最小値 = Vbo − dV + Ih·R", meas(sim, "c", "min", 0.04, 0.1), 25.05, 0.002);
+  }
+
+  // --- クローバ回路（DC）: 出力が ZD の Vz + Vgk を超えると SCR が点弧して出力を短絡し、点弧後も保持 ---
+  {
+    const crow = (vin) => board(comp("V1", "V_DC", ["vin", "gnd"], { V: vin }), comp("RS", "R", ["vin", "out"], { R: 10 }),
+      comp("Z1", "ZD", ["zk", "out"], { Vz: 12 }), comp("RG", "R", ["zk", "g"], { R: 100 }), comp("RGK", "R", ["g", "gnd"], { R: 1000 }),
+      comp("X1", "SCR", ["out", "g", "gnd"], {}), comp("RL", "R", ["out", "gnd"], { R: 100 }));
+    const hiV = await check(crow(15), "dc", { type: "operatingRegion", element: "X1", region: "on" });
+    expect("クローバ: 15V（過電圧）で SCR がオン", hiV.ok, hiV.message);
+    const hiOut = await check(crow(15), "dc", { type: "dcVoltage", node: "out", expected: 1.0, toleranceAbs: 0.05 });
+    expect("クローバ: 点弧後の出力 ≈ Vt = 1V（ゲート電流が消えても保持）", hiOut.ok, hiOut.message);
+    const loV = await check(crow(11), "dc", { type: "dcVoltage", node: "out", expected: 10, tolerancePct: 0.1 });
+    expect("クローバ: 11V では SCR オフ、出力 = 11·100/110 = 10V", loV.ok, loV.message);
+  }
+
+  // --- SW_V の DC: 制御 5V（> Vth）で閉、invert で開 ---
+  {
+    const sw = (invert) => board(comp("V1", "V_DC", ["vin", "gnd"], { V: 10 }), comp("VC", "V_DC", ["c", "gnd"], { V: 5 }),
+      comp("S1", "SW_V", ["vin", "out", "c", "gnd"], { invert }), comp("R1", "R", ["out", "gnd"], { R: 1000 }));
+    const on = await check(sw(false), "dc", { type: "dcVoltage", node: "out", expected: 10, tolerancePct: 0.01 });
+    expect("SW_V DC: 制御 5V > Vth で閉（out = 10V）", on.ok, on.message);
+    const off = await check(sw(true), "dc", { type: "dcVoltage", node: "out", expected: 0, toleranceAbs: 1e-3 });
+    expect("SW_V DC: invert なら開（out = 0V）", off.ok, off.message);
+    const reg = await check(sw(false), "dc", { type: "operatingRegion", element: "S1", region: "on" });
+    expect("SW_V: operatingRegion on", reg.ok, reg.message);
+  }
+
+  // --- validation: 新しい measure / efficiency / simulation.diodeRs ---
+  {
+    const base = { id: "X-01", category: "X", title: "t", statement: "s", judge: "transient",
+      fixedComponents: [{ id: "V1", type: "V_DC", params: { V: 5 }, connect: ["vin", "gnd"], locked: true }, { id: "RL", type: "R", params: { R: 10 }, connect: ["vin", "gnd"], locked: true }] };
+    const v1 = validateProblem({ ...base, checks: [{ type: "transientMeasure", node: "vin", measure: "power", fromSec: 0, expected: 1 }] }, vopts);
+    expect("validation: measure power に element が無いとエラー", v1.errors.some((e) => /element/.test(e)), JSON.stringify(v1.errors));
+    const v2 = validateProblem({ ...base, checks: [{ type: "efficiency", inputs: [], outputs: ["RL"], fromSec: 0, expected: 0.9 }] }, vopts);
+    expect("validation: efficiency の inputs が空だとエラー", v2.errors.some((e) => /inputs/.test(e)), JSON.stringify(v2.errors));
+    const v3 = validateProblem({ ...base, checks: [{ type: "efficiency", inputs: ["V1"], outputs: [{ type: "R" }], fromSec: 0, expected: 0.9 }] }, vopts);
+    expect("validation: efficiency（ID と match）は正しい", v3.errors.length === 0, JSON.stringify(v3.errors));
+    const v4 = validateProblem({ ...base, simulation: { diodeRs: -1 }, checks: [{ type: "transientMeasure", node: "vin", measure: "duty", threshold: 2.5, fromSec: 0, expected: 1 }] }, vopts);
+    expect("validation: simulation.diodeRs が負ならエラー", v4.errors.some((e) => /diodeRs/.test(e)), JSON.stringify(v4.errors));
+    const v5 = validateProblem({ ...base, checks: [{ type: "transientMeasure", node: "vin", measure: "duty", threshold: "x", fromSec: 0, expected: 1 }] }, vopts);
+    expect("validation: threshold が数値でないとエラー", v5.errors.some((e) => /threshold/.test(e)), JSON.stringify(v5.errors));
+  }
+}
+
+/* ---------------------------------------------------------------- verify.mjs: 分野F/J（過渡のダイオード回路・スイッチ回路の誤答） */
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "verify-fj-"));
+  fs.mkdirSync(path.join(dir, "J"));
+  const common = { category: "J", title: "t", statement: "s", judge: "transient", hints: ["a", "b", "c"],
+    explanation: { solution: "a", why: "b", mistakes: "c", practice: "d", next: "e" } };
+  const Tsw = 50e-6;
+  // J-01: 降圧コンバータ。プレイヤーが SW_V・D・L を置く（PWM・C・負荷・入力は固定）
+  const buck = { ...common, id: "J-01", simulation: { tStop: 9e-3, diodeRs: 1e-3 },
+    fixedComponents: [
+      { id: "V1", type: "V_DC", params: { V: 12 }, connect: ["vin", "gnd"], locked: true },
+      { id: "VG", type: "V_PULSE", params: { Vlow: 0, Vhigh: 5, riseSec: 1e-9, fallSec: 1e-9, widthSec: 0.4 * Tsw, periodSec: Tsw }, connect: ["g", "gnd"], locked: true },
+      { id: "C1", type: "C", params: { C: 100e-6, initialV: 4.8 }, connect: ["out", "gnd"], locked: true },
+      { id: "RL", type: "R", params: { R: 5 }, connect: ["out", "gnd"], locked: true },
+      { id: "TPS", type: "TP", connect: ["sw"], locked: true },
+    ],
+    referenceSolution: [
+      { id: "SWV1", type: "SW_V", params: { Ron: 0.01, Roff: 1e9, Vth: 2.5, invert: false }, connect: ["vin", "sw", "g", "gnd"] },
+      { id: "D1", type: "D", params: { Vf: 0 }, connect: ["gnd", "sw"] },
+      { id: "L1", type: "L", params: { L: 500e-6, initialI: 0.816 }, connect: ["sw", "out"] },
+    ],
+    checks: [
+      { type: "transientMeasure", node: "out", measure: "average", fromSec: 8e-3, toSec: 9e-3, expected: 4.8, tolerancePct: 2 },
+      { type: "transientMeasure", node: "out", measure: "pp", fromSec: 8e-3, toSec: 9e-3, expected: 0.018, tolerancePct: 20 },
+      { type: "efficiency", inputs: ["V1"], outputs: ["RL"], fromSec: 8e-3, toSec: 9e-3, expected: 0.999, toleranceAbs: 0.01 },
+    ] };
+  buck.fixedComponents.push({ id: "TPO", type: "TP", connect: ["out"], locked: true });
+  // J-02: ブリッジ整流＋平滑。プレイヤーが D を 4 個置く
+  const bridge = { ...common, id: "J-02", simulation: { tStop: 0.2 },
+    fixedComponents: [
+      { id: "V1", type: "V_AC", params: { Vpk: 14.142, freqHz: 50 }, connect: ["a", "b"], locked: true },
+      { id: "C1", type: "C", params: { C: 1e-3 }, connect: ["out", "gnd"], locked: true },
+      { id: "RL", type: "R", params: { R: 1000 }, connect: ["out", "gnd"], locked: true },
+      { id: "TPO", type: "TP", connect: ["out"], locked: true },
+    ],
+    referenceSolution: [
+      { id: "D1", type: "D", params: { Vf: 0.7 }, connect: ["a", "out"] },
+      { id: "D2", type: "D", params: { Vf: 0.7 }, connect: ["b", "out"] },
+      { id: "D3", type: "D", params: { Vf: 0.7 }, connect: ["gnd", "a"] },
+      { id: "D4", type: "D", params: { Vf: 0.7 }, connect: ["gnd", "b"] },
+    ],
+    checks: [
+      { type: "transientMeasure", node: "out", measure: "average", fromSec: 0.1, toSec: 0.2, expected: 12.36, tolerancePct: 2 },
+      { type: "transientMeasure", node: "out", measure: "pp", fromSec: 0.1, toSec: 0.2, expected: 0.11, tolerancePct: 15 },
+    ] };
+  fs.writeFileSync(path.join(dir, "J", "J-01.json"), JSON.stringify(buck));
+  fs.writeFileSync(path.join(dir, "J", "J-02.json"), JSON.stringify(bridge));
+  fs.writeFileSync(path.join(dir, "J", "index.json"), JSON.stringify({ problems: [{ id: "J-01", title: "t" }, { id: "J-02", title: "t" }] }));
+  const run = (...a) => {
+    try {
+      return { code: 0, out: execFileSync("node", [path.join(ROOT, "tools/verify.mjs"), `--problems=${dir}`, ...a], { encoding: "utf8" }) };
+    } catch (e) {
+      return { code: e.status, out: String(e.stdout) };
+    }
+  };
+  const ref = run();
+  expect("verify F/J: 降圧・ブリッジ整流の参照解が合格", ref.code === 0 && /参照解が合格 2 問/.test(ref.out), ref.out);
+  const rev = run("--reverse");
+  expect("verify F/J --reverse: ダイオード逆向き・SW_V の制御端子の取り違えはすべて不合格", rev.code === 0 && /誤答がすべて不合格 2 問/.test(rev.out), rev.out);
+  const mut = run("--mutate");
+  expect("verify F/J --mutate: L・Vf の2倍は不合格、SW_V の Ron/Roff/Vth は2倍にしない（invert の反転だけ）", mut.code === 0 && /誤答がすべて不合格 2 問/.test(mut.out), mut.out);
+  const drop = run("--drop");
+  expect("verify F/J --drop: 部品を外すとすべて不合格", drop.code === 0 && /誤答がすべて不合格 2 問/.test(drop.out), drop.out);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

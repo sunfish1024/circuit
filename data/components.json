@@ -365,7 +365,7 @@
       "type": "D",
       "nameJa": "ダイオード",
       "description": "一般的な整流ダイオード",
-      "category": ["B", "C", "E", "F", "J", "K", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "K", "M"],
       "symbol": "diode",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -394,7 +394,7 @@
       "type": "ZD",
       "nameJa": "ツェナーダイオード",
       "description": "定電圧ダイオード",
-      "category": ["B", "C", "F", "J", "K", "M"],
+      "category": ["B", "C", "D", "F", "I", "J", "K", "M"],
       "symbol": "zener",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -432,7 +432,7 @@
       "type": "LED",
       "nameJa": "LED",
       "description": "発光ダイオード",
-      "category": ["B", "C", "F", "K", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "K", "M"],
       "symbol": "led",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -470,7 +470,7 @@
       "type": "SD",
       "nameJa": "ショットキーバリアダイオード",
       "description": "順方向電圧が低い（約0.3V）ショットキーバリアダイオード",
-      "category": ["B", "C", "E", "F", "J", "K", "M"],
+      "category": ["B", "C", "E", "F", "I", "J", "K", "M"],
       "symbol": "schottky",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -499,7 +499,7 @@
       "type": "TVS",
       "nameJa": "TVSダイオード",
       "description": "ESD・サージ保護用のクランプダイオード",
-      "category": ["B", "F", "J", "M"],
+      "category": ["B", "F", "I", "J", "M"],
       "symbol": "tvs",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -595,7 +595,7 @@
       "type": "Q_NPN",
       "nameJa": "NPNトランジスタ",
       "description": "NPNバイポーラトランジスタ",
-      "category": ["B", "C", "D", "F", "J", "M"],
+      "category": ["B", "C", "D", "E", "F", "H", "I", "J", "M"],
       "symbol": "npn",
       "pinCount": 3,
       "pinNames": ["collector", "base", "emitter"],
@@ -633,7 +633,7 @@
       "type": "Q_PNP",
       "nameJa": "PNPトランジスタ",
       "description": "PNPバイポーラトランジスタ",
-      "category": ["B", "C", "D", "F", "J", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "M"],
       "symbol": "pnp",
       "pinCount": 3,
       "pinNames": ["collector", "base", "emitter"],
@@ -671,7 +671,7 @@
       "type": "M_N",
       "nameJa": "NチャネルMOSFET",
       "description": "NチャネルエンハンスメントMOSFET",
-      "category": ["B", "C", "F", "J", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "M"],
       "symbol": "nmos",
       "pinCount": 3,
       "pinNames": ["drain", "gate", "source"],
@@ -718,7 +718,7 @@
       "type": "M_P",
       "nameJa": "PチャネルMOSFET",
       "description": "PチャネルエンハンスメントMOSFET",
-      "category": ["B", "C", "F", "J", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "M"],
       "symbol": "pmos",
       "pinCount": 3,
       "pinNames": ["drain", "gate", "source"],
@@ -765,7 +765,7 @@
       "type": "J_N",
       "nameJa": "NチャネルJFET",
       "description": "Nチャネル接合形FET（自己バイアスで使用）",
-      "category": ["B", "C", "K", "M"],
+      "category": ["B", "C", "D", "E", "K", "M"],
       "symbol": "jfetN",
       "pinCount": 3,
       "pinNames": ["drain", "gate", "source"],
@@ -832,7 +832,7 @@
       "type": "OPAMP",
       "nameJa": "オペアンプ",
       "description": "汎用オペアンプ（入力電流0・出力抵抗0。出力 = Aol×(V+−V−) を電源電圧で頭打ち。電源ピン v_plus/v_minus を配線するとそのノード電圧がレール、未配線なら Vpos/Vneg。GBP は AC 解析だけで使う。0 なら周波数特性なし）",
-      "category": ["C", "D", "E", "K", "M"],
+      "category": ["C", "D", "E", "F", "I", "J", "K", "M"],
       "symbol": "opamp",
       "pinCount": 5,
       "pinNames": ["in_plus", "in_minus", "out", "v_plus", "v_minus"],
@@ -917,6 +917,30 @@
         "palette": true,
         "rotatable": true,
         "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "SW_V",
+      "nameJa": "電圧制御スイッチ",
+      "description": "制御端子間の電圧（ctrl_p − ctrl_n）がしきい値 Vth を超えると 1−2 間が閉じる理想スイッチ（PWM で駆動する半導体スイッチの理想化）。制御端子に電流は流れない",
+      "category": ["F", "J"],
+      "symbol": "switch_v",
+      "pinCount": 4,
+      "pinNames": ["1", "2", "ctrl_p", "ctrl_n"],
+      "params": [
+        { "key": "Ron", "labelJa": "オン抵抗", "unit": "ohm", "default": 0.01, "min": 0.000001, "max": 1000, "editable": true },
+        { "key": "Roff", "labelJa": "オフ抵抗", "unit": "ohm", "default": 1000000000, "min": 1, "max": 1000000000000, "editable": true },
+        { "key": "Vth", "labelJa": "しきい値電圧", "unit": "V", "default": 2.5, "min": -100, "max": 100, "editable": true },
+        { "key": "invert", "labelJa": "反転（制御が Vth 未満で閉）", "unit": "", "default": false, "editable": true }
+      ],
+      "simulation": {
+        "model": "voltageControlledSwitch"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
         "deletable": true
       }
     },
@@ -1189,7 +1213,7 @@
     {
       "type": "XFMR",
       "nameJa": "トランス",
-      "description": "理想トランスに近い簡易トランス",
+      "description": "理想トランス（過渡解析）。巻数比 turnsRatio = Np/Ns で二次電圧 = 一次電圧 / turnsRatio。結合係数は使わない（漏れ・巻線抵抗なし）。Lm > 0 で一次に並列の励磁インダクタンス（フライバック用）。DC 解析では各巻線が短絡",
       "category": ["F", "J"],
       "symbol": "transformer",
       "pinCount": 4,
@@ -1212,7 +1236,8 @@
           "min": 0,
           "max": 1,
           "editable": true
-        }
+        },
+        { "key": "Lm", "labelJa": "励磁インダクタンス（0 = 理想）", "unit": "H", "default": 0, "min": 0, "max": 100, "editable": true }
       ],
       "simulation": {
         "model": "transformer"
@@ -1227,8 +1252,8 @@
     {
       "type": "SCR",
       "nameJa": "サイリスタ（SCR）",
-      "description": "ゲートでトリガして導通する整流素子",
-      "category": ["B", "J", "M"],
+      "description": "ゲートでトリガして導通する整流素子。点弧後はゲート電流が無くても A→K 電流が保持電流 Ih 以上の間は導通を続ける（ラッチ）",
+      "category": ["B", "F", "J", "M"],
       "symbol": "scr",
       "pinCount": 3,
       "pinNames": ["anode", "gate", "cathode"],
@@ -1241,7 +1266,9 @@
           "min": 0,
           "max": 5,
           "editable": true
-        }
+        },
+        { "key": "Vt", "labelJa": "オン電圧", "unit": "V", "default": 1, "min": 0, "max": 5, "editable": true },
+        { "key": "Ih", "labelJa": "保持電流", "unit": "A", "default": 0.005, "min": 0, "max": 10, "editable": true }
       ],
       "simulation": {
         "model": "scr"
@@ -1256,7 +1283,7 @@
     {
       "type": "TRIAC",
       "nameJa": "トライアック",
-      "description": "双方向をトリガできる交流負荷制御用素子",
+      "description": "双方向をトリガできる交流負荷制御用素子。ゲート電流（どちらの向きでも）で点弧し、主電流が保持電流 Ih を下回るまで導通する",
       "category": ["B", "J", "M"],
       "symbol": "triac",
       "pinCount": 3,
@@ -1270,7 +1297,9 @@
           "min": 0,
           "max": 10,
           "editable": true
-        }
+        },
+        { "key": "Vt", "labelJa": "オン電圧", "unit": "V", "default": 1, "min": 0, "max": 5, "editable": true },
+        { "key": "Ih", "labelJa": "保持電流", "unit": "A", "default": 0.005, "min": 0, "max": 10, "editable": true }
       ],
       "simulation": {
         "model": "triac"
@@ -1285,7 +1314,7 @@
     {
       "type": "DIAC",
       "nameJa": "ダイアック",
-      "description": "ブレークオーバー電圧で双方向に導通するトリガ素子",
+      "description": "ブレークオーバー電圧で双方向に導通するトリガ素子。導通中の端子電圧は Vbo − dV（ブレークバック）",
       "category": ["B", "J", "M"],
       "symbol": "diac",
       "pinCount": 2,
@@ -1299,7 +1328,9 @@
           "min": 0,
           "max": 100,
           "editable": true
-        }
+        },
+        { "key": "dV", "labelJa": "ブレークバック電圧", "unit": "V", "default": 5, "min": 0, "max": 100, "editable": true },
+        { "key": "Ih", "labelJa": "保持電流", "unit": "A", "default": 0.005, "min": 0, "max": 10, "editable": true }
       ],
       "simulation": {
         "model": "diac"

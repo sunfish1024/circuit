@@ -72,7 +72,7 @@
 import { registerSimulationMode } from "./simulator.js";
 import { parseMetricValue } from "../core/units.js";
 import { prepareNetlist, filterNodeResults, GMIN_NODE } from "./netlist.js";
-import { runDc, NONLINEAR_TYPES, RS_DIODE, RB_BASE, G_MIN } from "./dc.js";
+import { runDc, NONLINEAR_TYPES, RS_DIODE, RB_BASE, G_MIN, applyModelDefaults } from "./dc.js";
 
 const SQRT2 = Math.SQRT2;
 const DEFAULT_FREQUENCY_HZ = 1000;
@@ -352,7 +352,15 @@ function solveAtFrequency(components, freq, warnings, excludedNets = new Set(), 
       case "ZD":
       case "TVS": {
         const on = op && op.region !== "off";
-        branches.push({ id: c.id, p, n, y: on ? { re: 1 / RS_DIODE, im: 0 } : OPEN_Y });
+        const rs = Math.max(getNumericParam(c, "Rs", RS_DIODE), 1e-4);
+        branches.push({ id: c.id, p, n, y: on ? { re: 1 / rs, im: 0 } : OPEN_Y });
+        break;
+      }
+      case "SW_V": {
+        // 電圧制御スイッチ: DC 動作点の状態（on なら Ron、off なら Roff）の抵抗
+        const on = op?.region === "on";
+        const r = on ? Math.max(getNumericParam(c, "Ron", 0.01), 1e-6) : Math.max(getNumericParam(c, "Roff", 1e9), 1e-6);
+        branches.push({ id: c.id, p, n, y: { re: 1 / r, im: 0 } });
         break;
       }
       case "Q_NPN":
@@ -590,7 +598,7 @@ export function runAc(circuitIn, options = {}) {
   const warnings = [];
 
   // 未配線ピン・TP だけのネット・浮いたネットの前処理（netlist.js）
-  const prep = prepareNetlist(circuitIn.components);
+  const prep = prepareNetlist(applyModelDefaults(circuitIn.components, options));
   const circuit = { ...circuitIn, components: prep.components };
   warnings.push(...prep.warnings);
   const excludedNets = new Set(prep.unconnectedNets);

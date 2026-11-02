@@ -520,10 +520,14 @@ function diffLabel(node, ref) {
  *
  * @param {number[]} time
  * @param {number[]} values
- * @param {string} measure "max" | "min" | "pp" | "average" | "rms" | "acRms"
+ * "duty" は区間のうち値が opts.threshold（既定: 区間の (最大+最小)/2）を超えている時間の割合（0〜1）。
+ * しきい値を横切る時刻は前後の刻みから線形補間する。
+ *
+ * @param {string} measure "max" | "min" | "pp" | "average" | "rms" | "acRms" | "duty"
+ * @param {{threshold?: number}} [opts]
  * @returns {number} 求められなければ NaN
  */
-export function measureWaveform(time, values, measure, fromSec, toSec) {
+export function measureWaveform(time, values, measure, fromSec, toSec, opts = {}) {
   if (!Array.isArray(time) || !Array.isArray(values) || time.length < 2) return NaN;
   const t0 = Math.max(fromSec ?? time[0], time[0]);
   const t1 = Math.min(toSec ?? time[time.length - 1], time[time.length - 1]);
@@ -539,9 +543,38 @@ export function measureWaveform(time, values, measure, fromSec, toSec) {
   }
   ts.push(t1);
   vs.push(interpolateAt(time, values, t1));
-  if (measure === "max") return Math.max(...vs);
-  if (measure === "min") return Math.min(...vs);
-  if (measure === "pp") return Math.max(...vs) - Math.min(...vs);
+  // 最大・最小はループで求める（Math.max(...vs) は 10 万点を超えるとスタックが溢れる）
+  if (measure === "max" || measure === "min" || measure === "pp") {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const v of vs) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    return measure === "max" ? hi : measure === "min" ? lo : hi - lo;
+  }
+  if (measure === "duty") {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const v of vs) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    const th = Number.isFinite(opts?.threshold) ? opts.threshold : (lo + hi) / 2;
+    let high = 0;
+    for (let i = 1; i < ts.length; i++) {
+      const h = ts[i] - ts[i - 1];
+      const a = vs[i - 1] - th;
+      const b = vs[i] - th;
+      if (a > 0 && b > 0) high += h;
+      else if ((a > 0) !== (b > 0) && a !== b) {
+        // 区間内でしきい値を横切る: 線形補間で横切る時刻を求める
+        const frac = a / (a - b);
+        high += a > 0 ? h * frac : h * (1 - frac);
+      }
+    }
+    return high / (t1 - t0);
+  }
   let s1 = 0;
   let s2 = 0;
   for (let i = 1; i < ts.length; i++) {
@@ -555,6 +588,25 @@ export function measureWaveform(time, values, measure, fromSec, toSec) {
   if (measure === "rms") return Math.sqrt(Math.max(s2 / T, 0));
   if (measure === "acRms") return Math.sqrt(Math.max(s2 / T - mean * mean, 0));
   return NaN;
+}
+
+/** transientMeasure の measure と表示名 */
+const TRANSIENT_MEASURE_NAMES = {
+  max: "最大値", min: "最小値", pp: "ピークtoピーク", average: "平均値", rms: "実効値", acRms: "交流分の実効値",
+  duty: "デューティ比（High の時間の割合）", power: "平均電力", powerFactor: "力率",
+};
+
+/**
+ * 部品の平均電力（v·i の時間平均。v = connect[0]−connect[1]、i は connect[0]→connect[1] の向き＝吸収が正）と
+ * 電圧・電流の実効値。電源は供給しているとき負になる。
+ */
+function elementPower(time, el, fromSec, toSec) {
+  const p = el.v.map((v, k) => v * el.i[k]);
+  return {
+    avg: measureWaveform(time, p, "average", fromSec, toSec),
+    vrms: measureWaveform(time, el.v, "rms", fromSec, toSec),
+    irms: measureWaveform(time, el.i, "rms", fromSec, toSec),
+  };
 }
 
 /** 動作領域の日本語名（operatingRegion のメッセージ用） */
@@ -1668,7 +1720,10 @@ export function registerDefaultCheckHandlers() {
   /**
    * 過渡波形の統計量（judge: transient）。
    * { "type":"transientMeasure", "node":"out", "measure":"pp", "fromSec":0.005, "toSec":0.01, "expected":2.0 }
-   * measure: "max" / "min" / "pp"（最大−最小）/ "average"（時間平均）/ "rms"（実効値）/ "acRms"（平均を除いた実効値）。
+   * measure: "max" / "min" / "pp"（最大−最小）/ "average"（時間平均）/ "rms"（実効値）/ "acRms"（平均を除いた実効値）/
+   *   "duty"（threshold を超えている時間の割合 0〜1。threshold 省略時は区間の (最大+最小)/2）/
+   *   "power"（element の平均電力 = v·i の時間平均。既定は絶対値、signed: true で「吸収が正」）/
+   *   "powerFactor"（element の力率 = |平均電力| / (電圧の実効値 × 電流の実効値)）。
    * 区間 [fromSec, toSec]（既定 0〜解析終了）。node（nodeRef で差動）または element + quantity（"v" / "i"）。
    * 起動直後の過渡を除くため、定常の判定では fromSec を必ず指定すること。
    */
@@ -1677,8 +1732,37 @@ export function registerDefaultCheckHandlers() {
     run: ({ check, simulationResult }) => {
       const tr = simulationResult?.transient ?? {};
       const measure = check.measure;
-      if (!["max", "min", "pp", "average", "rms", "acRms"].includes(measure)) {
+      if (!TRANSIENT_MEASURE_NAMES[measure]) {
         throw new Error(`transientMeasure の measure が不正です: ${measure}`);
+      }
+      const range = `${check.fromSec ?? 0}〜${check.toSec ?? "終了"}s`;
+      // 電力・力率（element の v と i の積から計算）
+      if (measure === "power" || measure === "powerFactor") {
+        if (!check.element) throw new Error(`transientMeasure の ${measure} には element（または match）が必要です。`);
+        const el = tr.elements?.[check.element];
+        if (!Array.isArray(el?.v) || !Array.isArray(el?.i)) {
+          return { ok: false, message: `${check.element} の過渡波形がありません。`, expected: check.expected, actual: null };
+        }
+        const p = elementPower(tr.time, el, check.fromSec, check.toSec);
+        let actual;
+        let expected = check.expected;
+        if (measure === "power") {
+          actual = check.signed === true ? p.avg : Math.abs(p.avg);
+          if (check.signed !== true) expected = Math.abs(expected);
+        } else {
+          actual = p.vrms > 0 && p.irms > 0 ? Math.abs(p.avg) / (p.vrms * p.irms) : NaN;
+        }
+        if (!Number.isFinite(actual)) {
+          return { ok: false, message: `${check.element} の${TRANSIENT_MEASURE_NAMES[measure]}を計算できませんでした（電流が流れていないか、区間 fromSec〜toSec が不正です）。`, expected, actual: null };
+        }
+        return compareNumeric({
+          expected,
+          actual,
+          tolerancePct: check.tolerancePct,
+          toleranceAbs: check.toleranceAbs,
+          unit: check.unit ?? (measure === "power" ? "W" : ""),
+          label: `${check.element} の${TRANSIENT_MEASURE_NAMES[measure]}（${range}）`,
+        });
       }
       let values;
       let what;
@@ -1710,7 +1794,8 @@ export function registerDefaultCheckHandlers() {
       } else {
         throw new Error("transientMeasure には node または element が必要です。");
       }
-      let actual = measureWaveform(tr.time, values, measure, check.fromSec, check.toSec);
+      if (measure === "duty") unit = check.unit ?? "";
+      let actual = measureWaveform(tr.time, values, measure, check.fromSec, check.toSec, { threshold: check.threshold });
       let expected = check.expected;
       if (check.element && check.quantity === "i" && check.signed !== true && measure === "average") {
         actual = Math.abs(actual);
@@ -1719,16 +1804,73 @@ export function registerDefaultCheckHandlers() {
       if (!Number.isFinite(actual)) {
         return { ok: false, message: `${what} の ${measure} を計算できませんでした（区間 fromSec〜toSec を確認してください）。`, expected, actual: null };
       }
-      const names = { max: "最大値", min: "最小値", pp: "ピークtoピーク", average: "平均値", rms: "実効値", acRms: "交流分の実効値" };
-      const range = `${check.fromSec ?? 0}〜${check.toSec ?? "終了"}s`;
+      const th = measure === "duty" && Number.isFinite(check.threshold) ? `、しきい値 ${formatValue(check.threshold, "V")}` : "";
       return compareNumeric({
         expected,
         actual,
         tolerancePct: check.tolerancePct,
         toleranceAbs: check.toleranceAbs,
         unit,
-        label: `${what}の${names[measure]}（${range}）`,
+        label: `${what}の${TRANSIENT_MEASURE_NAMES[measure]}（${range}${th}）`,
       });
+    },
+  });
+
+  /**
+   * 効率（judge: transient）。
+   * { "type":"efficiency", "inputs":["V1"], "outputs":["RL"], "fromSec":0.004, "toSec":0.005, "expected":0.9, "toleranceAbs":0.02 }
+   * η = Σ|出力側の部品の平均電力| / Σ|入力側の部品の平均電力|（各部品の v·i の時間平均の絶対値）。
+   * inputs / outputs は部品 ID（固定部品を推奨）または match オブジェクト（該当する部品すべての和）。
+   */
+  registerCheckHandler("efficiency", {
+    requiresSimulation: true,
+    run: ({ check, simulationResult, circuit }) => {
+      const tr = simulationResult?.transient ?? {};
+      const resolve = (list, label) => {
+        if (!Array.isArray(list) || list.length === 0) throw new Error(`efficiency の ${label} が空です。`);
+        const ids = [];
+        for (const entry of list) {
+          if (typeof entry === "string") ids.push(entry);
+          else if (entry && typeof entry === "object") {
+            const found = findMatchingComponents(circuit, entry);
+            if (found.length === 0) return { error: `条件に合う部品がありません（${describeMatch(entry)}）。` };
+            ids.push(...found.map((c) => c.id));
+          }
+        }
+        return { ids };
+      };
+      const sumPower = (ids) => {
+        let total = 0;
+        for (const id of ids) {
+          const el = tr.elements?.[id];
+          if (!Array.isArray(el?.v) || !Array.isArray(el?.i)) return { error: `${id} の過渡波形がありません（回路に置かれているか確認してください）。` };
+          const p = elementPower(tr.time, el, check.fromSec, check.toSec).avg;
+          if (!Number.isFinite(p)) return { error: `${id} の平均電力を計算できませんでした（区間 fromSec〜toSec を確認してください）。` };
+          total += Math.abs(p);
+        }
+        return { total };
+      };
+      const ins = resolve(check.inputs, "inputs");
+      const outs = resolve(check.outputs, "outputs");
+      const err = ins.error ?? outs.error;
+      if (err) return { ok: false, message: err, expected: check.expected, actual: null };
+      const pin = sumPower(ins.ids);
+      const pout = sumPower(outs.ids);
+      const err2 = pin.error ?? pout.error;
+      if (err2) return { ok: false, message: err2, expected: check.expected, actual: null };
+      if (!(pin.total > 0)) {
+        return { ok: false, message: `入力電力が 0 です（${ins.ids.join(", ")} から電力が供給されていません）。`, expected: check.expected, actual: null };
+      }
+      const eta = pout.total / pin.total;
+      const r = compareNumeric({
+        expected: check.expected,
+        actual: eta,
+        tolerancePct: check.tolerancePct,
+        toleranceAbs: check.toleranceAbs,
+        unit: "",
+        label: `効率 η = 出力 ${formatValue(pout.total, "W")} / 入力 ${formatValue(pin.total, "W")}`,
+      });
+      return { ...r, details: { pin: pin.total, pout: pout.total } };
     },
   });
 }

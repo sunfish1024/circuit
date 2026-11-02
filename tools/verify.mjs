@@ -11,6 +11,7 @@
 //                                      差し替えても同じ論理になる組み合わせは除外）
 //   node tools/verify.mjs --reverse  … 極性部品を1個ずつ逆向き（connect を逆順）にした誤答が不合格になるか
 //                                      （論理ゲートは入力 A と出力 Y、DFF は D と Q を入れ替えた誤答）
+//                                      （SW_V は制御端子 ctrl_p と ctrl_n を入れ替えた誤答）
 //                                      （OPAMP は + 入力と − 入力を入れ替えた誤答。--mutate では OPAMP の
 //                                        Aol/GBP/Vpos/Vneg/Vdrop と平方則 MOSFET の RdsOn は2倍にしない＝設計値ではないモデル定数）
 //   node tools/verify.mjs --drop     … 参照解の部品を1個ずつ取り除いた誤答（部品忘れ・つなぎ忘れ）が不合格になるか
@@ -146,10 +147,18 @@ function digitalSwapIO(c) {
 const NO_DROP = new Set(["GND", "TP"]);
 
 // --mutate で2倍にしないモデル定数（設計値ではないもの）。M_N/M_P の RdsOn は K>0（平方則）のときだけ除外
+// ダイオード系・サイリスタ系の Rs / Vt / Ih / ゲート電圧、SW_V の Ron / Roff / Vth は理想化のための
+// モデル定数（2倍にしても動作が変わらないのが正しい）。XFMR の coupling は使われない。
 const MUTATE_MODEL_PARAMS = {
   OPAMP: ["Aol", "GBP", "Vpos", "Vneg", "Vdrop"],
   M_N: ["RdsOn"],
   M_P: ["RdsOn"],
+  D: ["Rs"], SD: ["Rs"], LED: ["Rs"], ZD: ["Rs"], TVS: ["Rs"],
+  SCR: ["Vgk", "Vt", "Ih", "Rs"],
+  TRIAC: ["Vgt", "Vt", "Ih", "Rs"],
+  DIAC: ["dV", "Ih", "Rs"],
+  SW_V: ["Ron", "Roff", "Vth"],
+  XFMR: ["coupling"],
 };
 
 const toComp = (c) => ({
@@ -203,6 +212,12 @@ function variants(p) {
       if (isDigitalPart(c.type) && Array.isArray(c.connect)) {
         const { connect, label } = digitalSwapIO(c);
         out.push({ label, comps: ref.map((d, j) => (j === i ? { ...d, connect } : d)), answers });
+        return;
+      }
+      if (c.type === "SW_V" && Array.isArray(c.connect) && c.connect.length >= 4) {
+        // 電圧制御スイッチの「逆向き」= 制御端子の +/− の取り違え（制御が反転して閉じない）
+        const connect = [c.connect[0], c.connect[1], c.connect[3], c.connect[2]];
+        out.push({ label: `${c.id} の制御端子 ctrl_p と ctrl_n を入れ替えても合格`, comps: ref.map((d, j) => (j === i ? { ...d, connect } : d)), answers });
         return;
       }
       if (c.type === "OPAMP" && Array.isArray(c.connect) && c.connect.length >= 2) {

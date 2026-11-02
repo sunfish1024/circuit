@@ -309,7 +309,7 @@
     {
       "type": "operatingRegion",
       "requiredSim": "dc",
-      "description": "非線形素子の DC 動作領域を判定します（judge に dc か ac が必要）。region は文字列または配列。BJT: off/active/saturation、MOSFET: off/triode/saturation（K=0 のスイッチは on/off）、JFET: saturation/off、D 系: on/off、ZD/TVS: forward/breakdown/off、OPAMP: linear/satHigh/satLow。element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
+      "description": "非線形素子の DC 動作領域を判定します（judge に dc か ac が必要）。region は文字列または配列。BJT: off/active/saturation、MOSFET: off/triode/saturation（K=0 のスイッチは on/off）、JFET: saturation/off、D 系: on/off、ZD/TVS: forward/breakdown/off、OPAMP: linear/satHigh/satLow、SCR/TRIAC/DIAC: on/off（主端子の導通）、SW_V: on/off。element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
       "required": [
         "element|match",
         "region"
@@ -323,7 +323,7 @@
     {
       "type": "transientMeasure",
       "requiredSim": "transient",
-      "description": "過渡波形の区間 [fromSec, toSec] の統計量を比較します。measure: max / min / pp（最大−最小）/ average（時間平均）/ rms / acRms（平均を除いた実効値）。node（nodeRef で差動）または element + quantity（v|i。電流は既定で向きを問わず max/min は |i|、average は |平均|。signed: true で符号つき）。定常の値を見るときは fromSec を必ず指定。",
+      "description": "過渡波形の区間 [fromSec, toSec] の統計量を比較します。measure: max / min / pp（最大−最小）/ average（時間平均）/ rms / acRms（平均を除いた実効値）/ duty（threshold を超えている時間の割合 0〜1。threshold 省略時は区間の (最大+最小)/2）/ power（element の平均電力 v·i。既定は絶対値、signed: true で吸収が正）/ powerFactor（element の |平均電力|/(Vrms·Irms)）。node（nodeRef で差動）または element + quantity（v|i。電流は既定で向きを問わず max/min は |i|、average は |平均|。signed: true で符号つき）。定常の値を見るときは fromSec を必ず指定。",
       "required": [
         "node|element|match",
         "measure",
@@ -337,12 +337,32 @@
         "quantity",
         "signed",
         "measure",
+        "threshold",
         "fromSec",
         "toSec",
         "expected",
         "tolerancePct",
         "toleranceAbs",
         "unit"
+      ]
+    },
+    {
+      "type": "efficiency",
+      "requiredSim": "transient",
+      "description": "効率 η = Σ|outputs の部品の平均電力| / Σ|inputs の部品の平均電力|（各部品の v·i を区間 [fromSec, toSec] で時間平均）。inputs / outputs は部品ID（固定部品を推奨）または match オブジェクト（該当部品すべての和）の配列。expected は 0〜1 の比。区間はスイッチング周期・交流周期の整数倍にする。",
+      "required": [
+        "inputs",
+        "outputs",
+        "expected"
+      ],
+      "fields": [
+        "inputs",
+        "outputs",
+        "fromSec",
+        "toSec",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs"
       ]
     }
   ]

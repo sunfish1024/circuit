@@ -1003,7 +1003,7 @@ function validateProblemCheck(check, index, result, options = {}) {
 
 /* ---- アナログ判定の追加オプション（分野C で追加）の検証 ---- */
 
-const TRANSIENT_MEASURES = new Set(["max", "min", "pp", "average", "rms", "acRms"]);
+const TRANSIENT_MEASURES = new Set(["max", "min", "pp", "average", "rms", "acRms", "duty", "power", "powerFactor"]);
 const OPERATING_REGIONS = new Set([
   "off", "active", "saturation", "triode", "on", "forward", "breakdown", "linear", "satHigh", "satLow",
 ]);
@@ -1079,6 +1079,41 @@ function validateAnalogCheckOptions(check, path, result, options) {
     }
     if (check.fromSec === undefined) {
       addValidationWarning(result, `${path}: transientMeasure に fromSec がありません（電源投入直後の過渡を含みます。定常の値を見るなら fromSec を指定）。`);
+    }
+    if ((check.measure === "power" || check.measure === "powerFactor") && check.element === undefined && check.match === undefined) {
+      addValidationError(result, `${path}: measure "${check.measure}" には element（または match）が必要です（部品の電圧×電流から計算します）。`);
+    }
+    if (check.threshold !== undefined && !isFiniteNumber(check.threshold)) {
+      addValidationError(result, `${path}.threshold は数値である必要があります。`);
+    }
+    if (check.threshold !== undefined && check.measure !== "duty") {
+      addValidationWarning(result, `${path}.threshold は measure "duty" でだけ使います。`);
+    }
+  }
+  if (check.type === "efficiency") {
+    for (const key of ["inputs", "outputs"]) {
+      const list = check[key];
+      if (!Array.isArray(list) || list.length === 0) {
+        addValidationError(result, `${path}.${key} は部品ID（文字列）または match オブジェクトの空でない配列である必要があります。`);
+        continue;
+      }
+      list.forEach((entry, k) => {
+        if (isNonEmptyString(entry)) {
+          if (options.componentTypeById instanceof Map && !options.componentTypeById.has(entry)) {
+            addValidationWarning(result, `${path}.${key}[${k}] "${entry}" が fixedComponents にも referenceSolution にもありません。`);
+          } else if (options.fixedIds instanceof Set && !options.fixedIds.has(entry)) {
+            addValidationWarning(result, `${path}.${key}[${k}] "${entry}" は固定部品ではありません（プレイヤーが置く部品は ID が変わるので match を使ってください）。`);
+          }
+        } else if (!isPlainObject(entry) || (entry.type === undefined && entry.nets === undefined && entry.pins === undefined)) {
+          addValidationError(result, `${path}.${key}[${k}] は部品ID か match オブジェクト（{ type, nets, pins }）である必要があります。`);
+        }
+      });
+    }
+    if (check.fromSec === undefined) {
+      addValidationWarning(result, `${path}: efficiency に fromSec がありません（起動直後の過渡を含みます。定常の効率を見るなら fromSec を指定し、区間をスイッチング周期の整数倍にしてください）。`);
+    }
+    if (isFiniteNumber(check.fromSec) && isFiniteNumber(check.toSec) && !(check.toSec > check.fromSec)) {
+      addValidationError(result, `${path}: toSec は fromSec より大きくしてください。`);
     }
   }
 }
@@ -1243,7 +1278,7 @@ function validateDigitalCheck(check, path, result, options) {
 export const POLARIZED_TYPES = new Set([
   "D", "LED", "ZD", "SD", "TVS", "PD", "D_VC",
   "Q_NPN", "Q_PNP", "M_N", "M_P", "J_N", "PT",
-  "OPAMP", "V_DC", "V_PULSE", "I_DC", "SCR", "TRIAC", "U_OPTO", "XFMR",
+  "OPAMP", "V_DC", "V_PULSE", "I_DC", "SCR", "TRIAC", "U_OPTO", "XFMR", "SW_V",
   "U_WILSON", "U_CASCODE", "DFF", "DFF_R",
   "U_NOT", "U_AND", "U_OR", "U_NAND", "U_NOR", "U_XOR", "U_XNOR", "U_AND3", "U_OR3",
 ]);
@@ -1300,7 +1335,7 @@ function validateSimulationSettings(sim, result) {
     addValidationError(result, "problem.simulation はオブジェクトである必要があります。");
     return;
   }
-  for (const key of ["tStop", "dt"]) {
+  for (const key of ["tStop", "dt", "diodeRs"]) {
     if (sim[key] !== undefined && !(isFiniteNumber(sim[key]) && sim[key] > 0)) {
       addValidationError(result, `problem.simulation.${key} は正の数値である必要があります。`);
     }

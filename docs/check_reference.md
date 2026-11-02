@@ -42,7 +42,7 @@ problem-writer 向けの資料。sim-engineer が保守する。実装: `src/che
 | `difficulty` | 0〜5 の整数 | | |
 | `prerequisites` | 文字列配列 | | 先に解くべき問題ID。旧 `prerequisite`（文字列）も可 |
 | `judge` | `"dc"` / `"ac"` / `"transient"` / `"digital"`、またはその配列 | | シミュレーションの種類。省略時 `"dc"`。`["dc","transient"]` のように配列にすると両方を実行し、DC 判定と過渡判定を1問に混在できる |
-| `simulation` | オブジェクト | | 解析設定。`tStop`（過渡の終了時刻 s）、`dt`（最大刻み s）、`frequencies`（AC 解析周波数の配列 Hz）、`initialCondition`（過渡の初期状態: `"zero"` 既定 / `"dc"` = DC 動作点から開始）。省略時は自動（§4, §5） |
+| `simulation` | オブジェクト | | 解析設定。`tStop`（過渡の終了時刻 s）、`dt`（最大刻み s）、`frequencies`（AC 解析周波数の配列 Hz）、`initialCondition`（過渡の初期状態: `"zero"` 既定 / `"dc"` = DC 動作点から開始）、`diodeRs`（params.Rs を書いていない D/SD/LED/ZD/TVS の直列抵抗 Ω。既定 1Ω。分野F/J の理想ダイオード用、§7）。省略時は自動（§4, §5） |
 | `hints` | 文字列3つの配列 | 新問題では必須 | 方針 → 使う式 → ほぼ答え。旧 `hint`（文字列1つ）も読めるが警告 |
 | `explanation` | オブジェクト | 新問題では必須 | `solution`, `why`, `mistakes`, `practice`, `next` の5項目すべて空でない文字列 |
 | `questions` | 配列 | 回答入力がある問題 | §3 |
@@ -213,6 +213,7 @@ problem-writer 向けの資料。sim-engineer が保守する。実装: `src/che
   - MOSFET（K>0）: `off` / `triode`（線形領域）/ `saturation`（飽和領域＝増幅に使う）。K=0 のスイッチモードは `on` / `off`
   - JFET: `saturation` / `off`。D/SD/LED: `on` / `off`。ZD/TVS: `forward` / `breakdown` / `off`
   - OPAMP: `linear`（線形動作）/ `satHigh` / `satLow`（出力が上側／下側の電源で頭打ち）
+  - SCR / TRIAC / DIAC: `on`（主端子が導通）/ `off`。SW_V: `on`（閉）/ `off`（開）
 - 不合格のメッセージに IC・VCE（MOSFET は VGS・VDS、OPAMP は出力電圧）が出る。
 - 「バイアスが正しいか」は dcVoltage（VC や VE）と組み合わせると強い。judge が `"ac"` だけでも、AC 解析の前に求めた DC 動作点で判定できる。
 
@@ -227,6 +228,25 @@ problem-writer 向けの資料。sim-engineer が保守する。実装: `src/che
 - **定常の値を見るときは `fromSec` を必ず指定**（電源投入直後の過渡を除く。無いと validation が警告）。平均・実効値は区間を**周期の整数倍**にする。
 - 区間は台形則で時間積分するので刻みが不均一でも正しい。最大・最小は刻みの点で拾うので、正弦波のピークは最大 1−cos(π/100) ≈ 0.05% 小さく出る（刻み T/100 のとき）。許容誤差は 1〜2% を推奨。
 - 解析終了時刻は自動で `toSec` 以上になる。
+- **追加の measure（分野F/J）**:
+  - `duty`: 区間のうち値が `threshold`（V または A。省略時は区間の (最大+最小)/2）を超えている時間の割合（0〜1）。しきい値を横切る時刻は線形補間。PWM のデューティ比、整流の導通角（ダイオード電流 > 0 の割合）など。`toleranceAbs`（例 0.01）で判定する。
+  - `power`: `element`（または `match`）の平均電力 = v·i の時間平均（v = connect[0]−connect[1]、i は connect[0]→connect[1]）。既定は絶対値、`signed: true` で「吸収が正」（電源は供給中なら負）。単位 W。
+  - `powerFactor`: `element` の力率 = |平均電力| / (電圧の実効値 × 電流の実効値)。電源（V_AC）に使うと負荷全体の力率、ひずみ電流（整流＋コンデンサ入力）の力率も出る。
+  ```json
+  { "type": "transientMeasure", "node": "sw", "measure": "duty", "threshold": 6, "fromSec": 0.004, "toSec": 0.005, "expected": 0.4, "toleranceAbs": 0.01 }
+  { "type": "transientMeasure", "element": "D1", "measure": "power", "fromSec": 0.004, "toSec": 0.005, "expected": 0.27, "tolerancePct": 3 }
+  { "type": "transientMeasure", "element": "V1", "measure": "powerFactor", "fromSec": 0.06, "toSec": 0.1, "expected": 0.728, "tolerancePct": 2 }
+  ```
+
+### efficiency（judge: transient）— 効率
+```json
+{ "type": "efficiency", "inputs": ["V1"], "outputs": ["RL"], "fromSec": 0.008, "toSec": 0.009, "expected": 0.94, "toleranceAbs": 0.01 }
+{ "type": "efficiency", "inputs": ["V1"], "outputs": [{ "type": "R", "nets": ["out", "gnd"] }], "fromSec": 0.008, "toSec": 0.009, "expected": 0.94, "toleranceAbs": 0.01 }
+```
+- η = Σ|outputs の部品の平均電力| / Σ|inputs の部品の平均電力|（各部品の v·i を区間で時間平均した値の絶対値）。`expected` は 0〜1 の比。
+- `inputs` / `outputs` は部品 ID（**固定部品**を推奨。プレイヤーの部品は ID が変わる）または `match` オブジェクト（該当する部品すべての和）の配列。
+- 区間はスイッチング周期・交流周期の**整数倍**にする（端数があると C・L のエネルギー変化が入る）。`fromSec` は定常に達した後。
+- 不合格のメッセージに入力電力と出力電力が出る。
 
 ### デジタル回路の部品と入出力（分野 G / H / I）
 - **入力**: 固定部品 `LOGIC_IN`（論理入力、1ピン `Y`、パラメータ `value` = 0/1）。`{"id":"A","type":"LOGIC_IN","connect":["a"],"locked":true}`。判定（truthTable / sequence）が値を自動で切り替えるので、プレイヤーは値を操作しなくてよい。判定が駆動しない LOGIC_IN は `value` の定数（例: `value: 1` で「常に 1」の端子）。
@@ -337,15 +357,15 @@ problem-writer 向けの資料。sim-engineer が保守する。実装: `src/che
 
 ### 過渡（judge: transient）
 - **t = 0 で電源が投入される**（それ以前の状態は考えない）。C の初期電圧は `params.initialV`（既定 0V、connect[0] 側が + ）、L の初期電流は `params.initialI`（既定 0A）。
-- 数値積分: 台形則（各不連続点の直後2ステップは後退オイラー）。刻みは自動で「最小時定数/100、LC 周期/100、交流周期/100、パルス周期/100」以下。V_PULSE の角（立ち上がり・立ち下がり）では必ず刻みを合わせる。
-- 解析終了時刻（自動）: max(10ms, 最大時定数×10, LC 周期×5, 交流周期×5, パルス1周期, checks の timeSec×1.5)。最大 50000 ステップ（超えると打ち切り、警告）。変えたいときは `simulation.tStop`。
-- 対応部品: R, C, L, L_RELAY, V_DC, V_AC, V_PULSE, I_DC, I_AC, SW, TP, GND に加え、**非線形素子** D, SD, LED, ZD, TVS, Q_NPN, Q_PNP, M_N, M_P, J_N, OPAMP, PD, PT, U_OPTO, U_WILSON, U_CASCODE（DC と同じモデルを各時刻で反復して解く。接合容量・遅れ・スルーレート・逆回復は無い＝瞬時に応答）。SCR / TRIAC / DIAC は未対応（警告して無視）。
+- 数値積分: 台形則（各不連続点の直後2ステップは後退オイラー）。刻みは自動で「最小時定数/100、LC 周期/100、交流周期/100（切り替わる素子＝D 系・サイリスタ系・SW_V があれば /400）、パルス周期/100、パルス幅/10、パルスの Low の時間/10」以下。V_PULSE の角（立ち上がり・立ち下がり）では必ず刻みを合わせる。切り替わる素子の状態が刻みの途中で変わったら、その刻みを最大 1/64 まで二分して切り替わり時刻を求める（§7）。
+- 解析終了時刻（自動）: max(10ms, 最大時定数×10, LC 周期×5, 交流周期×5, パルス1周期, checks の timeSec×1.5)。最大 200000 ステップ（超えると打ち切り、警告）。変えたいときは `simulation.tStop`。**問題は 50000 ステップ以下を目安に**（1 ステップ約 10µs。ブラウザで 1 秒以内）。ステップ数 ≈ tStop / 刻み。
+- 対応部品: R, C, L, L_RELAY, XFMR, V_DC, V_AC, V_PULSE, I_DC, I_AC, SW, SW_V, TP, GND に加え、**非線形素子** D, SD, LED, ZD, TVS, Q_NPN, Q_PNP, M_N, M_P, J_N, OPAMP, PD, PT, U_OPTO, U_WILSON, U_CASCODE, SCR, TRIAC, DIAC（DC と同じモデルを各時刻で反復して解く。接合容量・遅れ・スルーレート・逆回復は無い＝瞬時に応答）。サイリスタ系・SW_V・XFMR の前提は §7。
   - **BJT は過渡でも VBE 一定モデル**なので、小信号の gm = IC/VT（re）が入らない。エミッタ抵抗なしの CE 増幅は過渡では利得が正しく出ない（AC 解析で判定する）。RE ありでも re の分（数%）だけ利得が大きく出る。過渡で使うのは「飽和・遮断によるクリップ」「スイッチ動作」「出力振幅の上限」の判定。
   - MOSFET・JFET は平方則のままなので、過渡の波形振幅と AC の小信号利得が一致する（2乗の歪みも出る）。
   - OPAMP は Aol と頭打ちだけ（GBP は使わない）。積分器・微分器・クリップ・コンパレータ・シュミットトリガ・無安定マルチバイブレータが解ける。
   - 素子の状態（導通/遮断/飽和）が変わった直後の2ステップは後退オイラー。状態の切り替わる時刻は刻み単位でしか決まらないので、しきい値を測る問題は `simulation.dt` を小さくする。
 - `simulation.initialCondition: "dc"`: t=0 の電源値（V_AC は Vpk·sin(phase)、V_PULSE は t=0 の値）で DC 動作点を求め、C の初期電圧・L の初期電流をその値にしてから始める（SPICE の既定と同じ）。結合・バイパスコンデンサのある増幅回路は、これを使うと最初から定常の波形になる（使わないと C の充電に数秒かかることがある）。
-- SW は過渡中に切り替わらない（`closed` は固定）。「t=0 でスイッチを閉じる」は `closed: true` ＋ t=0 の電源投入で表現する。
+- SW は過渡中に切り替わらない（`closed` は固定）。「t=0 でスイッチを閉じる」は `closed: true` ＋ t=0 の電源投入で表現する。途中で開閉させたいときは電圧制御スイッチ `SW_V` を V_PULSE で駆動する（§7）。
 
 ### V_PULSE（パルス電圧源）のパラメータ（SPICE の PULSE と同じ意味）
 | キー | 意味 | 既定 |
@@ -405,7 +425,9 @@ node tools/verify.mjs [分野/ID接頭辞] [--mutate | --reverse | --drop] [--st
 - `verifyNote` がある問題は mutate/reverse/drop の「甘い判定」を警告扱いにし、終了コードに含めない。
 - 新しい問題はコミット前に4モードすべて（`--strict` 付き）で確認する。
 - `--problems=DIR` で問題フォルダを差し替えられる（テスト用）。
-- 判定・シミュレータ自体の単体テスト: `node tools/test_checks.mjs`（手計算で答えが分かる回路。デジタルは半加算器・全加算器・MUX・デコーダ・NAND だけの XOR・DFF 分周・カウンタ・シフトレジスタ・SR/D ラッチなど）。
+- 判定・シミュレータ自体の単体テスト: `node tools/test_checks.mjs`（手計算で答えが分かる回路。デジタルは半加算器・全加算器・MUX・デコーダ・NAND だけの XOR・DFF 分周・カウンタ・シフトレジスタ・SR/D ラッチなど。分野F/J は半波整流の平均 Vm/π、ブリッジ＋C のリプル、降圧・昇圧・昇降圧・DCM の出力電圧、フルブリッジ、SCR・TRIAC の位相制御、クローバ、トランス、効率・力率）。
+- `--mutate` はダイオード系の `Rs`、SCR/TRIAC/DIAC の `Vgk`/`Vgt`/`Vt`/`Ih`/`Rs`/`dV`、SW_V の `Ron`/`Roff`/`Vth`、XFMR の `coupling` を2倍にしない（モデル定数）。SW_V の `invert` は反転する。
+- `--reverse` は SW_V の制御端子 ctrl_p と ctrl_n を入れ替えた誤答を作る（制御が反転してスイッチが閉じない）。XFMR の逆向きは一次と二次の入れ替え（巻数比が逆になる）。
 
 ### 判定の甘さを防ぐコツ
 - 値だけでなく **回路の形** を判定する: 「出力電圧」と「どこかの部品の電流」を両方見ると、部品を外した誤答・別の場所に付けた誤答が落ちる。
@@ -475,3 +497,147 @@ node tools/verify.mjs [分野/ID接頭辞] [--mutate | --reverse | --drop] [--st
 | 19 | BJT 差動対: 差動利得 gm·RC/2、同相利得、テール抵抗と CMRR | bodePoint(inputRef), bodePoint(sources) |
 | 20 | GBW と帯域: 利得 40dB を1段で作ると帯域が足りない → 2段に分ける | bodePoint（GBP=1MHz で 20kHz の利得） |
 - 予備: 積分器（方形波→三角波、DC 帰還抵抗が無いと飽和する）、プッシュプル出力段のクロスオーバひずみ（過渡の max が Vpk − 0.7V）、ダイオードでバイアスした AB 級、負帰還で Aol のばらつきが消える（verifyNote が必要）、コンパレータとシュミットトリガ（過渡、しきい値は `simulation.dt` を小さく）。
+
+---
+
+## 7. 分野F（電源回路）・J（パワーエレクトロニクス）— problem-writer 向けの要点
+
+### 部品と理想化の前提（問題文の「条件」に書く）
+| 部品 | ピン（connect の順） | モデル | 条件欄の書き方の例 |
+|---|---|---|---|
+| D / SD | anode, cathode | Vf 一定＋直列 `Rs`（既定 1Ω）。逆方向は 1nS の漏れ。逆回復・接合容量なし | 「ダイオードは順方向電圧 0.7V 一定（抵抗は無視）、逆方向には流れない」 |
+| 理想ダイオード | 同上 | `params: { "Vf": 0 }` ＋ 問題の `"simulation": { "diodeRs": 0.001 }` | 「ダイオードは理想（順方向電圧 0、逆方向は流れない）」 |
+| ZD / TVS | anode, cathode | 降伏 Vz（Vclamp）一定＋`Rs`、順方向 0.7V | 「ツェナー電圧 5.1V 一定」 |
+| **SW_V**（電圧制御スイッチ） | 1, 2, ctrl_p, ctrl_n | 制御電圧 V(ctrl_p)−V(ctrl_n) > `Vth`（既定 2.5V）で 1−2 間が `Ron`（既定 10mΩ）、それ以外 `Roff`（既定 1GΩ）。`invert: true` で逆（Vth 未満で閉）。切り替えは瞬時、制御端子に電流は流れない。双方向に流れる | 「スイッチ S は理想スイッチ（オン抵抗 0、切り替え時間 0）で、PWM 信号が High の間だけ閉じる」 |
+| M_N（`K: 0`） | drain, gate, source | V_GS > Vth で `RdsOn` の抵抗、それ以外オフ（ボディダイオードなし）。ゲートは電圧を見るだけ | ハイサイドはゲート駆動の V_PULSE を source 基準（`[g, sw]`）につなぐ |
+| SCR | anode, gate, cathode | G-K 間は `Vgk` のダイオード。ゲート電流が流れていて V_AK ≥ `Vt`（オン電圧、既定 1V）なら点弧し、A-K 間 = `Vt`＋0.01Ω。点弧後はゲート電流が無くても電流 ≥ `Ih`（保持電流、既定 5mA）の間は導通（ラッチ）、下回るとオフ。逆方向は阻止 | 「SCR はゲートに電流を流すと導通し、電流が 0 になるまで導通を続ける（オン電圧 0V）」→ `Vt: 0` |
+| TRIAC | mt2, gate, mt1 | ゲート−MT1 間 ±`Vgt`。**どちらの向きのゲート電流でも**点弧（4 象限同じ感度）。主端子は両方向に SCR と同じ | 正のゲートパルスを半周期ごと（periodSec = T/2）に入れればよい |
+| DIAC | mt1, mt2 | \|V\| ≥ `Vbo` で導通し、端子電圧が ±(Vbo − `dV`) に下がる（ブレークバック、既定 dV = 5V）。電流 < `Ih` でオフ | 「DIAC は 30V で導通し、導通中は 25V」 |
+| XFMR | p1, p2, s1, s2 | 理想トランス（過渡解析）。`turnsRatio` = Np/Ns、V(s1)−V(s2) = (V(p1)−V(p2))/turnsRatio、p1 と s1 が同極性（ドット）。`Lm` > 0 で一次に並列の励磁インダクタンス（フライバック用、初期電流 `LmInitialI`。波形は `"<id>#Lm"` の element で見られる）。漏れインダクタンス・巻線抵抗・飽和なし。`coupling` は使わない。DC 解析では各巻線が短絡、**AC 解析は未対応** | 「トランスは理想（巻数比 10:1、損失なし）」 |
+| L_RELAY | 1, 2 | ただのインダクタ（接点は無い） | |
+- SCR / TRIAC / DIAC の element の `v` / `i` は主端子（anode−cathode、MT2−MT1、MT1−MT2）の電圧と電流（`dcCurrent`・`transientMeasure` で使える）。ゲート電流は判定できない。
+- XFMR の element の波形: `v`/`i` = 一次側（i は p1 から流れ込む向き）、`v2`/`i2` = 二次側（transientMeasure の quantity は v/i だけなので、二次は TP を置いたノードで測る）。センタタップは XFMR を2個（一次を並列）で作る。
+- **プレイヤーが置いた部品の ID**: SW_V は `SWV1`, `SWV2` …、SCR/TRIAC/DIAC/XFMR はそれぞれの規則。判定は `match`（例 `{ "type": "SW_V", "pins": { "1": "vin", "2": "sw" } }`）で書く。
+- **SW_V の記号**: UI にはまだ専用の記号が無い（汎用の4ピン枠で表示される）。UI 担当に記号の追加を依頼済み。
+
+### 刻み・解析時間・定常状態
+- 切り替わる素子（D 系・SCR/TRIAC/DIAC・SW_V）があると、刻みは交流周期の 1/400 以下、PWM 周期の 1/100 以下・パルス幅と Low 時間の 1/10 以下。素子の状態が刻みの途中で変わったら刻みを最大 1/64 まで二分して切り替わり時刻を求める（整流の導通開始、DCM の電流ゼロ、SCR の消弧）。V_PULSE の角では必ず刻みを合わせる。
+- **ステップ数 ≈ tStop / 刻み を 50000 以下に**（1 ステップ約 10µs、ブラウザで 1 秒以内）。例: 50Hz の整流で tStop = 0.2s → 4000 点。20kHz の PWM（周期 50µs → 刻み 0.5µs）で tStop = 10ms → 20000 点。100kHz の PWM は 10ms で 10 万点になるので避ける（**10〜50kHz を推奨**）。
+- **コンバータは定常に入るまで時間がかかる**（出力 LC の減衰。降圧なら包絡線の時定数 ≈ 2RC、昇圧はさらに遅い）。次のどちらかにする:
+  1. 出力の C と L を**固定部品**にして初期値を定常の値にする: C の `initialV` = 理論の Vout、L の `initialI` = 平均電流 − ΔI/2（オン期間の始まりの値）。これで数 ms で定常になる（テストでは 8×2RC で 0.5% 以内）。
+  2. `simulation.tStop` を 2RC の 8 倍以上にする（ステップ数に注意）。
+- `fromSec`〜`toSec` は**周期の整数倍**（PWM なら 20 周期程度、50Hz なら 5 周期 = 0.1s）。`fromSec` は定常に入った後。
+- `initialCondition: "dc"` はコンバータでは役に立たない（DC 解析では V_PULSE が t=0 の値に固定され、L が短絡されるため）。整流回路は C が最初のピークで充電されるので不要（`fromSec` を 3〜5 周期後にする）。
+
+### 何で何を判定するか
+| 確かめたいこと | 判定 | 例 |
+|---|---|---|
+| 整流・コンバータの出力電圧（平均） | `transientMeasure` `average` | 半波 Vm/π、ブリッジ＋C ≈ Vm − 2Vf − ΔV/2、降圧 D·Vin |
+| リプル電圧 | `transientMeasure` `pp`（または `acRms`） | ΔV ≈ I/(2fC)（全波）、ΔI/(8fC)（降圧） |
+| インダクタ電流のリプル・平均 | `transientMeasure` に `match: {type:"L"}` ＋ `quantity: "i"`、`pp` / `average` | ΔI = (Vin−Vout)·D·T/L |
+| 連続（CCM）／不連続（DCM） | L 電流の `min`（`signed: true`）: DCM なら 0、CCM なら > 0 | |
+| デューティ比・導通角 | `duty`（スイッチ節点の電圧、または素子電流に `threshold`） | PWM のデューティ、ダイオードの導通時間の割合 |
+| 効率・損失 | `efficiency`（inputs: 電源、outputs: 負荷）、`power`（損失を出す部品） | ダイオードの導通損失 (1−D)·Vf·Io |
+| 力率 | `transientMeasure` `powerFactor`（element: V_AC） | コンデンサ入力型整流 ≈ 0.45、L を入れると改善（受動 PFC） |
+| 突入電流 | 電源の電流の `max`（`fromSec: 0`） | 電源投入時の平滑 C の充電電流、直列 R（NTC の代わり）で制限 |
+| SCR・TRIAC の位相制御 | `average`（SCR）/ `rms`（TRIAC）の出力電圧 | Vavg = Vm/(2π)·(1+cos α)、Vrms = (Vm/√2)·√(1 − α/π + sin2α/(2π))（`Vt: 0` のとき） |
+| クローバ・過電圧保護 | DC の `operatingRegion`（SCR: `on`）＋`dcVoltage`、または過渡（電源を V_PULSE で上げる） | 点弧後は電源を下げても保持される |
+| リニアレギュレータ・ドロップアウト | DC の `dcVoltage` ＋ `operatingRegion`（OPAMP `linear` / `satHigh`、Q_NPN `active`） | Vout = Vref(1+R1/R2)、ドロップアウトで Vout = Vin − VBE |
+| ツェナーシャントレギュレータ・電流制限（BJT） | DC の `dcVoltage` / `dcCurrent` | |
+| インバータ出力 | 差動 `nodeRef` で `rms` / `acRms`、負荷電流の `max` | フルブリッジ: 方形波の実効値 = Vdc、RL 負荷のピーク (Vdc/R)·tanh(T/4τ) |
+- PWM の駆動は V_PULSE（`widthSec` = D·T、`periodSec` = T、`riseSec`/`fallSec` = 1e-9）。相補駆動はスイッチの `invert: true` か、2 つ目の V_PULSE（デッドタイムを入れる場合は delaySec と widthSec で隙間を作り、還流用の D を明示的に置く）。
+- 三角波（PWM 比較器のキャリア）は V_PULSE の `riseSec` = `fallSec` = T/2、`widthSec` = 0。OPAMP をコンパレータにして SW_V を駆動できる。
+- SCR のゲートパルスは「V_PULSE（[gp, cathode]）＋ゲート抵抗」。`delaySec` = α/360·T、`widthSec` = 0.2ms 程度、`periodSec` = T（TRIAC は T/2）。
+- 直流モータは「R＋L＋逆起電力（V_DC）」の直列で表す（機械系は無い）。
+
+### JSON の例（降圧コンバータを組む問題）
+```json
+"judge": "transient",
+"simulation": { "tStop": 0.009, "diodeRs": 0.001 },
+"availableComponents": ["SW_V", "D", "L"],
+"fixedComponents": [
+  { "id": "V1", "type": "V_DC", "params": { "V": 12 }, "connect": ["vin", "gnd"], "locked": true },
+  { "id": "VG", "type": "V_PULSE", "params": { "Vlow": 0, "Vhigh": 5, "riseSec": 1e-9, "fallSec": 1e-9, "widthSec": 2e-5, "periodSec": 5e-5 }, "connect": ["g", "gnd"], "locked": true },
+  { "id": "C1", "type": "C", "params": { "C": 1e-4, "initialV": 4.8 }, "connect": ["out", "gnd"], "locked": true },
+  { "id": "RL", "type": "R", "params": { "R": 5 }, "connect": ["out", "gnd"], "locked": true },
+  { "id": "TPO", "type": "TP", "connect": ["out"], "locked": true },
+  { "id": "TPS", "type": "TP", "connect": ["sw"], "locked": true }
+],
+"checks": [
+  { "type": "transientMeasure", "node": "out", "measure": "average", "fromSec": 0.008, "toSec": 0.009, "expected": 4.8, "tolerancePct": 2 },
+  { "type": "transientMeasure", "match": { "type": "L" }, "quantity": "i", "measure": "pp", "fromSec": 0.008, "toSec": 0.009, "expected": 0.288, "tolerancePct": 5 },
+  { "type": "connection", "match": { "type": "D" }, "pins": { "anode": "gnd", "cathode": "sw" } },
+  { "type": "efficiency", "inputs": ["V1"], "outputs": ["RL"], "fromSec": 0.008, "toSec": 0.009, "expected": 1.0, "toleranceAbs": 0.01 }
+],
+"referenceSolution": [
+  { "id": "SWV1", "type": "SW_V", "params": {}, "connect": ["vin", "sw", "g", "gnd"] },
+  { "id": "D1", "type": "D", "params": { "Vf": 0 }, "connect": ["gnd", "sw"] },
+  { "id": "L1", "type": "L", "params": { "L": 5e-4 }, "connect": ["sw", "out"] }
+]
+```
+- プレイヤーが置く L には `initialI` を入れられない（UI に無い）ので、L をプレイヤーが置く問題は C の `initialV` だけで始め、tStop を長めに（ここでは 9ms = 4.5×2RC。L の初期電流 0 からでも 1% 以内）。L を固定部品にできる問題は `initialI` も入れる。
+- 平均値の許容は 1〜2%、リプル（pp）は**近似式との差**を考えて 5〜15%（全波整流の I/(2fC) は放電時間を T/2 とみなすので実際より 10〜20% 大きい。解説で「近似」と明記し、判定はシミュレーション値に合わせて期待値を決め、許容誤差に近似式の値が入るようにする）。duty は `toleranceAbs` 0.01、効率は `toleranceAbs` 0.01〜0.02、力率は 2%。
+
+### verify の注意
+- `--mutate` は部品のパラメータを**まとめて**2倍にする。V_PULSE を参照解（プレイヤーが置く）にすると widthSec と periodSec が同時に2倍になりデューティ比が変わらない → 平均だけの判定では合格してしまう。リプル（周波数で変わる）も判定するか、V_PULSE を固定部品にする。
+- ダイオード系の `Rs`、サイリスタ系の `Vgk`/`Vgt`/`Vt`/`Ih`/`Rs`/`dV`、SW_V の `Ron`/`Roff`/`Vth`、XFMR の `coupling` は2倍にしない（モデル定数）。SW_V の `invert` は反転される（相補駆動の取り違え）。
+- `--reverse`: D・SCR は逆向き、SW_V は制御端子 ctrl_p/ctrl_n の入れ替え、XFMR は一次と二次の入れ替え、V_PULSE は極性反転。
+- `--drop` で還流ダイオードを外すと、L の電流の行き場が無く節点電圧が非常に大きくなる（Roff = 1GΩ に流れるため。数値は物理的な意味を持たないが、判定は不合格になる）。サージ電圧を問題にするなら TVS・ZD でクランプした回路で値を判定する。
+
+### 扱えない題材（作らない／簡略化して作る）
+- スイッチング損失・ターンオン/オフ時間・ゲート電荷・ダイオードの逆回復・寄生容量・リンギング（素子は瞬時に切り替わる）。損失は導通損失（Vf·I、I²·Ron）だけ。
+- 閉ループ制御（誤差増幅＋PWM 比較器のフィードバックで出力を安定化）・ソフトスタート IC・電流モード制御・能動 PFC（乗算器）。開ループの PWM（固定デューティ）で作る。比較器＋三角波で PWM を作る回路自体は可。
+- 3端子レギュレータ（78xx）・LDO IC の専用部品は無い（OPAMP＋BJT／M_P と ZD で組む）。ヒューズ・ポリスイッチ（溶断）は無い（電流の大きさを判定するだけ）。サーミスタ・熱・温度上昇は無い。
+- トランスの漏れインダクタンス・巻線抵抗・飽和・突入電流（磁気）、フォワードコンバータのリセット巻線。AC 解析でのトランス。
+- モータの機械系（回転数・トルク・慣性）、ブラシレス・ステッピングモータ、ベクトル制御。直流モータの電気的等価回路（R＋L＋逆起電力）まで。
+- 高調波の分析（THD・FFT の判定は無い）。力率は `powerFactor`（ひずみを含む全体の力率）で見る。
+- SCR の dv/dt 点弧・ブレークオーバ点弧・ターンオフ時間、TRIAC の象限ごとの感度差、GTO・IGBT の専用部品（SW_V で代用）。
+
+### 20問の候補（易 → 難。現エンジンで無理なく作れるもの）
+**F 電源回路**
+| # | トピック | 主な判定 |
+|---|---|---|
+| 1 | 半波整流（R 負荷）: 平均 Vm/π と実効値 Vm/2 | average, rms |
+| 2 | ダイオードの Vf の影響と導通角（ピーク Vm − Vf） | max, duty（ダイオード電流） |
+| 3 | 全波ブリッジ整流: ダイオードの向き（4個を組む） | average, connection（match D） |
+| 4 | トランス＋ブリッジ: 巻数比で 100V → 12V | XFMR, average, max |
+| 5 | コンデンサ平滑: C を選んでリプルを 1V 以下に（ΔV ≈ I/(2fC)） | pp, average |
+| 6 | 半波と全波のリプル比較（同じ C で約 2 倍） | pp |
+| 7 | 突入電流と直列抵抗（電源投入時の C の充電電流を制限） | max（電源電流、fromSec 0） |
+| 8 | ピーク整流・ピーク検出（RC 放電） | max, pp |
+| 9 | クランプ回路（直流分の付加） | min, max |
+| 10 | 倍電圧整流（グライナッヘル）: 出力 2(Vm − Vf) | average |
+| 11 | ツェナーシャントレギュレータ: 直列抵抗の選び方（負荷変動で Iz を確保） | DC dcVoltage, dcCurrent |
+| 12 | エミッタフォロワ型（ZD＋NPN）レギュレータ | DC dcVoltage |
+| 13 | OPAMP＋NPN のリニアレギュレータ: Vout = Vref(1+R1/R2) | DC dcVoltage, operatingRegion |
+| 14 | ドロップアウト: 入力が下がると OPAMP が飽和して Vout = Vin − VBE | DC operatingRegion(satHigh), dcVoltage |
+| 15 | リニアレギュレータの効率と発熱（Pd = (Vin−Vout)·I） | DC dcPower（Q）, numericAnswer |
+| 16 | 電流制限（BJT でセンス抵抗の電圧 0.7V を検出） | DC dcCurrent |
+| 17 | 過電圧保護のクローバ（ZD＋SCR）、点弧後の保持 | DC operatingRegion(on), dcVoltage／過渡 |
+| 18 | 逆接続保護（直列 D／並列 D）、TVS によるサージクランプ | DC／過渡 max |
+| 19 | 降圧スイッチング電源の基本（SW_V＋D＋L＋C）: D·Vin | average, pp |
+| 20 | リニア vs スイッチング: 同じ 12V → 5V の効率比較 | efficiency |
+
+**J パワーエレクトロニクス**
+| # | トピック | 主な判定 |
+|---|---|---|
+| 1 | 理想スイッチと PWM: デューティ比で平均電圧を変える（R 負荷） | duty, average |
+| 2 | SCR の点弧とラッチ（直流回路で一度点弧すると切れない） | DC operatingRegion, 過渡 |
+| 3 | SCR 半波位相制御: Vavg = Vm/(2π)(1+cos α) | average |
+| 4 | TRIAC の交流位相制御（調光）: 実効値と α | rms |
+| 5 | DIAC＋TRIAC の調光回路（RC の時定数で点弧角が変わる） | rms |
+| 6 | 降圧チョッパ: Vout = D·Vin、インダクタ電流リプル | average, L の pp |
+| 7 | 降圧の出力リプル ΔI/(8fC) と L・C の選び方 | pp |
+| 8 | 昇圧チョッパ: Vout = Vin/(1−D)、入力電流 | average, L の average |
+| 9 | 昇降圧（反転）: −D/(1−D)·Vin | average |
+| 10 | 電流連続／不連続（臨界インダクタンス） | L の min（signed） |
+| 11 | ダイオードの導通損失と効率（Vf を 0.7 → 0.3 のショットキーにすると改善） | efficiency, power |
+| 12 | 同期整流（還流ダイオードを相補駆動のスイッチに置き換え） | efficiency, average |
+| 13 | フライバック（XFMR の Lm）: Vout = Vin·D/((1−D)·n)、絶縁 | average |
+| 14 | ハーフブリッジ・インバータ（±電源、方形波出力） | rms（差動）, average 0 |
+| 15 | フルブリッジ・インバータと RL 負荷の電流（tanh の式） | rms, 電流の max |
+| 16 | 単相 PWM インバータ（三角波比較で正弦波に近づける）※ OPAMP 比較器 | acRms, average |
+| 17 | 直流モータの H ブリッジ駆動（正転・逆転、平均電流 = (D·Vdc − E)/R） | average（電流, signed） |
+| 18 | 誘導性負荷の還流ダイオード（モータ・リレーのサージ） | max |
+| 19 | コンデンサ入力型整流の力率（≈ 0.45）と受動 PFC（L で改善） | powerFactor |
+| 20 | 三相ブリッジ整流（V_AC 3 個、位相 0/120/240°）: Vavg = 3√3·Vm/π | average, pp |

@@ -28,9 +28,25 @@
  *    - PD: フォトダイオード（逆バイアス光電流 Ip の電流源）
  *    - PT: フォトトランジスタ（受光電流 Ic の電流源）
  *    - U_OPTO: フォトカプラ（入力LEDはダイオード、出力は CTR×LED電流 の電流源）
- *    - SCR / TRIAC: ゲート経路のみ評価（ゲート-カソード/MT1 間を
- *      Vgk / Vgt のダイオードとしてモデル化。アノード経路は DC 判定対象外）
- *    - DIAC: DC ではほぼ開放
+ *    - SCR / TRIAC / DIAC: ラッチ（自己保持）つきの区分線形スイッチ（下の「サイリスタ系」参照）
+ *    - SW_V: 電圧制御の理想スイッチ（制御電圧 > Vth で Ron、それ以外 Roff）
+ *    - D 系の直列抵抗は params.Rs（既定 RS_DIODE = 1Ω）。問題の simulation.diodeRs で
+ *      Rs を書いていない全ダイオードの既定値を変えられる（applyModelDefaults）。
+ *
+ *  サイリスタ系（分野 F / J。理想化の前提）:
+ *    - SCR [anode, gate, cathode]: ゲート-カソード間は Vgk のダイオード（直列 1Ω）。
+ *      ゲート電流が流れている間に V_AK ≥ Vt ならオン（A-K 間 = Vt の定電圧＋直列 Rs）。
+ *      いったんオンになると、ゲート電流が無くても A→K 電流 ≥ Ih（保持電流）の間はオンのまま
+ *      （ラッチ）。電流が Ih を下回る（交流のゼロクロス・転流）とオフ。逆方向は阻止
+ *      （降伏しない）。順方向のブレークオーバ（ゲートなしの点弧）・dv/dt 点弧・ターンオフ時間・
+ *      ラッチング電流と保持電流の区別は無い。
+ *    - TRIAC [mt2, gate, mt1]: ゲート-MT1 間は ±Vgt の双方向ダイオード（どちらの極性の
+ *      ゲート電流でも点弧＝4象限すべてで同じ感度）。主端子は両方向に SCR と同じ動作（±Vt）。
+ *    - DIAC [mt1, mt2]: |V| ≥ Vbo で導通し、端子電圧が ±(Vbo − dV)（ブレークバック）に下がる。
+ *      電流が Ih を下回るとオフ。
+ *    - 「ラッチ」は過渡解析で各時刻の解が確定したとき（commitDeviceStep）に記録する。
+ *      DC 解析は前の時刻が無いので、反復中に一度オンになったらラッチしたとみなす
+ *      （クローバ回路などで「点弧した後の動作点」を求める）。
  *    - U_WILSON / U_CASCODE: 参照端子に Vref の電圧源、出力に
  *      Iout ≈ Iref の電流源を持つブラックボックスカレントミラー
  *    - OPAMP: 電圧制御電圧源 Vout = Aol·(V(in+) − V(in−))（入力電流 0、出力抵抗 0）。
@@ -102,6 +118,37 @@ export const VT_THERMAL = 0.026;
 
 /** ツェナー / TVS の順方向電圧（V）。 */
 const VF_ZENER_FORWARD = 0.7;
+
+/** ダイオード系の直列抵抗の下限（Ω）。0 だと並列ダイオードで行列が特異になる。 */
+const RS_MIN = 1e-4;
+
+/** サイリスタ系（SCR / TRIAC / DIAC）の既定値 */
+const THYRISTOR_DEFAULTS = { Vt: 1.0, Ih: 0.005, Rs: 0.01, dV: 5 };
+
+/** SW_V（電圧制御スイッチ）の既定値 */
+const VSWITCH_DEFAULTS = { Ron: 0.01, Roff: 1e9, Vth: 2.5 };
+
+/** ダイオード系（Rs を持つ）部品種別 */
+const DIODE_RS_TYPES = new Set(["D", "SD", "LED", "ZD", "TVS"]);
+
+/**
+ * 問題ごとのモデル既定値を部品に反映します（DC / 過渡 / AC 共通）。
+ * - options.diodeRs: params.Rs を書いていない D/SD/LED/ZD/TVS の直列抵抗（Ω）。
+ *   分野 F / J の「理想ダイオード（Vf 一定、抵抗 0 に近い）」用。既定は RS_DIODE = 1Ω。
+ *
+ * @param {Array<object>} components
+ * @param {object} [options]
+ * @returns {Array<object>}
+ */
+export function applyModelDefaults(components, options = {}) {
+  const rs = Number(options?.diodeRs);
+  if (!(Number.isFinite(rs) && rs > 0)) return components;
+  return components.map((c) =>
+    DIODE_RS_TYPES.has(c?.type) && c.params?.Rs === undefined
+      ? { ...c, params: { ...(c.params || {}), Rs: rs } }
+      : c
+  );
+}
 
 /** 指数則 BJT の VBE 初期値・クランプ（V）。 */
 const VBE_EXP_INITIAL = 0.65;
@@ -283,6 +330,15 @@ function classifyComponents(components, warnings) {
         resistors.push({ id: c.id, p: pins[0], n: pins[1], g: 1 / R_INDUCTOR_DC });
         break;
       }
+      case "XFMR": {
+        // DC では巻線はインダクタと同じく短絡（1mΩ）。理想トランスは直流を伝えない
+        //（過渡解析では理想トランスとして結合する。src/sim/transient.js）
+        if (pins.length >= 4) {
+          resistors.push({ id: c.id, p: pins[0], n: pins[1], g: 1 / R_INDUCTOR_DC });
+          resistors.push({ id: `${c.id}#s`, p: pins[2], n: pins[3], g: 1 / R_INDUCTOR_DC });
+        }
+        break;
+      }
       case "SW": {
         const closed = c.params?.closed === true;
         const g = closed ? 1 / R_INDUCTOR_DC : 1 / R_SWITCH_OPEN;
@@ -300,6 +356,7 @@ function classifyComponents(components, warnings) {
       case "SCR":
       case "TRIAC":
       case "DIAC":
+      case "SW_V":
       case "U_WILSON":
       case "U_CASCODE":
       case "OPAMP":
@@ -332,10 +389,12 @@ function createDevice(c, pins) {
   if (DIODE_FAMILY[c.type]) {
     device.kind = "diode";
     device.vf = Math.max(getNumericParam(c, DIODE_FAMILY[c.type], 0.7), 0);
+    device.rs = Math.max(getNumericParam(c, "Rs", RS_DIODE), RS_MIN);
     device.state = { mode: "off", current: 0 };
   } else if (BREAKDOWN_FAMILY[c.type]) {
     device.kind = "breakdown";
     device.vz = Math.max(getNumericParam(c, BREAKDOWN_FAMILY[c.type], 5.1), 0);
+    device.rs = Math.max(getNumericParam(c, "Rs", RS_DIODE), RS_MIN);
     device.state = { mode: "off", current: 0 };
   } else if (c.type === "Q_NPN" || c.type === "Q_PNP") {
     device.kind = c.type === "Q_NPN" ? "bjtN" : "bjtP";
@@ -367,17 +426,30 @@ function createDevice(c, pins) {
     device.vf = Math.max(getNumericParam(c, "Vf", 1.2), 0);
     device.ctr = Math.min(Math.max(getNumericParam(c, "CTR", 0.5), 0), 1);
     device.state = { ledMode: "off", iled: 0 };
-  } else if (c.type === "SCR") {
-    device.kind = "scr";
+  } else if (c.type === "SCR" || c.type === "TRIAC" || c.type === "DIAC") {
+    device.kind = c.type === "SCR" ? "scr" : c.type === "TRIAC" ? "triac" : "diac";
     device.vgk = Math.max(getNumericParam(c, "Vgk", 0.8), 0);
-    device.state = { gateMode: "off" };
-  } else if (c.type === "TRIAC") {
-    device.kind = "triac";
     device.vgt = Math.max(getNumericParam(c, "Vgt", 1.5), 0);
-    device.state = { gateMode: "off" };
-  } else if (c.type === "DIAC") {
-    device.kind = "diac";
     device.vbo = Math.max(getNumericParam(c, "Vbo", 30), 0);
+    device.vt = Math.max(getNumericParam(c, "Vt", THYRISTOR_DEFAULTS.Vt), 0);
+    device.ih = Math.max(getNumericParam(c, "Ih", THYRISTOR_DEFAULTS.Ih), 0);
+    device.rs = Math.max(getNumericParam(c, "Rs", THYRISTOR_DEFAULTS.Rs), RS_MIN);
+    if (device.kind === "diac") {
+      // 導通中の端子電圧 = Vbo − dV（ブレークバック）
+      const dV = Math.max(getNumericParam(c, "dV", THYRISTOR_DEFAULTS.dV), 0);
+      device.vt = Math.max(device.vbo - dV, 0);
+    }
+    // mode: 主端子 off / on（SCR）/ onPos・onNeg（TRIAC・DIAC）
+    // gateMode: off / on（SCR）/ pos・neg（TRIAC）。latched: 前の時刻で導通していた
+    device.state = { mode: "off", gateMode: "off", current: 0, latched: false };
+  } else if (c.type === "SW_V") {
+    // pins = [1, 2, ctrl_p, ctrl_n]
+    device.kind = "vswitch";
+    device.ron = Math.max(getNumericParam(c, "Ron", VSWITCH_DEFAULTS.Ron), 1e-6);
+    device.roff = Math.max(getNumericParam(c, "Roff", VSWITCH_DEFAULTS.Roff), device.ron);
+    device.vth = getNumericParam(c, "Vth", VSWITCH_DEFAULTS.Vth);
+    device.invert = c.params?.invert === true || c.params?.invert === "true";
+    device.state = { mode: "off" };
   } else if (MIRROR_TYPES.has(c.type)) {
     device.kind = "mirror";
     device.vref = Math.max(getNumericParam(c, "Vref", 1.4), 0);
@@ -403,8 +475,24 @@ function createDevice(c, pins) {
 export const NONLINEAR_TYPES = new Set([
   ...Object.keys(DIODE_FAMILY), ...Object.keys(BREAKDOWN_FAMILY),
   "Q_NPN", "Q_PNP", "M_N", "M_P", "J_N", "PD", "PT", "U_OPTO",
-  "SCR", "TRIAC", "DIAC", "U_WILSON", "U_CASCODE", "OPAMP",
+  "SCR", "TRIAC", "DIAC", "U_WILSON", "U_CASCODE", "OPAMP", "SW_V",
 ]);
+
+/** サイリスタ系の素子か */
+const isThyristor = (dev) => dev.kind === "scr" || dev.kind === "triac" || dev.kind === "diac";
+
+/**
+ * 過渡解析で1刻みの解が確定したときに呼ぶ: サイリスタ系の「ラッチ」（前の時刻で導通していた）を記録する。
+ * @param {Array<object>} devices
+ */
+export function commitDeviceStep(devices) {
+  for (const dev of devices) {
+    if (isThyristor(dev)) {
+      dev.state.latched = dev.state.mode !== "off";
+      dev.state.fired = false;
+    }
+  }
+}
 
 export { createDevice };
 
@@ -590,7 +678,7 @@ function stampDevices(A, b, idx, devices, branchStart) {
         if (st.mode === "on") {
           const row = branchCursor++;
           branchRows.push({ deviceId: dev.id, role: "forward" });
-          stampVoltageBranch(A, b, a, k, row, dev.vf, RS_DIODE);
+          stampVoltageBranch(A, b, a, k, row, dev.vf, dev.rs ?? RS_DIODE);
           stampConductance(A, a, k, G_MIN);
         } else {
           stampConductance(A, a, k, G_MIN);
@@ -604,11 +692,11 @@ function stampDevices(A, b, idx, devices, branchStart) {
         if (st.mode === "forward") {
           const row = branchCursor++;
           branchRows.push({ deviceId: dev.id, role: "forward" });
-          stampVoltageBranch(A, b, a, k, row, VF_ZENER_FORWARD, RS_DIODE);
+          stampVoltageBranch(A, b, a, k, row, VF_ZENER_FORWARD, dev.rs ?? RS_DIODE);
         } else if (st.mode === "breakdown") {
           const row = branchCursor++;
           branchRows.push({ deviceId: dev.id, role: "breakdown" });
-          stampVoltageBranch(A, b, a, k, row, -dev.vz, RS_DIODE);
+          stampVoltageBranch(A, b, a, k, row, -dev.vz, dev.rs ?? RS_DIODE);
         }
         stampConductance(A, a, k, G_MIN);
         break;
@@ -786,26 +874,35 @@ function stampDevices(A, b, idx, devices, branchStart) {
       }
 
       case "scr":
-      case "triac": {
-        // SCR: pins = [anode, gate, cathode] / TRIAC: pins = [mt2, gate, mt1]
+      case "triac":
+      case "diac": {
+        // SCR: pins = [anode, gate, cathode] / TRIAC: pins = [mt2, gate, mt1] / DIAC: pins = [mt1, mt2]
         const main = idx(dev.pins[0]);
-        const gate = idx(dev.pins[1]);
-        const ref = idx(dev.pins[2]);
-        if (st.gateMode === "on") {
-          const row = branchCursor++;
-          branchRows.push({ deviceId: dev.id, role: "gate" });
-          const vf = dev.kind === "scr" ? dev.vgk : dev.vgt;
-          stampVoltageBranch(A, b, gate, ref, row, vf, RS_DIODE);
+        const ref = idx(dev.kind === "diac" ? dev.pins[1] : dev.pins[2]);
+        if (dev.kind !== "diac") {
+          const gate = idx(dev.pins[1]);
+          if (st.gateMode !== "off") {
+            const row = branchCursor++;
+            branchRows.push({ deviceId: dev.id, role: "gate" });
+            const vg = dev.kind === "scr" ? dev.vgk : dev.vgt;
+            stampVoltageBranch(A, b, gate, ref, row, st.gateMode === "neg" ? -vg : vg, RS_DIODE);
+          }
+          stampConductance(A, gate, ref, G_MIN);
         }
-        stampConductance(A, gate, ref, G_MIN);
-        stampConductance(A, main, ref, G_MIN); // アノード経路は DC 判定対象外
+        if (st.mode !== "off") {
+          const row = branchCursor++;
+          branchRows.push({ deviceId: dev.id, role: "main" });
+          stampVoltageBranch(A, b, main, ref, row, st.mode === "onNeg" ? -dev.vt : dev.vt, dev.rs);
+        }
+        stampConductance(A, main, ref, G_MIN);
         break;
       }
 
-      case "diac": {
-        const m1 = idx(dev.pins[0]);
-        const m2 = idx(dev.pins[1]);
-        stampConductance(A, m1, m2, G_MIN);
+      case "vswitch": {
+        // SW_V: pins = [1, 2, ctrl_p, ctrl_n]。制御端子は電圧を見るだけ（電流 0）
+        const p = idx(dev.pins[0]);
+        const n = idx(dev.pins[1]);
+        stampConductance(A, p, n, st.mode === "on" ? 1 / dev.ron : 1 / dev.roff);
         break;
       }
 
@@ -894,7 +991,9 @@ function countDeviceBranches(devices) {
         break;
       case "scr":
       case "triac":
-        if (dev.state.gateMode === "on") count += 1;
+      case "diac":
+        if (dev.state.gateMode !== "off" && dev.kind !== "diac") count += 1;
+        if (dev.state.mode !== "off") count += 1;
         break;
       case "mirror":
       case "opamp":
@@ -1105,18 +1204,56 @@ function updateDeviceStates(devices, ctx, x, branchRows, deviceBranchBase) {
       }
 
       case "scr":
-      case "triac": {
-        const gateNet = dev.pins[1];
-        const refNet = dev.pins[2];
-        const vGr = vOf(gateNet) - vOf(refNet);
-        const vf = dev.kind === "scr" ? dev.vgk : dev.vgt;
-        if (st.gateMode === "off") {
-          if (vGr >= vf - 1e-12) st.gateMode = "on";
-        } else {
-          const ig = branchCurrent(dev.id, "gate");
-          if (ig < 0) st.gateMode = "off";
+      case "triac":
+      case "diac": {
+        const refNet = dev.kind === "diac" ? dev.pins[1] : dev.pins[2];
+        const vMain = vOf(dev.pins[0]) - vOf(refNet);
+        // --- ゲート（SCR: G→K の Vgk ダイオード、TRIAC: G−MT1 間の ±Vgt 双方向ダイオード） ---
+        if (dev.kind !== "diac") {
+          const vGr = vOf(dev.pins[1]) - vOf(refNet);
+          const vg = dev.kind === "scr" ? dev.vgk : dev.vgt;
+          if (st.gateMode === "off") {
+            if (vGr >= vg - 1e-12) st.gateMode = dev.kind === "scr" ? "on" : "pos";
+            else if (dev.kind === "triac" && vGr <= -vg + 1e-12) st.gateMode = "neg";
+          } else {
+            const ig = branchCurrent(dev.id, "gate");
+            if (st.gateMode === "neg" ? ig > 0 : ig < 0) st.gateMode = "off";
+          }
         }
-        parts.push(`${dev.id}:${st.gateMode}`);
+        const gateOn = st.gateMode !== "off";
+        // --- 主端子 ---
+        if (st.mode === "off") {
+          st.current = 0;
+          if (dev.kind === "scr") {
+            if (gateOn && vMain >= dev.vt - 1e-12) st.mode = "on";
+          } else if (dev.kind === "triac") {
+            if (gateOn && vMain >= dev.vt - 1e-12) st.mode = "onPos";
+            else if (gateOn && vMain <= -dev.vt + 1e-12) st.mode = "onNeg";
+          } else if (vMain >= dev.vbo - 1e-12) {
+            st.mode = "onPos";
+          } else if (vMain <= -dev.vbo + 1e-12) {
+            st.mode = "onNeg";
+          }
+          // 点弧したら自己保持（この解の中ではゲート電流が消えても順電流が正なら導通を続け、
+          // 次の時刻からは Ih 以上の間だけ導通。commitDeviceStep が latched に移す）
+          if (st.mode !== "off") st.fired = true;
+        } else {
+          const x = branchCurrent(dev.id, "main");
+          st.current = x;
+          const iFwd = st.mode === "onNeg" ? -x : x;
+          const allowed = gateOn || st.latched || st.fired || dev.kind === "diac";
+          const minI = gateOn || !st.latched ? 0 : dev.ih;
+          if (!allowed || iFwd < minI) st.mode = "off";
+        }
+        parts.push(`${dev.id}:${st.mode}:${st.gateMode}:${roundForSignature(st.current)}`);
+        break;
+      }
+
+      case "vswitch": {
+        const vc = vOf(dev.pins[2]) - vOf(dev.pins[3]);
+        const on = dev.invert ? vc < dev.vth : vc > dev.vth;
+        st.mode = on ? "on" : "off";
+        parts.push(`${dev.id}:${st.mode}`);
         break;
       }
 
@@ -1261,14 +1398,19 @@ function extractDeviceElements(devices, ctx, x, branchRows, deviceBranchBase) {
         break;
       }
       case "scr":
-      case "triac": {
-        v = vOf(dev.pins[0]) - vOf(dev.pins[2]);
-        i = st.gateMode === "on" ? branchCurrent(dev.id, "gate") : 0;
-        break;
-      }
+      case "triac":
       case "diac": {
+        // v = 主端子間電圧（anode−cathode / MT2−MT1 / MT1−MT2）、
+        // i = 主端子の電流（anode→cathode / MT2→MT1 / MT1→MT2 が正）、ig = ゲート電流
+        v = vOf(dev.pins[0]) - vOf(dev.kind === "diac" ? dev.pins[1] : dev.pins[2]);
+        i = st.mode !== "off" ? branchCurrent(dev.id, "main") : v * G_MIN;
+        const ig = st.gateMode !== "off" ? branchCurrent(dev.id, "gate") : 0;
+        elements[dev.id] = { v, i, p: v * i, ig };
+        continue;
+      }
+      case "vswitch": {
         v = vOf(dev.pins[0]) - vOf(dev.pins[1]);
-        i = v * G_MIN;
+        i = v / (st.mode === "on" ? dev.ron : dev.roff);
         break;
       }
       case "mirror": {
@@ -1385,7 +1527,12 @@ export function describeOperatingPoints(devices, vOf, elements) {
         break;
       case "scr":
       case "triac":
-        ops[dev.id] = { kind: dev.kind, type: dev.type, region: st.gateMode };
+      case "diac":
+        // region: 主端子が導通していれば "on"、していなければ "off"
+        ops[dev.id] = { kind: dev.kind, type: dev.type, region: st.mode === "off" ? "off" : "on", gate: st.gateMode, i: e.i ?? 0 };
+        break;
+      case "vswitch":
+        ops[dev.id] = { kind: dev.kind, type: dev.type, region: st.mode, i: e.i ?? 0 };
         break;
       default:
         ops[dev.id] = { kind: dev.kind, type: dev.type, region: "static" };
@@ -1490,12 +1637,12 @@ export { extractDeviceElements };
  * @param {object} circuit { components, wires, nodes }
  * @returns {object}
  */
-export function runDc(circuitIn) {
+export function runDc(circuitIn, options = {}) {
   const errors = [];
   const warnings = [];
 
   // 未配線ピンを固有ネットへ、TP だけのネットを除外、浮いたネットを検出（netlist.js）
-  const prep = prepareNetlist(circuitIn.components);
+  const prep = prepareNetlist(applyModelDefaults(circuitIn.components, options));
   const circuit = { ...circuitIn, components: prep.components };
   warnings.push(...prep.warnings);
   const excludedNets = new Set(prep.unconnectedNets);
@@ -1617,7 +1764,7 @@ export function runDc(circuitIn) {
  * dc モードを registerSimulationMode に登録します。
  */
 export function registerDcMode() {
-  registerSimulationMode("dc", async (circuit) => runDc(circuit));
+  registerSimulationMode("dc", async (circuit, options) => runDc(circuit, options));
 }
 
 // import された時点で自動登録（setup.js での明示呼び出しも可）
