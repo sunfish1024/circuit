@@ -153,6 +153,7 @@ const rawConfig = {
       currentProblem: "current-problem",
       boardDraft: "board-draft",
       uiPreferences: "ui-preferences",
+      problemPanelSize: "problem-panel-size",
     },
   },
 

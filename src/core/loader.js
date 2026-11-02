@@ -468,6 +468,9 @@ export function normalizeProblem(raw) {
       : [],
 
     ui: isPlainObject(raw?.ui) ? raw.ui : {},
+
+    // 固定配線のガイド線の描き方（docs/layout_spec.md）。部品の位置・回転は fixedComponents 側
+    layout: isPlainObject(raw?.layout) ? raw.layout : {},
   };
 }
 

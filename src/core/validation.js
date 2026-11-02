@@ -600,6 +600,7 @@ export function validateProblem(problem, options = {}) {
 
   validateHints(problem, result);
   validateExplanation(problem.explanation, result);
+  validateLayout(problem.layout, problem.fixedComponents, result);
   const questionMap = validateQuestions(problem.questions, result);
   validateReferenceAnswers(problem, questionMap, result);
 
@@ -1396,6 +1397,71 @@ function validateWireEndpoint(endpoint, path, result, componentIds) {
   if (endpoint.pin !== undefined && !isNonEmptyString(endpoint.pin)) {
     addValidationError(result, `${path}.pin は文字列である必要があります。`);
   }
+}
+
+/**
+ * 問題の layout（固定配線のガイド線の描き方。docs/layout_spec.md）を検証します。
+ *
+ * - layout は省略可。あるならオブジェクト。
+ * - guides / groundSymbols は真偽値。
+ * - routes は [{ net, points: [[x, y], ...] }] の配列。net は fixedComponents のネット名、
+ *   points は 2 点以上で、隣り合う点は水平か垂直に並ぶこと。
+ * 位置の重なり・はみ出しなどの見た目の検査は tools/check_layout.mjs が行う。
+ */
+function validateLayout(layout, fixedComponents, result) {
+  if (layout === undefined) return;
+  if (!isPlainObject(layout)) {
+    addValidationError(result, "problem.layout はオブジェクトである必要があります。");
+    return;
+  }
+  const known = new Set(["guides", "groundSymbols", "routes"]);
+  for (const key of Object.keys(layout)) {
+    if (!known.has(key)) {
+      addValidationWarning(result, `problem.layout.${key} は未知のキーです（guides / groundSymbols / routes のみ）。`);
+    }
+  }
+  for (const key of ["guides", "groundSymbols"]) {
+    if (layout[key] !== undefined && typeof layout[key] !== "boolean") {
+      addValidationError(result, `problem.layout.${key} は true / false である必要があります。`);
+    }
+  }
+  if (layout.routes === undefined) return;
+  if (!Array.isArray(layout.routes)) {
+    addValidationError(result, "problem.layout.routes は配列である必要があります。");
+    return;
+  }
+  const fixedNets = new Set();
+  for (const c of Array.isArray(fixedComponents) ? fixedComponents : []) {
+    for (const net of Array.isArray(c?.connect) ? c.connect : []) {
+      if (isNonEmptyString(net)) fixedNets.add(net);
+    }
+  }
+  layout.routes.forEach((route, index) => {
+    const path = `problem.layout.routes[${index}]`;
+    if (!isPlainObject(route)) {
+      addValidationError(result, `${path} はオブジェクトである必要があります。`);
+      return;
+    }
+    if (!isNonEmptyString(route.net)) {
+      addValidationError(result, `${path}.net は空でない文字列である必要があります。`);
+    } else if (!fixedNets.has(route.net)) {
+      addValidationError(result, `${path}.net "${route.net}" は fixedComponents のどのネットにもありません。`);
+    }
+    if (!Array.isArray(route.points) || route.points.length < 2) {
+      addValidationError(result, `${path}.points は 2 点以上の [x, y] の配列である必要があります。`);
+      return;
+    }
+    route.points.forEach((pt, i) => {
+      if (!Array.isArray(pt) || pt.length !== 2 || !isFiniteNumber(pt[0]) || !isFiniteNumber(pt[1])) {
+        addValidationError(result, `${path}.points[${i}] は [x, y]（数値2つ）である必要があります。`);
+      } else if (i > 0) {
+        const prev = route.points[i - 1];
+        if (Array.isArray(prev) && prev[0] !== pt[0] && prev[1] !== pt[1]) {
+          addValidationError(result, `${path}.points[${i - 1}]→[${i}] が斜めです（水平か垂直に並べてください）。`);
+        }
+      }
+    });
+  });
 }
 
 /**

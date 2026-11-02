@@ -456,6 +456,14 @@ const RC = (extra = []) => board(
   expect("validation: element も match も無い dcCurrent はエラー", !v({ checks: [{ type: "dcCurrent", expected: 1 }] }).ok);
   expect("validation: match.pins のピン名違いはエラー", !v({ checks: [{ type: "connection", match: { type: "D" }, pins: { anode: "vin" } }, { type: "componentValue", match: { type: "D", pins: { gate: "x" } }, expected: 1 }] }).ok);
   expect("validation: 未知の match.type はエラー", !v({ checks: [{ type: "componentValue", match: { type: "XYZ" }, expected: 1 }] }).ok);
+  // layout（docs/layout_spec.md）
+  expect("validation: layout（guides / groundSymbols / routes）は可", (() => { const r = v({ layout: { guides: true, groundSymbols: false, routes: [{ net: "out", points: [[10, 20], [50, 20], [50, 80]] }] } }); return r.ok && r.warnings.length === 0; })());
+  expect("validation: layout がオブジェクトでないとエラー", !v({ layout: [] }).ok);
+  expect("validation: layout.guides が真偽値でないとエラー", !v({ layout: { guides: "yes" } }).ok);
+  expect("validation: layout.routes の斜めの区間はエラー", !v({ layout: { routes: [{ net: "out", points: [[10, 20], [50, 60]] }] } }).ok);
+  expect("validation: layout.routes の net が固定部品に無いとエラー", !v({ layout: { routes: [{ net: "zzz", points: [[10, 20], [50, 20]] }] } }).ok);
+  expect("validation: layout.routes の点が1つだけはエラー", !v({ layout: { routes: [{ net: "out", points: [[10, 20]] }] } }).ok);
+  expect("validation: layout の未知のキーは警告", (() => { const r = v({ layout: { foo: 1 } }); return r.ok && r.warnings.some((w) => /layout\.foo/.test(w)); })());
 }
 
 /* ---------------------------------------------------------------- verify.mjs --drop / --mutate / --reverse / 回答 */
@@ -534,6 +542,19 @@ const RC = (extra = []) => board(
   const idx = runVerify();
   expect("verify: index.json に無いファイル・ファイルの無い index 項目を NG", idx.code === 1 && /T-09/.test(idx.out) && /T-02\.json が index\.json に載っていません/.test(idx.out), idx.out);
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------------------------------------------------------- check_layout.mjs（レイアウト検査の自己テスト） */
+{
+  let out = "";
+  let code = 0;
+  try {
+    out = execFileSync(process.execPath, [path.join(ROOT, "tools/check_layout.mjs"), "--self-test"], { encoding: "utf8" });
+  } catch (e) {
+    code = e.status;
+    out = String(e.stdout);
+  }
+  expect("check_layout --self-test: 重なり・はみ出し・ラベル・ガイド線の検出がすべて期待どおり", code === 0, out);
 }
 
 console.log(`[test_checks] 合格 ${passed} / 失敗 ${failures.length}`);

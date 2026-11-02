@@ -23,9 +23,23 @@
  *   接続（ネット名）は変化しない。
  */
 
-import { CONFIG } from "../config.js";
+import { CONFIG, getStorageKey } from "../config.js";
 import { eventBus } from "../core/eventBus.js";
-import { getSymbolBody, getSymbolDefinition, getSymbolPins } from "./symbols.js";
+import { getSymbolBody, getSymbolDefinition } from "./symbols.js";
+import {
+  COMP_H,
+  COMP_SCALE,
+  COMP_W,
+  SNAP,
+  componentValueText,
+  computeFixedLayout,
+  computeLabelLayout,
+  getInnerRotationTransform,
+  getPinPoint as geoGetPinPoint,
+  getRotatedBox,
+  getRotatedPinGeometry as geoGetRotatedPinGeometry,
+  normalizeRotation,
+} from "./geometry.js";
 import {
   loadGameData,
   loadProblem,
@@ -103,19 +117,11 @@ let wireDraft = null; // { componentId, pin }
 /** パレットからボードへのドラッグ中にクリックを抑制するフラグ。 */
 let suppressPaletteClick = false;
 
-/** 部品シンボルのサイズ（設計座標）。 */
-const COMP_W = 96;
-const COMP_H = 52;
-
-/**
- * 部品の表示倍率。
- * ボードを固定サイズ（スクロールなし）にしたため、
- * 記号・ピン・ラベルをまとめて少し小さめに描画する。
+/*
+ * 部品シンボルのサイズ（COMP_W / COMP_H）、表示倍率（COMP_SCALE）、スナップ間隔（SNAP）、
+ * ピン位置・回転・ラベル配置・ガイド線の計算は src/ui/geometry.js（DOM 非依存）にまとめてある。
+ * tools/check_layout.mjs も同じモジュールを使うので、描画と検査の結果が一致する。
  */
-const COMP_SCALE = 0.75;
-
-/** グリッドスナップ間隔。 */
-const SNAP = 10;
 
 /** アプリ外殻テンプレート。 */
 const APP_SHELL = `
@@ -169,15 +175,6 @@ function safeGetParamUnit(type, key) {
   }
 }
 
-function formatParamValueForDisplay(component, key, value) {
-  if (typeof value === "number") {
-    const unit = safeGetParamUnit(component.type, key);
-    return formatMetricValue(value, unit);
-  }
-
-  return String(value ?? "");
-}
-
 function forceRender() {
   eventBus.emit("state:changed", getState());
 }
@@ -194,227 +191,29 @@ function safePinNames(type) {
 }
 
 /**
- * 部品種別のピン座標（ローカル座標）を返します。
- *
- * ピンの配置ルール:
- * - 1ピン: 下中央（GND想定）
- * - 2ピン: 左右
- * - 3ピン: 上（p0）/ 左（p1）/ 下（p2）
- * - 4ピン: 左2本 / 右2本
- * - 5ピン以上: 左2本 / 右1本 / 上下 / 残りは右に分散
- *
- * @param {string} type
- * @returns {Array<{x:number, y:number}>}
- */
-function getPinGeometry(type) {
-  // シンボル側が独自ピン位置を持つ場合はそれを優先します。
-  const symbolPins = getSymbolPins(type);
-
-  if (symbolPins) {
-    return symbolPins;
-  }
-
-  const names = safePinNames(type);
-  const n = names.length;
-  const points = [];
-
-  if (n === 1) {
-    points.push({ x: COMP_W / 2, y: COMP_H });
-  } else if (n === 2) {
-    points.push({ x: 0, y: COMP_H / 2 }, { x: COMP_W, y: COMP_H / 2 });
-  } else if (n === 3) {
-    points.push(
-      { x: COMP_W / 2, y: 0 },
-      { x: 0, y: COMP_H / 2 },
-      { x: COMP_W / 2, y: COMP_H }
-    );
-  } else if (n === 4) {
-    points.push(
-      { x: 0, y: COMP_H * 0.3 },
-      { x: 0, y: COMP_H * 0.7 },
-      { x: COMP_W, y: COMP_H * 0.3 },
-      { x: COMP_W, y: COMP_H * 0.7 }
-    );
-  } else if (n >= 5) {
-    points.push(
-      { x: 0, y: COMP_H * 0.28 },
-      { x: 0, y: COMP_H * 0.72 },
-      { x: COMP_W, y: COMP_H * 0.5 },
-      { x: COMP_W / 2, y: 0 },
-      { x: COMP_W / 2, y: COMP_H }
-    );
-    for (let i = 5; i < n; i += 1) {
-      const ratio = (i - 4) / (n - 4 + 1);
-      points.push({ x: COMP_W, y: COMP_H * ratio });
-    }
-  }
-
-  return points;
-}
-
-/**
- * 部品の回転角を正規化します（0 / 90 / 180 / 270 のいずれかに丸める）。
- *
- * @param {unknown} rotation
- * @returns {number}
- */
-function normalizeRotation(rotation) {
-  const value = Number(rotation);
-
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-
-  const rounded = Math.round(value / 90) * 90;
-
-  return ((rounded % 360) + 360) % 360;
-}
-
-/**
- * 部品の回転角を取得します。
- *
- * @param {object | null} component
- * @returns {number} 0 / 90 / 180 / 270
+ * 部品の回転角を取得します（0 / 90 / 180 / 270）。
  */
 function getRotation(component) {
   return normalizeRotation(component?.rotation ?? 0);
 }
 
 /**
- * 回転後の部品外接ボックス（設計座標）を返します。
- *
- * @param {number} rotation
- * @returns {{w:number, h:number}}
- */
-function getRotatedBox(rotation) {
-  if (rotation === 90 || rotation === 270) {
-    return { w: COMP_H, h: COMP_W };
-  }
-
-  return { w: COMP_W, h: COMP_H };
-}
-
-/**
- * 部品ローカル座標上の点を回転後に変換します。
- * 回転は外接ボックスの中心周りで、結果は正の座標に収まるように補正します。
- *
- * @param {number} px
- * @param {number} py
- * @param {number} rotation
- * @returns {{x:number, y:number}}
- */
-function rotatePointInBox(px, py, rotation) {
-  switch (rotation) {
-    case 90:
-      return { x: COMP_H - py, y: px };
-    case 180:
-      return { x: COMP_W - px, y: COMP_H - py };
-    case 270:
-      return { x: py, y: COMP_W - px };
-    default:
-      return { x: px, y: py };
-  }
-}
-
-/**
- * 記号本体を回転させるための内側 transform を返します。
- * 外接ボックスの左上原点を保ったまま回転します。
- *
- * @param {number} rotation
- * @returns {string} SVG transform 属性の値（0 度は空文字）
- */
-function getInnerRotationTransform(rotation) {
-  switch (rotation) {
-    case 90:
-      return `translate(${COMP_H}, 0) rotate(90)`;
-    case 180:
-      return `translate(${COMP_W}, ${COMP_H}) rotate(180)`;
-    case 270:
-      return `translate(0, ${COMP_W}) rotate(270)`;
-    default:
-      return "";
-  }
-}
-
-/**
- * 回転を考慮したピン座標（ローカル設計座標）を返します。
- *
- * @param {string} type
- * @param {number} rotation
- * @returns {Array<{x:number, y:number}>}
+ * 回転を考慮したピン座標（設計座標）を返します。
  */
 function getRotatedPinGeometry(type, rotation) {
-  const geo = getPinGeometry(type);
-
-  if (!rotation) {
-    return geo;
-  }
-
-  return geo.map((point) => rotatePointInBox(point.x, point.y, rotation));
+  return geoGetRotatedPinGeometry(type, rotation, safePinNames(type));
 }
 
 /**
  * 部品上のピンの絶対座標（キャンバス座標）を返します。
- * 部品が回転している場合はピン位置も回転させます。
- *
- * @param {object} component
- * @param {string} pinName
- * @returns {{x:number, y:number}}
  */
 function getPinPoint(component, pinName) {
-  const rotation = getRotation(component);
-  const geo = getRotatedPinGeometry(component.type, rotation);
-  const names = safePinNames(component.type);
-
-  let index = names.indexOf(String(pinName));
-
-  if (index < 0) {
-    const numeric = Number(pinName);
-    if (Number.isInteger(numeric) && numeric >= 0 && numeric < geo.length) {
-      index = numeric;
-    }
-  }
-
-  const x = component.position?.x ?? 40;
-  const y = component.position?.y ?? 40;
-
-  if (index < 0 || index >= geo.length) {
-    const box = getRotatedBox(rotation);
-
-    return {
-      x: x + (box.w * COMP_SCALE) / 2,
-      y: y + (box.h * COMP_SCALE) / 2,
-    };
-  }
-
-  return {
-    x: x + geo[index].x * COMP_SCALE,
-    y: y + geo[index].y * COMP_SCALE,
-  };
+  return geoGetPinPoint(component, pinName, safePinNames(component.type));
 }
 
-/**
- * ピン位置のラベル表示位置を返します。
- *
- * @param {{x:number, y:number}} point ローカル座標（回転後）
- * @param {number} [boxW] 回転後の外接ボックス幅
- * @param {number} [boxH] 回転後の外接ボックス高さ
- * @returns {{x:number, y:number, anchor:string}}
- */
-function getPinLabelPosition(point, boxW = COMP_W, boxH = COMP_H) {
-  if (point.y <= 1) {
-    return { x: boxW / 2, y: -6, anchor: "middle" };
-  }
-
-  if (point.y >= boxH - 1) {
-    return { x: boxW / 2, y: boxH + 12, anchor: "middle" };
-  }
-
-  if (point.x <= 1) {
-    return { x: -7, y: point.y + 3, anchor: "end" };
-  }
-
-  return { x: boxW + 7, y: point.y + 3, anchor: "start" };
+/** パラメータの単位（未登録なら空文字）。 */
+function unitOfParam(type, key) {
+  return safeGetParamUnit(type, key);
 }
 
 /**
@@ -1213,9 +1012,11 @@ function renderBoard(root, state) {
       })
     : "";
 
-  // --- SVG（ワイヤ + 部品） ---
+  // --- SVG（ガイド線 + ワイヤ + 部品） ---
+  const fixedLayout = getFixedLayout(state);
+  const guidesSvg = buildGuidesSvg(fixedLayout);
   const wiresSvg = buildWiresSvg(state);
-  const componentsSvg = buildComponentsSvg(state);
+  const componentsSvg = buildComponentsSvg(state, fixedLayout);
   const draftSvg = buildDraftSvg(state);
 
   const emptyHtml =
@@ -1227,10 +1028,21 @@ function renderBoard(root, state) {
 
   board.innerHTML = `
     ${toolbarHtml}
-    ${problemPanelHtml}
+    <div class="board-work" id="board-work">
+    ${
+      problemPanelHtml
+        ? `<div class="problem-frame" id="problem-frame">
+             ${problemPanelHtml}
+             <div class="panel-resize panel-resize-e" data-panel-resize="e" title="ドラッグで幅を変更（ダブルクリックで元に戻す）"></div>
+             <div class="panel-resize panel-resize-s" data-panel-resize="s" title="ドラッグで高さを変更（ダブルクリックで元に戻す）"></div>
+             <div class="panel-resize panel-resize-se" data-panel-resize="se" title="ドラッグで幅と高さを変更（ダブルクリックで元に戻す）"></div>
+           </div>`
+        : ""
+    }
     <div class="board-container">
       <div class="board-canvas ${wireMode ? "wire-mode" : ""}" id="board-canvas">
         <svg class="board-svg" id="board-svg">
+          <g id="guide-layer">${guidesSvg}</g>
           <g id="wire-layer">${wiresSvg}</g>
           <g id="component-layer">${componentsSvg}</g>
           ${draftSvg}
@@ -1238,9 +1050,239 @@ function renderBoard(root, state) {
         ${emptyHtml}
       </div>
     </div>
+    </div>
   `;
 
   bindBoardEvents(root, state);
+  setupProblemPanelResize(root);
+}
+
+/* ==========================================================================
+   問題文パネルのリサイズ
+   ========================================================================== */
+
+/** 問題文パネルの最小サイズ（px）。 */
+const PANEL_MIN_W = 280;
+const PANEL_MIN_H = 90;
+
+/** 問題文パネルの右にボードを並べるのに必要な最小のボード幅（px）。 */
+const PANEL_SIDE_MIN_BOARD = 360;
+
+/**
+ * 問題文パネルのサイズ（ユーザーがドラッグで決めたもの）。
+ * width / height が null なら既定（幅いっぱい / 最大 46vh）。
+ */
+let panelSize = readPanelSize();
+
+function readPanelSize() {
+  try {
+    const raw = localStorage.getItem(getStorageKey("problemPanelSize"));
+    const parsed = raw ? JSON.parse(raw) : null;
+    const num = (v) => (Number.isFinite(v) && v > 0 ? v : null);
+    return { width: num(parsed?.width), height: num(parsed?.height) };
+  } catch {
+    return { width: null, height: null };
+  }
+}
+
+function writePanelSize() {
+  try {
+    if (panelSize.width === null && panelSize.height === null) {
+      localStorage.removeItem(getStorageKey("problemPanelSize"));
+    } else {
+      localStorage.setItem(getStorageKey("problemPanelSize"), JSON.stringify(panelSize));
+    }
+  } catch {
+    /* 保存できなくても動作は続ける */
+  }
+}
+
+/**
+ * 保存済みのサイズをパネルに当て、並べ方（上 / 横）を決めます。
+ * - 幅を狭めてボードの右側に PANEL_SIDE_MIN_BOARD 以上の余白ができたら、パネルの右にボードを並べる（is-side）。
+ * - それ以外はパネルの下にボード（従来どおり）。
+ */
+function applyPanelLayout(root) {
+  const work = root.querySelector("#board-work");
+  const frame = root.querySelector("#problem-frame");
+  if (!work || !frame) return;
+
+  const collapsed = Boolean(frame.querySelector(".board-problem-panel.is-collapsed"));
+  const workW = work.clientWidth;
+  const workH = work.clientHeight;
+
+  const width =
+    panelSize.width === null
+      ? null
+      : Math.max(PANEL_MIN_W, Math.min(panelSize.width, Math.max(PANEL_MIN_W, workW)));
+  const side = width !== null && workW - width >= PANEL_SIDE_MIN_BOARD;
+
+  work.classList.toggle("is-side", side);
+  frame.style.width = width === null ? "" : `${width}px`;
+
+  if (collapsed || panelSize.height === null) {
+    frame.style.height = "";
+    frame.classList.remove("has-height");
+  } else {
+    const maxH = side ? workH : Math.max(PANEL_MIN_H, workH - 120);
+    frame.style.height = `${Math.max(PANEL_MIN_H, Math.min(panelSize.height, maxH))}px`;
+    frame.classList.add("has-height");
+  }
+}
+
+/** ウィンドウサイズ変更時にパネルの並べ方を見直す（登録は1回だけ）。 */
+let panelResizeListenerRoot = null;
+
+function setupProblemPanelResize(root) {
+  const frame = root.querySelector("#problem-frame");
+
+  if (!panelResizeListenerRoot) {
+    panelResizeListenerRoot = root;
+    window.addEventListener("resize", () => applyPanelLayout(panelResizeListenerRoot));
+  }
+
+  if (!frame) return;
+
+  applyPanelLayout(root);
+
+  frame.querySelectorAll("[data-panel-resize]").forEach((handle) => {
+    const mode = handle.dataset.panelResize;
+
+    handle.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      if (mode.includes("e")) panelSize.width = null;
+      if (mode.includes("s")) panelSize.height = null;
+      writePanelSize();
+      applyPanelLayout(root);
+    });
+
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const rect = frame.getBoundingClientRect();
+      const startW = rect.width;
+      const startH = rect.height;
+
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch {
+        /* 古いブラウザでは無視 */
+      }
+      frame.classList.add("is-resizing");
+
+      const onMove = (moveEvent) => {
+        if (mode.includes("e")) {
+          panelSize.width = Math.max(PANEL_MIN_W, Math.round(startW + moveEvent.clientX - startX));
+        }
+        if (mode.includes("s")) {
+          panelSize.height = Math.max(PANEL_MIN_H, Math.round(startH + moveEvent.clientY - startY));
+        }
+        applyPanelLayout(root);
+      };
+
+      const onUp = () => {
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.removeEventListener("pointercancel", onUp);
+        frame.classList.remove("is-resizing");
+        writePanelSize();
+      };
+
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      handle.addEventListener("pointercancel", onUp);
+    });
+  });
+}
+
+/* ==========================================================================
+   固定配線のガイド線（描画専用）
+   ========================================================================== */
+
+/** computeFixedLayout の結果のキャッシュ（固定部品の位置・回転・接続が変わったときだけ再計算）。 */
+let fixedLayoutCache = { key: null, value: null };
+
+/**
+ * 固定部品（locked）のラベル配置・ガイド線・自動 GND 記号を計算します。
+ * ガイド線は描画専用で、state の wires には入りません（電気的な意味はネット名で決まる）。
+ */
+function getFixedLayout(state) {
+  const fixed = state.board.components.filter((c) => c.locked);
+  const layout = state.currentProblem?.layout ?? {};
+  const key = JSON.stringify([
+    layout,
+    fixed.map((c) => [c.id, c.type, c.position, c.rotation, c.connect, c.params]),
+  ]);
+
+  if (fixedLayoutCache.key === key) {
+    return fixedLayoutCache.value;
+  }
+
+  let value;
+  try {
+    value = computeFixedLayout(fixed, {
+      pinNamesOf: safePinNames,
+      unitOf: unitOfParam,
+      layout,
+    });
+  } catch (error) {
+    console.warn("ガイド線の計算に失敗しました。", error);
+    value = { guides: { nets: [], groundMarks: [], failures: [] }, hiddenPinsById: new Map() };
+  }
+
+  fixedLayoutCache = { key, value };
+  return value;
+}
+
+/**
+ * ガイド線・分岐点・自動 GND 記号の SVG を生成します。
+ * 自動 GND 記号は、配線モードでクリックするとそのピンへの配線になります（data-pin-comp）。
+ */
+function buildGuidesSvg(fixedLayout) {
+  const guides = fixedLayout?.guides;
+  if (!guides) return "";
+
+  const toD = (pl) => pl.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  const netsSvg = guides.nets
+    .map((net) => {
+      const paths = net.polylines
+        .filter((pl) => pl.length >= 2)
+        .map(
+          (pl) =>
+            `<path class="board-guide${pl.fallback ? " is-fallback" : ""}" d="${toD(pl)}"></path>`
+        )
+        .join("");
+      const dots = net.junctions
+        .map((p) => `<circle class="board-guide-dot" cx="${p.x}" cy="${p.y}" r="2.6"></circle>`)
+        .join("");
+      return `<g class="board-guide-net" data-guide-net="${escapeHtml(net.net)}"><title>固定配線: ネット ${escapeHtml(net.net)}</title>${paths}${dots}</g>`;
+    })
+    .join("");
+
+  const groundSvg = guides.groundMarks
+    .map((mark) => {
+      const lines = mark.lines
+        .map(
+          ([x1, y1, x2, y2]) =>
+            `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>`
+        )
+        .join("");
+      const r = mark.rect;
+      return `
+        <g class="board-guide-gnd" data-pin-comp="${escapeHtml(mark.componentId)}" data-pin-name="${escapeHtml(mark.pin)}">
+          <rect class="board-guide-gnd-hit" x="${r.x - 4}" y="${r.y - 4}" width="${r.w + 8}" height="${r.h + 8}"></rect>
+          ${lines}
+          <title>${escapeHtml(mark.componentId)}.${escapeHtml(mark.pin)} は gnd（接地）につながっています</title>
+        </g>`;
+    })
+    .join("");
+
+  return netsSvg + groundSvg;
 }
 
 /**
@@ -1290,8 +1332,11 @@ function buildWiresSvg(state) {
  * 部品のSVGを生成します。
  * 部品が回転している場合は、記号本体・選択枠・当たり判定を回転させ、
  * ピンと ID / パラメータ表示は回転後の外接ボックスに合わせて配置します。
+ * ラベルの位置は geometry.js の computeLabelLayout（check_layout.mjs と共通）で決めます。
  */
-function buildComponentsSvg(state) {
+function buildComponentsSvg(state, fixedLayout) {
+  const hiddenPinsById = fixedLayout?.hiddenPinsById ?? new Map();
+
   return state.board.components
     .map((component) => {
       const definition = componentRegistry.has(component.type)
@@ -1313,26 +1358,28 @@ function buildComponentsSvg(state) {
         state.selection.kind === "component" &&
         state.selection.id === component.id;
 
-      const paramsText = Object.entries(component.params ?? {})
-        .slice(0, 2)
-        .map(([key, value]) => {
-          return `${key}=${formatParamValueForDisplay(component, key, value)}`;
-        })
-        .join("  ")
-        .slice(0, 18);
+      const labels = computeLabelLayout(component, {
+        pinNames: names,
+        showPinNets: wireMode || Boolean(component.locked),
+        hiddenPins: component.locked
+          ? (hiddenPinsById.get(component.id) ?? new Set())
+          : new Set(),
+        valueText: componentValueText(component, unitOfParam),
+      });
 
       const pinTitle = (pinName, index) => {
         const net = connect[index];
         return `${pinName} ← ${net ? net : "未接続"}`;
       };
 
+      const textSvg = (label, cls) =>
+        label
+          ? `<text class="${cls}" x="${label.x}" y="${label.y}" text-anchor="${label.anchor}">${escapeHtml(label.text)}</text>`
+          : "";
+
       const pinsSvg = names
         .map((pinName, index) => {
           const point = geo[index] ?? { x: box.w / 2, y: box.h / 2 };
-          const labelPos = getPinLabelPosition(point, box.w, box.h);
-          const netText =
-            wireMode || component.locked ? connect[index] || "-" : null;
-          const labelText = netText !== null ? `${pinName}:${netText}` : pinName;
 
           return `
             <circle class="board-pin-hit" cx="${point.x}" cy="${point.y}" r="10"
@@ -1341,7 +1388,7 @@ function buildComponentsSvg(state) {
               data-pin-comp="${escapeHtml(component.id)}" data-pin-name="${escapeHtml(pinName)}">
               <title>${escapeHtml(pinTitle(pinName, index))}</title>
             </circle>
-            <text class="board-pin-label" x="${labelPos.x}" y="${labelPos.y}" text-anchor="${labelPos.anchor}">${escapeHtml(labelText)}</text>
+            ${textSvg(labels.pins[index], "board-pin-label")}
           `;
         })
         .join("");
@@ -1363,32 +1410,12 @@ function buildComponentsSvg(state) {
         </g>
       `;
 
-      // ID / パラメータラベルは常に水平に保つ。
-      // 未回転時はシンボル定義の位置（未定義なら既定位置）を使う。
-      const idLabel =
-        rotation === 0
-          ? (symbolDef?.idLabel ?? {
-              x: COMP_W / 2,
-              y: -6,
-              anchor: "middle",
-            })
-          : { x: box.w / 2, y: -6, anchor: "middle" };
-      const valueLabel =
-        rotation === 0
-          ? (symbolDef?.valueLabel ?? {
-              x: COMP_W / 2,
-              y: COMP_H + 12,
-              anchor: "middle",
-            })
-          : { x: box.w / 2, y: box.h + 12, anchor: "middle" };
-
-      const idText = `${component.id}${component.locked ? " 🔒" : ""}`;
-
-      // 選択中の部品には回転ハンドル（右上）を表示する。
+      // 選択中の部品には回転ハンドル（左上の角の外側）を表示する。
+      // 右上は縦置き部品の上ピンのラベルと重なるため、ラベルを置かない左上に出す。
       const rotateHandle = isSelected
         ? `
           <g class="comp-rotate-handle" data-rotate-comp="${escapeHtml(component.id)}"
-             transform="translate(${box.w}, 0)">
+             transform="translate(-10, -10)">
             <circle r="9"></circle>
             <text text-anchor="middle" dy="3.5">⟳</text>
             <title>回転する（R キー / Shift+R で逆回転）</title>
@@ -1401,8 +1428,8 @@ function buildComponentsSvg(state) {
            transform="translate(${x}, ${y}) scale(${COMP_SCALE})"
            data-comp-id="${escapeHtml(component.id)}">
           ${rotatedBody}
-          ${idLabel ? `<text class="board-comp-id" x="${idLabel.x}" y="${idLabel.y}" text-anchor="${idLabel.anchor}">${escapeHtml(idText)}</text>` : ""}
-          ${valueLabel && paramsText ? `<text class="board-comp-params" x="${valueLabel.x}" y="${valueLabel.y}" text-anchor="${valueLabel.anchor}">${escapeHtml(paramsText)}</text>` : ""}
+          ${textSvg(labels.id, "board-comp-id")}
+          ${textSvg(labels.value, "board-comp-params")}
           ${rotateHandle}
           ${pinsSvg}
           <title>${escapeHtml(component.id)}（${escapeHtml(component.type)}）</title>

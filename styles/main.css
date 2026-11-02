@@ -2257,3 +2257,143 @@ label {
   min-width: 960px;
   min-height: 560px;
 }
+
+/* ==========================================================================
+   固定配線のガイド線（描画専用。プレイヤーのワイヤ .board-wire とは別の、薄い色）
+   ========================================================================== */
+
+:root {
+  --color-guide: rgba(148, 163, 184, 0.62);
+}
+
+.board-guide {
+  stroke: var(--color-guide);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  fill: none;
+  pointer-events: none;
+}
+
+/* 部品を避ける経路が見つからなかったときの代わりの線（check_layout.mjs が報告する） */
+.board-guide.is-fallback {
+  stroke: var(--color-warning);
+  stroke-dasharray: 4 3;
+}
+
+.board-guide-dot {
+  fill: var(--color-guide);
+  pointer-events: none;
+}
+
+.board-guide-gnd line {
+  stroke: var(--color-guide);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.board-guide-gnd-hit {
+  fill: transparent;
+  pointer-events: none;
+}
+
+/* 配線モードでは自動 GND 記号をクリックしてそのピンへ配線できる */
+.board-canvas.wire-mode .board-guide-gnd-hit {
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+.board-canvas.wire-mode .board-guide-gnd line {
+  stroke: var(--color-accent);
+}
+
+/* ==========================================================================
+   問題文パネル: 幅・高さをドラッグで変更
+   ========================================================================== */
+
+.board-work {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 幅を狭めたときは、パネルの右にボードを並べる（app.js の applyPanelLayout が切り替える） */
+.board-work.is-side {
+  flex-direction: row;
+}
+
+.board-work.is-side > .board-container {
+  flex: 1;
+  min-width: 0;
+}
+
+.problem-frame {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.problem-frame > .board-problem-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.problem-frame.has-height > .board-problem-panel,
+.board-work.is-side > .problem-frame > .board-problem-panel {
+  max-height: none;
+}
+
+.board-work.is-side > .problem-frame {
+  border-right: 1px solid var(--color-border);
+}
+
+.board-work.is-side > .problem-frame.has-height {
+  align-self: flex-start;
+}
+
+.panel-resize {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+}
+
+.panel-resize-e {
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+}
+
+.panel-resize-s {
+  left: 0;
+  bottom: -4px;
+  width: 100%;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.panel-resize-se {
+  right: -2px;
+  bottom: -2px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 50%, var(--color-border-strong) 50%, var(--color-border-strong) 60%,
+      transparent 60%, transparent 72%, var(--color-border-strong) 72%, var(--color-border-strong) 82%, transparent 82%);
+}
+
+.panel-resize-e:hover,
+.panel-resize-s:hover,
+.problem-frame.is-resizing .panel-resize-e,
+.problem-frame.is-resizing .panel-resize-s {
+  background: rgba(56, 189, 248, 0.35);
+}
+
+.problem-frame.is-resizing {
+  user-select: none;
+}
