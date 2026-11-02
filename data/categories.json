@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "A",
+      "sortOrder": 1,
+      "nameJa": "電気の基礎・受動素子回路",
+      "description": "オームの法則、電力、KCL/KVL、直列並列、RC/RL/RLC、フィルタ、共振",
+      "problemDir": "data/problems/A",
+      "levelModule": "src/levels/A/index.js",
+      "requiredSimulations": ["dc", "ac", "transient"],
+      "plots": ["waveform", "bode"]
+    },
+    {
+      "id": "B",
+      "sortOrder": 2,
+      "nameJa": "半導体素子",
+      "description": "ダイオード、ツェナー、LED、BJT、MOSFET、JFET、保護素子",
+      "problemDir": "data/problems/B",
+      "levelModule": "src/levels/B/index.js",
+      "requiredSimulations": ["dc", "nonlinearDc", "transient"],
+      "plots": ["ivCurve", "waveform"]
+    },
+    {
+      "id": "C",
+      "sortOrder": 3,
+      "nameJa": "増幅回路",
+      "description": "BJT/MOSFET増幅、バイアス、オペアンプ、差動増幅、帰還",
+      "problemDir": "data/problems/C",
+      "levelModule": "src/levels/C/index.js",
+      "requiredSimulations": ["dc", "ac", "transient"],
+      "plots": ["waveform", "bode"]
+    },
+    {
+      "id": "D",
+      "sortOrder": 4,
+      "nameJa": "発振回路",
+      "description": "LC/RC発振、コルピッツ、水晶発振、弛張発振、VCO/PLL",
+      "problemDir": "data/problems/D",
+      "levelModule": "src/levels/D/index.js",
+      "requiredSimulations": ["transient", "ac", "oscillation"],
+      "plots": ["waveform", "spectrum"]
+    },
+    {
+      "id": "E",
+      "sortOrder": 5,
+      "nameJa": "変調・復調・通信回路",
+      "description": "AM/FM/PM、SSB、ミキサ、スーパーヘテロダイン、デジタル変調",
+      "problemDir": "data/problems/E",
+      "levelModule": "src/levels/E/index.js",
+      "requiredSimulations": ["transient", "ac", "spectrum"],
+      "plots": ["waveform", "spectrum"]
+    },
+    {
+      "id": "F",
+      "sortOrder": 6,
+      "nameJa": "電源回路",
+      "description": "整流、平滑、リニアレギュレータ、スイッチング電源、保護回路",
+      "problemDir": "data/problems/F",
+      "levelModule": "src/levels/F/index.js",
+      "requiredSimulations": ["dc", "transient", "power"],
+      "plots": ["waveform", "power"]
+    },
+    {
+      "id": "G",
+      "sortOrder": 7,
+      "nameJa": "デジタル組み合わせ回路",
+      "description": "論理ゲート、ブール代数、加算器、MUX、エンコーダ、デコーダ",
+      "problemDir": "data/problems/G",
+      "levelModule": "src/levels/G/index.js",
+      "requiredSimulations": ["digital"],
+      "plots": ["truthTable"]
+    },
+    {
+      "id": "H",
+      "sortOrder": 8,
+      "nameJa": "デジタル順序回路・メモリ",
+      "description": "ラッチ、フリップフロップ、レジスタ、カウンタ、FSM、メモリ",
+      "problemDir": "data/problems/H",
+      "levelModule": "src/levels/H/index.js",
+      "requiredSimulations": ["digital", "transient"],
+      "plots": ["truthTable", "waveform"]
+    },
+    {
+      "id": "I",
+      "sortOrder": 9,
+      "nameJa": "プロセッサ・プログラマブルロジック",
+      "description": "CPU、バス、割り込み、周辺機能、PLD/CPLD/FPGA",
+      "problemDir": "data/problems/I",
+      "levelModule": "src/levels/I/index.js",
+      "requiredSimulations": ["digital", "bus"],
+      "plots": ["truthTable", "waveform"]
+    },
+    {
+      "id": "J",
+      "sortOrder": 10,
+      "nameJa": "パワーエレクトロニクス",
+      "description": "整流、インバータ、コンバータ、チョッパ、モータドライブ、PFC",
+      "problemDir": "data/problems/J",
+      "levelModule": "src/levels/J/index.js",
+      "requiredSimulations": ["power", "transient"],
+      "plots": ["waveform", "power"]
+    },
+    {
+      "id": "K",
+      "sortOrder": 11,
+      "nameJa": "信号処理・データ変換・計測",
+      "description": "アクティブフィルタ、ADC/DAC、サンプル＆ホールド、センサ回路",
+      "problemDir": "data/problems/K",
+      "levelModule": "src/levels/K/index.js",
+      "requiredSimulations": ["ac", "digital", "mixed"],
+      "plots": ["waveform", "bode"]
+    },
+    {
+      "id": "L",
+      "sortOrder": 12,
+      "nameJa": "高周波・マイクロ波・伝送",
+      "description": "伝送線路、特性インピーダンス、VSWR、スミスチャート、アンテナ",
+      "problemDir": "data/problems/L",
+      "levelModule": "src/levels/L/index.js",
+      "requiredSimulations": ["rf", "ac"],
+      "plots": ["smithChart", "bode"]
+    },
+    {
+      "id": "M",
+      "sortOrder": 13,
+      "nameJa": "特殊・応用回路",
+      "description": "光、音響、赤外線、無線給電、静電気対策、電子錠、タイマ",
+      "problemDir": "data/problems/M",
+      "levelModule": "src/levels/M/index.js",
+      "requiredSimulations": ["mixed"],
+      "plots": ["waveform"]
+    },
+    {
+      "id": "N",
+      "sortOrder": 14,
+      "nameJa": "基板設計・実装・パッケージング",
+      "description": "PCB、SI/PI、熱設計、配線、デカップリング、実装",
+      "problemDir": "data/problems/N",
+      "levelModule": "src/levels/N/index.js",
+      "requiredSimulations": ["rule", "choice"],
+      "plots": []
+    },
+    {
+      "id": "O",
+      "sortOrder": 15,
+      "nameJa": "測定・評価・デバッグ",
+      "description": "オシロスコープ、プローブ、スペアナ、環境試験、故障解析",
+      "problemDir": "data/problems/O",
+      "levelModule": "src/levels/O/index.js",
+      "requiredSimulations": ["rule", "choice"],
+      "plots": []
+    },
+    {
+      "id": "P",
+      "sortOrder": 16,
+      "nameJa": "シミュレーション・EDAツール活用",
+      "description": "SPICE、電磁界解析、熱解析、モデル作成、解析設定",
+      "problemDir": "data/problems/P",
+      "levelModule": "src/levels/P/index.js",
+      "requiredSimulations": ["simulationMeta"],
+      "plots": []
+    },
+    {
+      "id": "Q",
+      "sortOrder": 17,
+      "nameJa": "規格・認証・信頼性・環境",
+      "description": "安全規格、EMC、環境規制、車載規格、信頼性設計",
+      "problemDir": "data/problems/Q",
+      "levelModule": "src/levels/Q/index.js",
+      "requiredSimulations": ["rule", "choice"],
+      "plots": []
+    },
+    {
+      "id": "R",
+      "sortOrder": 18,
+      "nameJa": "生産・サプライチェーン・DFM",
+      "description": "BOM、調達、ライフサイクル、DFM、コスト設計",
+      "problemDir": "data/problems/R",
+      "levelModule": "src/levels/R/index.js",
+      "requiredSimulations": ["rule", "choice"],
+      "plots": []
+    },
+    {
+      "id": "S",
+      "sortOrder": 19,
+      "nameJa": "システム設計・制御理論",
+      "description": "伝達関数、ボード線図、安定性、デジタル制御、システム要件",
+      "problemDir": "data/problems/S",
+      "levelModule": "src/levels/S/index.js",
+      "requiredSimulations": ["control", "ac"],
+      "plots": ["bode"]
+    }
+  ]
+}

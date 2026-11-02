@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "checkTypes": [
+    {
+      "type": "dcVoltage",
+      "requiredSim": "dc",
+      "description": "DCノード電圧、または部品両端電圧を期待値と比較します。check.node または check.element のいずれかが必要です。",
+      "fields": ["node", "element", "expected", "tolerancePct", "unit"]
+    },
+    {
+      "type": "dcCurrent",
+      "requiredSim": "dc",
+      "description": "部品を流れるDC電流を期待値と比較します。check.signed が true でない場合は絶対値で比較します。",
+      "fields": ["element", "expected", "tolerancePct", "unit", "signed"]
+    },
+    {
+      "type": "dcPower",
+      "requiredSim": "dc",
+      "description": "部品で消費または供給されるDC電力を期待値と比較します。check.signed が true でない場合は絶対値で比較します。",
+      "fields": ["element", "expected", "tolerancePct", "unit", "signed"]
+    },
+    {
+      "type": "componentValue",
+      "description": "ボード上の部品パラメータ値を期待値と比較します。シミュレーション不要です。check.param を省略した場合は部品種別から代表パラメータを推定します。",
+      "fields": ["element", "param", "expected", "tolerancePct", "unit"]
+    },
+    {
+      "type": "connection",
+      "description": "部品の接続ネットが指定されたネットをすべて含むかどうかを判定します。シミュレーション不要です。",
+      "fields": ["element", "nets"]
+    },
+    {
+      "type": "truthTable",
+      "requiredSim": "digital",
+      "description": "デジタルシミュレーションで得られた真理値表が期待テーブルと一致するかどうかを判定します。",
+      "fields": ["table"]
+    },
+    {
+      "type": "multipleChoice",
+      "description": "選択式問題の解答が期待値と一致するかどうかを判定します。シミュレーション不要です。check.key または check.id で解答キーを指定します。",
+      "fields": ["key", "id", "answerIndex", "expected", "answer"]
+    },
+    { "type": "timeConstant",         "requiredSim": "transient", "fields": ["expected","tolerancePct"] },
+{ "type": "transientPoint",       "requiredSim": "transient", "fields": ["node","timeSec","expected","tolerancePct","unit"] },
+{ "type": "oscillationFrequency", "requiredSim": "transient", "fields": ["node","expected","tolerancePct"] },
+{ "type": "acVoltage",            "requiredSim": "ac",        "fields": ["node","frequencyHz","expectedRMS","tolerancePct","unit"] },
+{ "type": "acGaindB",             "requiredSim": "ac",        "fields": ["input","output","frequencyHz","expected","tolerancePct","unit"] },
+{ "type": "bodePoint",            "requiredSim": "ac",        "fields": ["input","output","frequencyHz","gainDB","phaseDeg","tolerancePct"] }
+  
+]
+}

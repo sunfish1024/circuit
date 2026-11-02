@@ -1,0 +1,1393 @@
+{
+  "version": 1,
+  "components": [
+    {
+      "type": "WIRE",
+      "nameJa": "ワイヤ",
+      "description": "部品同士を接続する配線",
+      "category": ["*"],
+      "symbol": "wire",
+      "pinCount": 2,
+      "pinNames": ["1", "2"],
+      "params": [],
+      "simulation": {
+        "model": "wire"
+      },
+      "ui": {
+        "palette": false,
+        "rotatable": false,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "GND",
+      "nameJa": "グラウンド",
+      "description": "基準電位 0V",
+      "category": ["*"],
+      "symbol": "gnd",
+      "pinCount": 1,
+      "pinNames": ["gnd"],
+      "params": [],
+      "simulation": {
+        "model": "ground"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "R",
+      "nameJa": "抵抗",
+      "description": "抵抗値を設定できる受動素子",
+      "category": ["*"],
+      "symbol": "resistor",
+      "pinCount": 2,
+      "pinNames": ["1", "2"],
+      "params": [
+        {
+          "key": "R",
+          "labelJa": "抵抗値",
+          "unit": "ohm",
+          "default": 1000,
+          "min": 0,
+          "max": 1000000000,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "linearResistor"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "C",
+      "nameJa": "コンデンサ",
+      "description": "静電容量を設定できる受動素子",
+      "category": ["*"],
+      "symbol": "capacitor",
+      "pinCount": 2,
+      "pinNames": ["1", "2"],
+      "params": [
+        {
+          "key": "C",
+          "labelJa": "静電容量",
+          "unit": "F",
+          "default": 1e-6,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "linearCapacitor"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "L",
+      "nameJa": "インダクタ",
+      "description": "インダクタンスを設定できる受動素子",
+      "category": ["*"],
+      "symbol": "inductor",
+      "pinCount": 2,
+      "pinNames": ["1", "2"],
+      "params": [
+        {
+          "key": "L",
+          "labelJa": "インダクタンス",
+          "unit": "H",
+          "default": 1e-3,
+          "min": 0,
+          "max": 1000,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "linearInductor"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "V_DC",
+      "nameJa": "直流電圧源",
+      "description": "一定電圧を出力する電源",
+      "category": ["*"],
+      "symbol": "voltage_source",
+      "pinCount": 2,
+      "pinNames": ["p", "n"],
+      "params": [
+        {
+          "key": "V",
+          "labelJa": "電圧",
+          "unit": "V",
+          "default": 5,
+          "min": -1000,
+          "max": 1000,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "dcVoltageSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "V_AC",
+      "nameJa": "交流電圧源",
+      "description": "正弦波交流電圧源",
+      "category": ["*"],
+      "symbol": "voltage_source",
+      "pinCount": 2,
+      "pinNames": ["p", "n"],
+      "params": [
+        {
+          "key": "Vpk",
+          "labelJa": "ピーク電圧",
+          "unit": "V",
+          "default": 1,
+          "min": 0,
+          "max": 1000,
+          "editable": true
+        },
+        {
+          "key": "freqHz",
+          "labelJa": "周波数",
+          "unit": "Hz",
+          "default": 1000,
+          "min": 0,
+          "max": 1000000000,
+          "editable": true
+        },
+        {
+          "key": "phaseDeg",
+          "labelJa": "位相",
+          "unit": "deg",
+          "default": 0,
+          "min": -360,
+          "max": 360,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "acVoltageSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "V_PULSE",
+      "nameJa": "パルス電圧源",
+      "description": "矩形波 / パルス電圧源",
+      "category": ["*"],
+      "symbol": "voltage_source",
+      "pinCount": 2,
+      "pinNames": ["p", "n"],
+      "params": [
+        {
+          "key": "Vlow",
+          "labelJa": "Low電圧",
+          "unit": "V",
+          "default": 0,
+          "min": -1000,
+          "max": 1000,
+          "editable": true
+        },
+        {
+          "key": "Vhigh",
+          "labelJa": "High電圧",
+          "unit": "V",
+          "default": 5,
+          "min": -1000,
+          "max": 1000,
+          "editable": true
+        },
+        {
+          "key": "delaySec",
+          "labelJa": "遅延時間",
+          "unit": "s",
+          "default": 0,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        },
+        {
+          "key": "riseSec",
+          "labelJa": "立ち上がり時間",
+          "unit": "s",
+          "default": 1e-9,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        },
+        {
+          "key": "fallSec",
+          "labelJa": "立ち下がり時間",
+          "unit": "s",
+          "default": 1e-9,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        },
+        {
+          "key": "widthSec",
+          "labelJa": "パルス幅",
+          "unit": "s",
+          "default": 0.001,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        },
+        {
+          "key": "periodSec",
+          "labelJa": "周期",
+          "unit": "s",
+          "default": 0.002,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "pulseVoltageSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "I_DC",
+      "nameJa": "直流電流源",
+      "description": "一定電流を流す電源",
+      "category": ["*"],
+      "symbol": "current_source",
+      "pinCount": 2,
+      "pinNames": ["p", "n"],
+      "params": [
+        {
+          "key": "I",
+          "labelJa": "電流",
+          "unit": "A",
+          "default": 0.001,
+          "min": -100,
+          "max": 100,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "dcCurrentSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "I_AC",
+      "nameJa": "交流電流源",
+      "description": "正弦波交流電流源",
+      "category": ["*"],
+      "symbol": "current_source",
+      "pinCount": 2,
+      "pinNames": ["p", "n"],
+      "params": [
+        {
+          "key": "Ipk",
+          "labelJa": "ピーク電流",
+          "unit": "A",
+          "default": 0.001,
+          "min": 0,
+          "max": 100,
+          "editable": true
+        },
+        {
+          "key": "freqHz",
+          "labelJa": "周波数",
+          "unit": "Hz",
+          "default": 1000,
+          "min": 0,
+          "max": 1000000000,
+          "editable": true
+        },
+        {
+          "key": "phaseDeg",
+          "labelJa": "位相",
+          "unit": "deg",
+          "default": 0,
+          "min": -360,
+          "max": 360,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "acCurrentSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "D",
+      "nameJa": "ダイオード",
+      "description": "一般的な整流ダイオード",
+      "category": ["B", "C", "E", "F", "J", "K", "M"],
+      "symbol": "diode",
+      "pinCount": 2,
+      "pinNames": ["anode", "cathode"],
+      "params": [
+        {
+          "key": "Vf",
+          "labelJa": "順方向電圧",
+          "unit": "V",
+          "default": 0.7,
+          "min": 0,
+          "max": 5,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "diode"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "ZD",
+      "nameJa": "ツェナーダイオード",
+      "description": "定電圧ダイオード",
+      "category": ["B", "C", "F", "J", "K", "M"],
+      "symbol": "zener",
+      "pinCount": 2,
+      "pinNames": ["anode", "cathode"],
+      "params": [
+        {
+          "key": "Vz",
+          "labelJa": "ツェナー電圧",
+          "unit": "V",
+          "default": 5.1,
+          "min": 0,
+          "max": 100,
+          "editable": true
+        },
+        {
+          "key": "IzTest",
+          "labelJa": "テスト電流",
+          "unit": "A",
+          "default": 0.005,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "zener"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "LED",
+      "nameJa": "LED",
+      "description": "発光ダイオード",
+      "category": ["B", "C", "F", "K", "M"],
+      "symbol": "led",
+      "pinCount": 2,
+      "pinNames": ["anode", "cathode"],
+      "params": [
+        {
+          "key": "Vf",
+          "labelJa": "順方向電圧",
+          "unit": "V",
+          "default": 1.8,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        },
+        {
+          "key": "IfTypical",
+          "labelJa": "標準順方向電流",
+          "unit": "A",
+          "default": 0.01,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "led"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "SD",
+      "nameJa": "ショットキーバリアダイオード",
+      "description": "順方向電圧が低い（約0.3V）ショットキーバリアダイオード",
+      "category": ["B", "C", "E", "F", "J", "K", "M"],
+      "symbol": "schottky",
+      "pinCount": 2,
+      "pinNames": ["anode", "cathode"],
+      "params": [
+        {
+          "key": "Vf",
+          "labelJa": "順方向電圧",
+          "unit": "V",
+          "default": 0.3,
+          "min": 0,
+          "max": 2,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "schottkyDiode"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "TVS",
+      "nameJa": "TVSダイオード",
+      "description": "ESD・サージ保護用のクランプダイオード",
+      "category": ["B", "F", "J", "M"],
+      "symbol": "tvs",
+      "pinCount": 2,
+      "pinNames": ["anode", "cathode"],
+      "params": [
+        {
+          "key": "Vclamp",
+          "labelJa": "クランプ電圧",
+          "unit": "V",
+          "default": 6.2,
+          "min": 0,
+          "max": 100,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "tvsDiode"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "PD",
+      "nameJa": "フォトダイオード",
+      "description": "受光した光を光電流に変換する受光ダイオード",
+      "category": ["B", "K", "M"],
+      "symbol": "photodiode",
+      "pinCount": 2,
+      "pinNames": ["anode", "cathode"],
+      "params": [
+        {
+          "key": "Ip",
+          "labelJa": "光電流",
+          "unit": "A",
+          "default": 0.001,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "photodiode"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "D_VC",
+      "nameJa": "バリキャップダイオード",
+      "description": "逆バイアス電圧で静電容量が変化する可変容量ダイオード",
+      "category": ["B", "K", "L", "M"],
+      "symbol": "varicap",
+      "pinCount": 2,
+      "pinNames": ["anode", "cathode"],
+      "params": [
+        {
+          "key": "C",
+          "labelJa": "静電容量",
+          "unit": "F",
+          "default": 1e-10,
+          "min": 0,
+          "max": 1e-06,
+          "editable": true
+        },
+        {
+          "key": "VrTest",
+          "labelJa": "測定逆バイアス電圧",
+          "unit": "V",
+          "default": 2,
+          "min": 0,
+          "max": 100,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "varactor"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "Q_NPN",
+      "nameJa": "NPNトランジスタ",
+      "description": "NPNバイポーラトランジスタ",
+      "category": ["B", "C", "D", "F", "J", "M"],
+      "symbol": "npn",
+      "pinCount": 3,
+      "pinNames": ["collector", "base", "emitter"],
+      "params": [
+        {
+          "key": "beta",
+          "labelJa": "直流電流増幅率",
+          "unit": "",
+          "default": 100,
+          "min": 1,
+          "max": 1000,
+          "editable": true
+        },
+        {
+          "key": "Vbe",
+          "labelJa": "ベース-エミッタ間電圧",
+          "unit": "V",
+          "default": 0.7,
+          "min": 0,
+          "max": 2,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "bjtNpn"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "Q_PNP",
+      "nameJa": "PNPトランジスタ",
+      "description": "PNPバイポーラトランジスタ",
+      "category": ["B", "C", "D", "F", "J", "M"],
+      "symbol": "pnp",
+      "pinCount": 3,
+      "pinNames": ["collector", "base", "emitter"],
+      "params": [
+        {
+          "key": "beta",
+          "labelJa": "直流電流増幅率",
+          "unit": "",
+          "default": 100,
+          "min": 1,
+          "max": 1000,
+          "editable": true
+        },
+        {
+          "key": "Vbe",
+          "labelJa": "ベース-エミッタ間電圧",
+          "unit": "V",
+          "default": 0.7,
+          "min": 0,
+          "max": 2,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "bjtPnp"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "M_N",
+      "nameJa": "NチャネルMOSFET",
+      "description": "NチャネルエンハンスメントMOSFET",
+      "category": ["B", "C", "F", "J", "M"],
+      "symbol": "nmos",
+      "pinCount": 3,
+      "pinNames": ["drain", "gate", "source"],
+      "params": [
+        {
+          "key": "Vth",
+          "labelJa": "しきい値電圧",
+          "unit": "V",
+          "default": 2,
+          "min": -20,
+          "max": 20,
+          "editable": true
+        },
+        {
+          "key": "K",
+          "labelJa": "トランスコンダクタンス係数",
+          "unit": "A/V^2",
+          "default": 0.001,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        },
+        {
+          "key": "RdsOn",
+          "labelJa": "オン抵抗",
+          "unit": "ohm",
+          "default": 0.5,
+          "min": 0,
+          "max": 1000,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "mosfetN"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "M_P",
+      "nameJa": "PチャネルMOSFET",
+      "description": "PチャネルエンハンスメントMOSFET",
+      "category": ["B", "C", "F", "J", "M"],
+      "symbol": "pmos",
+      "pinCount": 3,
+      "pinNames": ["drain", "gate", "source"],
+      "params": [
+        {
+          "key": "Vth",
+          "labelJa": "しきい値電圧",
+          "unit": "V",
+          "default": -2,
+          "min": -20,
+          "max": 20,
+          "editable": true
+        },
+        {
+          "key": "K",
+          "labelJa": "トランスコンダクタンス係数",
+          "unit": "A/V^2",
+          "default": 0.001,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        },
+        {
+          "key": "RdsOn",
+          "labelJa": "オン抵抗",
+          "unit": "ohm",
+          "default": 0.5,
+          "min": 0,
+          "max": 1000,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "mosfetP"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "J_N",
+      "nameJa": "NチャネルJFET",
+      "description": "Nチャネル接合形FET（自己バイアスで使用）",
+      "category": ["B", "C", "K", "M"],
+      "symbol": "jfetN",
+      "pinCount": 3,
+      "pinNames": ["drain", "gate", "source"],
+      "params": [
+        {
+          "key": "Idss",
+          "labelJa": "ドレイン飽和電流",
+          "unit": "A",
+          "default": 0.01,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        },
+        {
+          "key": "VgsOff",
+          "labelJa": "ゲートオフ電圧",
+          "unit": "V",
+          "default": -2,
+          "min": -20,
+          "max": 0,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "jfetN"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "PT",
+      "nameJa": "フォトトランジスタ",
+      "description": "受光電流を増幅するフォトトランジスタ",
+      "category": ["B", "K", "M"],
+      "symbol": "phototransistor",
+      "pinCount": 2,
+      "pinNames": ["collector", "emitter"],
+      "params": [
+        {
+          "key": "Ic",
+          "labelJa": "受光時コレクタ電流",
+          "unit": "A",
+          "default": 0.002,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "phototransistor"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "OPAMP",
+      "nameJa": "オペアンプ",
+      "description": "汎用オペアンプ",
+      "category": ["C", "D", "E", "K", "M"],
+      "symbol": "opamp",
+      "pinCount": 5,
+      "pinNames": ["in_plus", "in_minus", "out", "v_plus", "v_minus"],
+      "params": [
+        {
+          "key": "Aol",
+          "labelJa": "オープンループ利得",
+          "unit": "",
+          "default": 100000,
+          "min": 1,
+          "max": 10000000,
+          "editable": true
+        },
+        {
+          "key": "GBP",
+          "labelJa": "利得帯域幅積",
+          "unit": "Hz",
+          "default": 1000000,
+          "min": 1,
+          "max": 10000000000,
+          "editable": true
+        },
+        {
+          "key": "Vpos",
+          "labelJa": "正側電源",
+          "unit": "V",
+          "default": 15,
+          "min": 0,
+          "max": 100,
+          "editable": true
+        },
+        {
+          "key": "Vneg",
+          "labelJa": "負側電源",
+          "unit": "V",
+          "default": -15,
+          "min": -100,
+          "max": 0,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "opamp"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "SW",
+      "nameJa": "スイッチ",
+      "description": "単極単投スイッチ",
+      "category": ["*"],
+      "symbol": "switch",
+      "pinCount": 2,
+      "pinNames": ["1", "2"],
+      "params": [
+        {
+          "key": "closed",
+          "labelJa": "閉状態",
+          "unit": "",
+          "default": false,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "switch"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "TP",
+      "nameJa": "テストポイント",
+      "description": "電圧観測点",
+      "category": ["*"],
+      "symbol": "probe",
+      "pinCount": 1,
+      "pinNames": ["p"],
+      "params": [],
+      "simulation": {
+        "model": "probe"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_NOT",
+      "nameJa": "NOTゲート",
+      "description": "論理反転ゲート",
+      "category": ["G", "H", "I"],
+      "symbol": "gate_not",
+      "pinCount": 2,
+      "pinNames": ["A", "Y"],
+      "params": [
+        {
+          "key": "delaySec",
+          "labelJa": "伝搬遅延",
+          "unit": "s",
+          "default": 1e-9,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "NOT"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_AND",
+      "nameJa": "ANDゲート",
+      "description": "2入力ANDゲート",
+      "category": ["G", "H", "I"],
+      "symbol": "gate_and",
+      "pinCount": 3,
+      "pinNames": ["A", "B", "Y"],
+      "params": [
+        {
+          "key": "delaySec",
+          "labelJa": "伝搬遅延",
+          "unit": "s",
+          "default": 1e-9,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "AND"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_OR",
+      "nameJa": "ORゲート",
+      "description": "2入力ORゲート",
+      "category": ["G", "H", "I"],
+      "symbol": "gate_or",
+      "pinCount": 3,
+      "pinNames": ["A", "B", "Y"],
+      "params": [
+        {
+          "key": "delaySec",
+          "labelJa": "伝搬遅延",
+          "unit": "s",
+          "default": 1e-9,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "OR"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_NAND",
+      "nameJa": "NANDゲート",
+      "description": "2入力NANDゲート",
+      "category": ["G", "H", "I"],
+      "symbol": "gate_nand",
+      "pinCount": 3,
+      "pinNames": ["A", "B", "Y"],
+      "params": [
+        {
+          "key": "delaySec",
+          "labelJa": "伝搬遅延",
+          "unit": "s",
+          "default": 1e-9,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "NAND"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_NOR",
+      "nameJa": "NORゲート",
+      "description": "2入力NORゲート",
+      "category": ["G", "H", "I"],
+      "symbol": "gate_nor",
+      "pinCount": 3,
+      "pinNames": ["A", "B", "Y"],
+      "params": [
+        {
+          "key": "delaySec",
+          "labelJa": "伝搬遅延",
+          "unit": "s",
+          "default": 1e-9,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "NOR"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_XOR",
+      "nameJa": "XORゲート",
+      "description": "2入力XORゲート",
+      "category": ["G", "H", "I"],
+      "symbol": "gate_xor",
+      "pinCount": 3,
+      "pinNames": ["A", "B", "Y"],
+      "params": [
+        {
+          "key": "delaySec",
+          "labelJa": "伝搬遅延",
+          "unit": "s",
+          "default": 1e-9,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "XOR"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "DFF",
+      "nameJa": "Dフリップフロップ",
+      "description": "エッジトリガDフリップフロップ",
+      "category": ["H", "I"],
+      "symbol": "dff",
+      "pinCount": 4,
+      "pinNames": ["D", "CLK", "Q", "Q_NOT"],
+      "params": [
+        {
+          "key": "delaySec",
+          "labelJa": "伝搬遅延",
+          "unit": "s",
+          "default": 1e-9,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "dff"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "XFMR",
+      "nameJa": "トランス",
+      "description": "理想トランスに近い簡易トランス",
+      "category": ["F", "J"],
+      "symbol": "transformer",
+      "pinCount": 4,
+      "pinNames": ["p1", "p2", "s1", "s2"],
+      "params": [
+        {
+          "key": "turnsRatio",
+          "labelJa": "巻数比",
+          "unit": "",
+          "default": 1,
+          "min": 0.001,
+          "max": 1000,
+          "editable": true
+        },
+        {
+          "key": "coupling",
+          "labelJa": "結合係数",
+          "unit": "",
+          "default": 0.99,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "transformer"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "SCR",
+      "nameJa": "サイリスタ（SCR）",
+      "description": "ゲートでトリガして導通する整流素子",
+      "category": ["B", "J", "M"],
+      "symbol": "scr",
+      "pinCount": 3,
+      "pinNames": ["anode", "gate", "cathode"],
+      "params": [
+        {
+          "key": "Vgk",
+          "labelJa": "ゲート・カソード間電圧",
+          "unit": "V",
+          "default": 0.8,
+          "min": 0,
+          "max": 5,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "scr"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "TRIAC",
+      "nameJa": "トライアック",
+      "description": "双方向をトリガできる交流負荷制御用素子",
+      "category": ["B", "J", "M"],
+      "symbol": "triac",
+      "pinCount": 3,
+      "pinNames": ["mt2", "gate", "mt1"],
+      "params": [
+        {
+          "key": "Vgt",
+          "labelJa": "ゲートトリガ電圧",
+          "unit": "V",
+          "default": 1.5,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "triac"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "DIAC",
+      "nameJa": "ダイアック",
+      "description": "ブレークオーバー電圧で双方向に導通するトリガ素子",
+      "category": ["B", "J", "M"],
+      "symbol": "diac",
+      "pinCount": 2,
+      "pinNames": ["mt1", "mt2"],
+      "params": [
+        {
+          "key": "Vbo",
+          "labelJa": "ブレークオーバー電圧",
+          "unit": "V",
+          "default": 30,
+          "min": 0,
+          "max": 100,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "diac"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "L_RELAY",
+      "nameJa": "リレーコイル",
+      "description": "電磁リレーの駆動コイル（インダクタとして動作）",
+      "category": ["B", "F", "J", "M"],
+      "symbol": "relayCoil",
+      "pinCount": 2,
+      "pinNames": ["1", "2"],
+      "params": [
+        {
+          "key": "L",
+          "labelJa": "インダクタンス",
+          "unit": "H",
+          "default": 0.1,
+          "min": 0,
+          "max": 1000,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "linearInductor"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_OPTO",
+      "nameJa": "フォトカプラ",
+      "description": "入力LEDと出力フォトトランジスタを電気的に絶縁した素子",
+      "category": ["B", "F", "K", "M"],
+      "symbol": "optocoupler",
+      "pinCount": 4,
+      "pinNames": ["anode", "cathode", "collector", "emitter"],
+      "params": [
+        {
+          "key": "Vf",
+          "labelJa": "LED順方向電圧",
+          "unit": "V",
+          "default": 1.2,
+          "min": 0,
+          "max": 5,
+          "editable": true
+        },
+        {
+          "key": "CTR",
+          "labelJa": "電流伝達率",
+          "unit": "",
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "optocoupler"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_WILSON",
+      "nameJa": "ウィルソンカレントミラー",
+      "description": "高精度なカレントミラー回路（ブラックボックス素子）",
+      "category": ["B", "C"],
+      "symbol": "wilsonMirror",
+      "pinCount": 3,
+      "pinNames": ["ref", "out", "gnd"],
+      "params": [
+        {
+          "key": "Vref",
+          "labelJa": "参照端子電圧",
+          "unit": "V",
+          "default": 1.4,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "wilsonCurrentMirror"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_CASCODE",
+      "nameJa": "カスコードカレントミラー",
+      "description": "出力インピーダンスの高いカスコードカレントミラー（ブラックボックス素子）",
+      "category": ["B", "C"],
+      "symbol": "cascodeMirror",
+      "pinCount": 3,
+      "pinNames": ["ref", "out", "gnd"],
+      "params": [
+        {
+          "key": "Vref",
+          "labelJa": "参照端子電圧",
+          "unit": "V",
+          "default": 1.4,
+          "min": 0,
+          "max": 10,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "cascodeCurrentMirror"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    }
+  ]
+}
