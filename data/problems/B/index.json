@@ -2,253 +2,103 @@
   "problems": [
     {
       "id": "B-01",
-      "title": "ダイオード直列回路の電流制限抵抗",
+      "title": "ダイオードの順方向電圧と電流制限抵抗",
       "difficulty": 1
     },
     {
       "id": "B-02",
-      "title": "ツェナー電圧と限流抵抗",
-      "difficulty": 1
+      "title": "ダイオードの向き：順方向と逆方向",
+      "difficulty": 2
     },
     {
       "id": "B-03",
-      "title": "LEDの電流制限抵抗",
-      "difficulty": 1
+      "title": "LED をマイコンの出力ピンで 5 mA で点ける",
+      "difficulty": 2
     },
     {
       "id": "B-04",
-      "title": "NPNトランジスタのベース抵抗設計",
-      "difficulty": 2
+      "title": "4個の LED を 5 V で点ける：直列と並列の組み合わせ",
+      "difficulty": 3
     },
     {
       "id": "B-05",
-      "title": "NMOSゲートバイアス用分圧",
-      "difficulty": 2
+      "title": "ダイオード2個で約 1.4 V の基準電圧を作る",
+      "difficulty": 3
     },
     {
       "id": "B-06",
-      "title": "ダイオードOR回路",
+      "title": "ダイオードOR：アダプタと電池を自動で切り替える",
       "difficulty": 2
     },
     {
       "id": "B-07",
-      "title": "NPNトランジスタの飽和スイッチ設計",
+      "title": "逆接続保護：電池の逆挿しから回路を守る",
       "difficulty": 2
     },
     {
       "id": "B-08",
-      "title": "PNPトランジスタのハイサイドスイッチ設計",
+      "title": "ツェナーダイオード：逆向きにつないで基準電圧を作る",
       "difficulty": 2
     },
     {
       "id": "B-09",
-      "title": "NPNエミッタフォロワのエミッタ抵抗設計",
-      "difficulty": 2
+      "title": "ツェナー・シャントレギュレータ：直列抵抗を設計する",
+      "difficulty": 3
     },
     {
       "id": "B-10",
-      "title": "NMOS低サイドスイッチの負荷抵抗設計",
-      "difficulty": 2
+      "title": "負荷が変わるときのツェナー電流：最悪条件で設計する",
+      "difficulty": 4
     },
     {
       "id": "B-11",
-      "title": "ダイオードAND回路",
+      "title": "ショットキーダイオードで電圧降下と損失を減らす",
       "difficulty": 2
     },
     {
       "id": "B-12",
-      "title": "ツェナー定電圧回路の限流抵抗設計（負荷あり）",
-      "difficulty": 2
+      "title": "TVSダイオードで入力端子をサージから守る",
+      "difficulty": 3
     },
     {
       "id": "B-13",
-      "title": "NPNトランジスタの分圧バイアス設計",
+      "title": "トランジスタでリレーを動かす（スイッチと飽和）",
       "difficulty": 3
     },
     {
       "id": "B-14",
-      "title": "LED直列回路の電流制限抵抗設計",
-      "difficulty": 2
+      "title": "トランジスタの電流増幅（固定バイアス）",
+      "difficulty": 3
     },
     {
       "id": "B-15",
-      "title": "ダイオードによる逆接続保護回路",
-      "difficulty": 2
+      "title": "エミッタ抵抗で β に強いバイアスを作る",
+      "difficulty": 4
     },
     {
       "id": "B-16",
-      "title": "BJTカレントミラーで負荷電流を設定",
-      "difficulty": 2
+      "title": "エミッタフォロワ：弱い分圧回路で 50 mA の負荷を動かす",
+      "difficulty": 3
     },
     {
       "id": "B-17",
-      "title": "フォトカプラのCTRを用いた出力電流設計",
-      "difficulty": 2
+      "title": "MOSFETスイッチ：ゲート電圧でオン抵抗と発熱が変わる",
+      "difficulty": 3
     },
     {
       "id": "B-18",
-      "title": "固定ベースバイアス時のコレクタ抵抗設計",
-      "difficulty": 2
+      "title": "MOSFETのバイアス：ゲート分圧でドレイン電流 2 mA を決める",
+      "difficulty": 4
     },
     {
       "id": "B-19",
-      "title": "ダーリントン接続のベース抵抗設計",
-      "difficulty": 3
+      "title": "JFETの自己バイアス：ソース抵抗1本でゲートを負にする",
+      "difficulty": 4
     },
     {
       "id": "B-20",
-      "title": "コレクタ帰還バイアス抵抗の設計",
-      "difficulty": 3
-    },
-    {
-      "id": "B-21",
-      "title": "LED並列回路の独立限流抵抗設計",
-      "difficulty": 2
-    },
-    {
-      "id": "B-22",
-      "title": "ツェナー直列接続による定電圧回路",
-      "difficulty": 2
-    },
-    {
-      "id": "B-23",
-      "title": "ツェナー基準BJT定電流源のエミッタ抵抗設計",
-      "difficulty": 3
-    },
-    {
-      "id": "B-24",
-      "title": "ツェナーと通常ダイオードの直列定電圧回路",
-      "difficulty": 2
-    },
-    {
-      "id": "B-25",
-      "title": "ベース下拉抵抗付きBJTスイッチのベース抵抗設計",
-      "difficulty": 3
-    },
-    {
-      "id": "B-26",
-      "title": "MOSFETソース接地の動作点設計",
-      "difficulty": 2
-    },
-    {
-      "id": "B-27",
-      "title": "フォトダイオードの負荷抵抗設計",
-      "difficulty": 2
-    },
-    {
-      "id": "B-28",
-      "title": "ツェナー基準エミッタフォロワ電圧レギュレータ",
-      "difficulty": 3
-    },
-    {
-      "id": "B-29",
-      "title": "MOSFETアナログスイッチのON抵抗設計",
-      "difficulty": 3
-    },
-    {
-      "id": "B-30",
-      "title": "エミッタ抵抗付きカレントミラーの電流比設計",
-      "difficulty": 3
-    },
-    {
-      "id": "B-31",
-      "title": "ダイオードクランプによる過電圧制限",
-      "difficulty": 2
-    },
-    {
-      "id": "B-32",
-      "title": "ショットキーダイオードによる電源OR",
-      "difficulty": 2
-    },
-    {
-      "id": "B-33",
-      "title": "ツェナーの電力定格を満たす限流抵抗設計",
-      "difficulty": 2
-    },
-    {
-      "id": "B-34",
-      "title": "フォトトランジスタの負荷抵抗設計",
-      "difficulty": 2
-    },
-    {
-      "id": "B-35",
-      "title": "JFETの自己バイアス抵抗設計",
-      "difficulty": 3
-    },
-    {
-      "id": "B-36",
-      "title": "TVS/ESDクランプ回路",
-      "difficulty": 1
-    },
-    {
-      "id": "B-37",
-      "title": "サイリスタのゲートトリガ抵抗設計",
-      "difficulty": 1
-    },
-    {
-      "id": "B-38",
-      "title": "トライアックのゲート抵抗設計",
-      "difficulty": 1
-    },
-    {
-      "id": "B-39",
-      "title": "ダイアックによる位相制御トリガ回路",
-      "difficulty": 2
-    },
-    {
-      "id": "B-40",
-      "title": "ワイドラーカレントミラー",
-      "difficulty": 2
-    },
-    {
-      "id": "B-41",
-      "title": "ウィルソンカレントミラー",
-      "difficulty": 2
-    },
-    {
-      "id": "B-42",
-      "title": "MOSFETカレントミラー",
-      "difficulty": 2
-    },
-    {
-      "id": "B-43",
-      "title": "カスコードカレントミラー",
-      "difficulty": 2
-    },
-    {
-      "id": "B-44",
-      "title": "BJT差動対のテール電流設定",
-      "difficulty": 2
-    },
-    {
-      "id": "B-45",
-      "title": "エミッタ縮退付き増幅段のバイアス設計",
-      "difficulty": 3
-    },
-    {
-      "id": "B-46",
-      "title": "VBE増倍回路のバイアス抵抗設計",
-      "difficulty": 2
-    },
-    {
-      "id": "B-47",
-      "title": "フライバックダイオードによる逆起電力保護",
-      "difficulty": 1
-    },
-    {
-      "id": "B-48",
-      "title": "RCスナバ回路の設計",
-      "difficulty": 2
-    },
-    {
-      "id": "B-49",
-      "title": "MOSFETのゲート抵抗設計",
-      "difficulty": 2
-    },
-    {
-      "id": "B-50",
-      "title": "バリキャップダイオードによる同調回路",
-      "difficulty": 2
+      "title": "総合：ツェナーとトランジスタで 4.9 V・100 mA の電源をつくる",
+      "difficulty": 5
     }
   ]
 }
