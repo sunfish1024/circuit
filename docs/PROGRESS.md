@@ -21,6 +21,11 @@
 - A（20問、2026-11-02）: verify --strict / --mutate / --drop すべて合格（--reverse は極性部品なしで対象外）
   - ユーザーの方向性確認待ち（CLAUDE.md 作業の進め方 2）
 
+## 2026-11-02 方向性承認・以降の進め方
+- ユーザーが A 分野を承認。以降は確認なしで進める。分野の順番: **B → C → G → I → F → H → J → D → E**
+- まず配線表示（layout・ガイド線）、ラベル重なり、問題パネルのリサイズ、layout 検査ツールを実装 → A分野の layout 付け直し → B へ
+- ui-engineer（.claude/agents/ui-engineer.md）はセッション開始後に追加したため認識されず、sim-engineer に代役させた（次回セッションから ui-engineer が使える）
+
 ## 残課題
 - 旧B分野50問は作り直し予定（B-32: mutate/drop で甘い、B-47: reverse で甘い）
 - digital シミュレータは未配線ピンを gnd 扱い（H分野で見直し）
