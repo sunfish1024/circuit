@@ -1,0 +1,6 @@
+{
+  "name": "electronic-circuit-learning-game",
+  "private": true,
+  "type": "module",
+  "description": "静的サイト（ブラウザでは無視される）。Node で単体テストする際の ESM 判定用。"
+}

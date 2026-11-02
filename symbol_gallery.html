@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>回路記号ギャラリー</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #111827;
+    --surface-2: #1f2937;
+    --border: #374151;
+    --text: #e5e7eb;
+    --text-muted: #9ca3af;
+    --accent: #38bdf8;
+    --symbol: #e5e7eb;
+    --grid: rgba(148, 163, 184, 0.12);
+  }
+
+  body.light {
+    --bg: #f1f5f9;
+    --surface: #ffffff;
+    --surface-2: #e2e8f0;
+    --border: #cbd5e1;
+    --text: #0f172a;
+    --text-muted: #64748b;
+    --accent: #0284c7;
+    --symbol: #1e293b;
+    --grid: rgba(15, 23, 42, 0.10);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", "Meiryo", sans-serif;
+    padding: 24px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  h1 { font-size: 22px; }
+
+  .sub { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
+
+  .theme-toggle {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  /* --- サンプル回路 --- */
+
+  .circuit-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 24px;
+  }
+
+  .circuit-section h2 { font-size: 15px; margin-bottom: 10px; }
+
+  .circuit-stage {
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 20px 20px;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .circuit-stage svg { display: block; width: 100%; height: auto; }
+
+  /* --- 記号グリッド --- */
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .symbol-stage {
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 20px 20px;
+    border-radius: 8px;
+  }
+
+  .symbol-stage svg { display: block; width: 100%; height: auto; }
+
+  .card h3 {
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card code {
+    font-family: Consolas, Menlo, monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: rgba(56, 189, 248, 0.10);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+
+  .card p { font-size: 11.5px; color: var(--text-muted); }
+
+  /* 記号の共通スタイル（アプリ本体と同じ設計） */
+
+  svg.sym-root {
+    --symbol-color: var(--symbol);
+    overflow: visible;
+  }
+
+  .sym-stroke {
+    fill: none;
+    stroke: var(--symbol-color);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .sym-thin {
+    fill: none;
+    stroke: var(--symbol-color);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .sym-fill { fill: var(--symbol-color); stroke: none; }
+
+  .sym-fill-thin { fill: var(--symbol-color); stroke: none; }
+
+  .sym-label {
+    fill: var(--symbol-color);
+    font-size: 10px;
+    font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+
+  .sym-label-sm {
+    fill: var(--symbol-color);
+    font-size: 8px;
+    font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+
+  .board-comp-id {
+    font-size: 12px;
+    font-weight: 700;
+    fill: var(--text);
+  }
+
+  .board-comp-params {
+    font-size: 9px;
+    fill: var(--text-muted);
+  }
+
+  .board-pin { fill: #cbd5e1; stroke: rgba(0,0,0,0.3); stroke-width: 1; }
+  .board-pin-label { font-size: 8px; fill: #8fa3bf; }
+  body.light .board-pin { fill: #64748b; }
+  body.light .board-pin-label { fill: #64748b; }
+
+  .demo-wire { stroke: #93c5fd; stroke-width: 2; fill: none; }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>回路記号ギャラリー</h1>
+    </div>
+    <button class="theme-toggle" id="theme-toggle">表示切替</button>
+  </header>
+  <p class="sub">
+    全 <span id="sub-count">-</span> 種類の部品を JIS/IEC 風の回路記号で描画しています。
+    アプリ本体（ボード・パレット）でも同じ記号を使用します。
+  </p>
+
+  <section class="circuit-section">
+    <h2>サンプル回路（記号 + 配線の見た目）</h2>
+    <div class="circuit-stage">
+      <svg id="sample-circuit" class="sym-root" viewBox="0 0 760 340" height="340"></svg>
+    </div>
+  </section>
+
+  <section>
+    <h2 style="font-size: 15px; margin-bottom: 12px;">全部品（<span id="grid-count">-</span> 種類）</h2>
+    <div class="grid" id="grid"></div>
+  </section>
+
+  <script type="module">
+    import { getSymbolBody, getSymbolDefinition, getSymbolPins } from "./src/ui/symbols.js";
+
+    // ------------------------------------------------------------
+    // テーマ切替
+    // ------------------------------------------------------------
+
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+      document.body.classList.toggle("light");
+    });
+
+    // ------------------------------------------------------------
+    // 部品カタログの読み込みとグリッド描画
+    // ------------------------------------------------------------
+
+    async function main() {
+      const catalog = await fetch("./data/components.json").then((r) => r.json());
+      const components = Array.isArray(catalog) ? catalog : catalog.components;
+
+      const grid = document.getElementById("grid");
+
+      document.getElementById("sub-count").textContent = components.length;
+      document.getElementById("grid-count").textContent = components.length;
+
+      grid.innerHTML = components
+        .map((definition) => {
+          const type = definition.type;
+          const body = getSymbolBody(type, null);
+          const pins = getSymbolPins(type) ?? [];
+          const pinNames = definition.pinNames ?? [];
+
+          const pinDots = pins
+            .map(
+              (point, index) => `
+              <circle class="board-pin" cx="${point.x}" cy="${point.y}" r="3.5"></circle>
+              <text class="board-pin-label" x="${point.x}" y="${point.y < 10 ? point.y - 6 : point.y + (point.x > 48 && point.y >= 26 && point.y < 42 ? -8 : 12)}" text-anchor="middle">${pinNames[index] ?? index + 1}</text>
+            `
+            )
+            .join("");
+
+          return `
+            <div class="card">
+              <div class="symbol-stage">
+                <svg class="sym-root" viewBox="-12 -14 120 84">
+                  <g>${body}</g>
+                  ${pinDots}
+                </svg>
+              </div>
+              <h3>${definition.nameJa ?? type} <code>${type}</code></h3>
+              <p>${pinNames.length}端子 ・ ${pinNames.join(" / ") || "-"}</p>
+            </div>
+          `;
+        })
+        .join("");
+
+      renderSampleCircuit();
+    }
+
+    // ------------------------------------------------------------
+    // サンプル回路（電池 + スイッチ + 抵抗 + LED + GND）
+    // ------------------------------------------------------------
+
+    function renderSampleCircuit() {
+      const svg = document.getElementById("sample-circuit");
+
+      const placed = [
+        { type: "V_DC", x: 60, y: 200, id: "V1", value: "V=5V", pinNames: ["p", "n"] },
+        { type: "SW", x: 200, y: 200, id: "SW1", value: "closed=true", pinNames: ["1", "2"], params: { closed: true } },
+        { type: "R", x: 340, y: 200, id: "R1", value: "R=1kΩ", pinNames: ["1", "2"] },
+        { type: "LED", x: 480, y: 200, id: "LED1", value: "Vf=1.8V", pinNames: ["anode", "cathode"] },
+        { type: "GND", x: 320, y: 248, id: "", value: "", pinNames: ["gnd"] },
+      ];
+
+      const wires = [
+        "M 156 226 L 200 226",
+        "M 296 226 L 340 226",
+        "M 436 226 L 480 226",
+        "M 576 226 L 640 226 L 640 300 L 60 300 L 60 226",
+        "M 368 300 L 368 300",
+      ];
+
+      const compsSvg = placed
+        .map((item) => {
+          const body = getSymbolBody(item.type, item);
+          const def = getSymbolDefinition(item.type);
+          const idLabel = def?.idLabel ?? { x: 48, y: -6, anchor: "middle" };
+          const valueLabel = def?.valueLabel ?? { x: 48, y: 64, anchor: "middle" };
+
+          return `
+            <g transform="translate(${item.x}, ${item.y})">
+              ${body}
+              ${item.id ? `<text class="board-comp-id" x="${idLabel.x}" y="${idLabel.y}" text-anchor="${idLabel.anchor}">${item.id}</text>` : ""}
+              ${item.value && valueLabel ? `<text class="board-comp-params" x="${valueLabel.x}" y="${valueLabel.y}" text-anchor="${valueLabel.anchor}">${item.value}</text>` : ""}
+            </g>
+          `;
+        })
+        .join("");
+
+      const wiresSvg = wires
+        .map((d) => `<path class="demo-wire" d="${d}"></path>`)
+        .join("");
+
+      svg.innerHTML = wiresSvg + compsSvg;
+    }
+
+    main().catch((error) => {
+      document.getElementById("grid").innerHTML =
+        `<p>エラー: ${error}</p>`;
+      console.error(error);
+    });
+  </script>
+</body>
+</html>
