@@ -1,0 +1,53 @@
+{
+  "id": "A-05",
+  "category": "A",
+  "title": "LC並列共振周波数を合わせる",
+  "difficulty": 3,
+  "statement": "固定インダクタ L1=1mH が out-gnd 間に接続されている。プレイヤーは C1 を out-gnd 間に並列に配置し、LC並列共振周波数が 5kHz になるように C1 の値を設定せよ。共振周波数は f0 = 1 / (2π√(L × C)) で求める。",
+  "prerequisites": [
+    "A-04"
+  ],
+  "judge": "ac",
+  "learningGoal": "LC並列共振周波数の式から、所望周波数になる静電容量を求める。",
+  "hint": "f0 = 5000Hz、L = 1×10^-3 H として、C = 1 / (L × (2πf0)^2) を計算する。",
+  "availableComponents": [
+    "C",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "L1",
+      "type": "L",
+      "params": {
+        "L": 0.001
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "C1",
+      "expected": 1.013e-06,
+      "tolerancePct": 2,
+      "unit": "F"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1.013e-06
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

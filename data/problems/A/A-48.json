@@ -1,0 +1,62 @@
+{
+  "id": "A-48",
+  "category": "A",
+  "title": "デシベルから電力比への変換",
+  "difficulty": 2,
+  "statement": "図の回路では、V1=1V の DC 電源に負荷抵抗 R1 を接続する。R1 の消費電力が基準電力 1mW に対して +10dB になるように、R1 の値を決定せよ。R1 は vin-gnd 間に配置する。",
+  "prerequisites": [
+    "A-06"
+  ],
+  "judge": "dc",
+  "learningGoal": "デシベル表記から電力比を計算し、指定電力を消費する負荷抵抗を設計できること。",
+  "hint": "+10dB は電力比 10 倍。基準 1mW の 10 倍は 10mW。P=V²/R より R=V²/P。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 1
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcPower",
+      "element": "R1",
+      "expected": 0.01,
+      "tolerancePct": 2,
+      "unit": "W"
+    },
+    {
+      "type": "connection",
+      "element": "R1",
+      "nets": [
+        "vin",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 100
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ]
+    }
+  ]
+}

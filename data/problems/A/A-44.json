@@ -1,0 +1,75 @@
+{
+  "id": "A-44",
+  "category": "A",
+  "title": "直列RC回路のインピーダンスと位相角",
+  "difficulty": 2,
+  "statement": "図の回路は R1=1kΩ と C1 の直列RC回路である。入力 vin に 1V RMS の正弦波を印加し、出力 out を C1 の両端から取る。周波数 1kHz において、利得が -3.01dB、位相が -45° になるように C1 の値を決定せよ。",
+  "prerequisites": [
+    "A-12"
+  ],
+  "judge": "ac",
+  "learningGoal": "直列RC回路の位相角 φ=-arctan(1/(ωRC)) を理解し、指定の位相角になる容量を設計できること。",
+  "hint": "位相が -45° になる条件は 1/(ωRC)=1、すなわち ωRC=1。f=1kHz、R=1kΩ から C を求める。",
+  "availableComponents": [
+    "C",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 1.414214,
+        "freqHz": 1000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "vin",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "bodePoint",
+      "frequencyHz": 1000,
+      "gainDB": -3.01,
+      "phaseDeg": -45,
+      "tolerancePct": 5
+    },
+    {
+      "type": "connection",
+      "element": "C1",
+      "nets": [
+        "out",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1.59e-07
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "id": "A-18",
+  "category": "A",
+  "title": "負荷付き分圧回路で出力電圧を合わせる",
+  "difficulty": 3,
+  "statement": "固定電圧源 V1=12V が vin-gnd 間に接続され、固定抵抗 R1=10kΩ が vin-out 間、固定負荷 RL=10kΩ が out-gnd 間に接続されている。プレイヤーは R2 を out-gnd 間に追加配置し、out の電圧が 4V になるように R2 の値を設定せよ。",
+  "prerequisites": [
+    "A-02"
+  ],
+  "judge": "dc",
+  "learningGoal": "負荷が接続された分圧回路では、負荷を含めた並列合成抵抗で分圧比が決まることを理解する。",
+  "hint": "out-gnd 間の合成抵抗を R2∥RL とし、Vout = 12V × (R2∥RL) / (R1 + R2∥RL) = 4V となる条件から R2∥RL を逆算する。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "vin",
+        "out"
+      ],
+      "locked": true
+    },
+    {
+      "id": "RL",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "out",
+      "expected": 4,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "R2",
+      "expected": 10000,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

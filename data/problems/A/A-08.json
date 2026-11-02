@@ -1,0 +1,73 @@
+{
+  "id": "A-08",
+  "category": "A",
+  "title": "電流源の並列分流で支路電流を決める",
+  "difficulty": 2,
+  "statement": "固定電流源 I1=10mA が vin-gnd 間に接続され、固定抵抗 R2=2kΩ が vin-gnd 間に接続されている。プレイヤーは R1 を R2 と並列に vin-gnd 間へ配置し、R1 に流れる電流が 4mA になるように R1 の値を設定せよ。",
+  "prerequisites": [
+    "A-01",
+    "A-03"
+  ],
+  "judge": "dc",
+  "learningGoal": "並列回路では電流がコンダクタンス比で分流することを理解し、支路抵抗を求める。",
+  "hint": "R2 には 10mA − 4mA = 6mA が流れる。並列なので R1 と R2 の両端電圧は等しい。R2 の電圧から R1 の値を求める。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "I1",
+      "type": "I_DC",
+      "params": {
+        "I": 0.01
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 2000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "R1",
+      "expected": 0.004,
+      "tolerancePct": 2,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 3000,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 3000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "A-06",
+  "category": "A",
+  "title": "抵抗の消費電力を指定値にする",
+  "difficulty": 2,
+  "statement": "固定電圧源 V1 は 10V で、vin-gnd 間に接続されている。プレイヤーは R1 を vin-gnd 間に配置し、R1 の消費電力が 0.5W になるように R1 の値を設定せよ。",
+  "prerequisites": [
+    "A-01"
+  ],
+  "judge": "dc",
+  "learningGoal": "電力公式 P = V² / R から、所望の消費電力となる抵抗値を求める。",
+  "hint": "P = V² / R を変形すると R = V² / P である。10V の 2 乗を 0.5W で割る。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 10
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcPower",
+      "element": "R1",
+      "expected": 0.5,
+      "tolerancePct": 2,
+      "unit": "W"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 200,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 200
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ]
+    }
+  ]
+}

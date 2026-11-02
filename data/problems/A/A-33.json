@@ -1,0 +1,63 @@
+{
+  "id": "A-33",
+  "category": "A",
+  "title": "インダクタ蓄積エネルギー E=1/2·L·I²",
+  "difficulty": 2,
+  "statement": "図の回路では理想電流源 I1 が 0.2A を流しており、DC 定常状態である。インダクタ L1 に蓄積されるエネルギーが 4mJ になるように、L1 の値を決定せよ。",
+  "prerequisites": [
+    "A-08",
+    "A-17"
+  ],
+  "judge": "dc",
+  "learningGoal": "インダクタに蓄積されるエネルギー E = 1/2·L·I² を計算し、必要な L を設計できること。",
+  "hint": "E = 1/2·L·I²。4mJ = 0.5 × L × (0.2)² を L について解く。",
+  "availableComponents": [
+    "L",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "I1",
+      "type": "I_DC",
+      "params": {
+        "I": 0.2
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "L1",
+      "expected": 0.2,
+      "tolerancePct": 2,
+      "unit": "H"
+    },
+    {
+      "type": "connection",
+      "element": "L1",
+      "nets": [
+        "vin",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "L1",
+      "type": "L",
+      "params": {
+        "L": 0.2
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ]
+    }
+  ]
+}

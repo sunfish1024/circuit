@@ -1,0 +1,76 @@
+{
+  "id": "A-36",
+  "category": "A",
+  "title": "初期電荷あり直列コンデンサの電圧分担",
+  "difficulty": 2,
+  "statement": "図の回路は DC 10V 源に C1 と C2 が直列接続されている。C1 は 10µF で、初期電圧 2V（vin 側が高電位）に充電されている。C2 は初期電荷ゼロである。DC 定常状態でノード a-gnd 間の電圧が 5V になるように、C2 の値を決定せよ。",
+  "prerequisites": [
+    "A-35"
+  ],
+  "judge": "dc",
+  "learningGoal": "初期電荷がある直列コンデンサでも、孤立ノードの電荷保存から最終電圧分担を求められること。",
+  "hint": "ノード a の孤立電荷保存を使う。最終電圧を Va とすると、C1 の電荷は C1(10−Va)、C2 の電荷は C2·Va。初期電荷との保存式を立てる。",
+  "availableComponents": [
+    "C",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 10
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-05,
+        "initialV": 2
+      },
+      "connect": [
+        "vin",
+        "a"
+      ],
+      "locked": true,
+      "note": "初期電圧 2V（vin 側が高電位）。シミュレータ側で initialV を解釈する拡張が必要。"
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "a",
+      "expected": 5,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "connection",
+      "element": "C2",
+      "nets": [
+        "a",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "C2",
+      "type": "C",
+      "params": {
+        "C": 6e-06
+      },
+      "connect": [
+        "a",
+        "gnd"
+      ]
+    }
+  ]
+}

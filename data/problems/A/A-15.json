@@ -1,0 +1,72 @@
+{
+  "id": "A-15",
+  "category": "A",
+  "title": "最大電力伝送のための負荷抵抗を決める",
+  "difficulty": 3,
+  "statement": "固定電圧源 V1=10V と固定内部抵抗 Rs=50Ω が直列に接続され、その開放端が out-gnd 間に現れている（V1 は vin-gnd、Rs は vin-out）。プレイヤーは RL を out-gnd 間に配置し、RL で消費される電力が最大になるように RL の値を設定せよ。",
+  "prerequisites": [
+    "A-06"
+  ],
+  "judge": "dc",
+  "learningGoal": "最大電力伝送条件（負荷抵抗＝電源側抵抗）を理解する。",
+  "hint": "最大電力伝送は RL = Rs のとき成立する。このとき RL の電力は V² / (4Rs) = 100 / 200 = 0.5W である。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 10
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rs",
+      "type": "R",
+      "params": {
+        "R": 50
+      },
+      "connect": [
+        "vin",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "RL",
+      "expected": 50,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    },
+    {
+      "type": "dcPower",
+      "element": "RL",
+      "expected": 0.5,
+      "tolerancePct": 3,
+      "unit": "W"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "RL",
+      "type": "R",
+      "params": {
+        "R": 50
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

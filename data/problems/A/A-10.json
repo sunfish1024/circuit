@@ -1,0 +1,54 @@
+{
+  "id": "A-10",
+  "category": "A",
+  "title": "誘導性リアクタンスを指定値にする",
+  "difficulty": 3,
+  "statement": "固定交流電圧源 V1 は 1kHz、1Vrms で vin-gnd 間に接続されている。プレイヤーは L1 を vin-gnd 間に配置し、L1 の誘導性リアクタンスが 100Ω になるように L1 の値を設定せよ。XL = 2πfL とする。",
+  "prerequisites": [
+    "A-05"
+  ],
+  "judge": "ac",
+  "learningGoal": "誘導性リアクタンス XL = 2πfL から、所望のリアクタンスとなるインダクタンスを求める。",
+  "hint": "XL = 2πfL を変形すると L = XL / (2πf) である。f = 1000Hz、XL = 100Ω を代入する。",
+  "availableComponents": [
+    "L",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 1.414214,
+        "freqHz": 1000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "L1",
+      "expected": 0.015915,
+      "tolerancePct": 2,
+      "unit": "H"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "L1",
+      "type": "L",
+      "params": {
+        "L": 0.015915
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "A-31",
+  "category": "A",
+  "title": "インダクタの直列合成インダクタンス",
+  "difficulty": 1,
+  "statement": "図の回路は L1 と L2 が直列接続されている。L1 は 10mH で固定されている。vin-gnd 間の合成インダクタンスが 25mH になるように、L2 の値を決定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "直列接続したインダクタの合成インダクタンス L = L1 + L2 を理解すること。",
+  "hint": "直列合成は L = L1 + L2。L2 = 25mH − 10mH。",
+  "availableComponents": [
+    "L",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "L1",
+      "type": "L",
+      "params": {
+        "L": 0.01
+      },
+      "connect": [
+        "vin",
+        "a"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "L2",
+      "expected": 0.015,
+      "tolerancePct": 2,
+      "unit": "H"
+    },
+    {
+      "type": "connection",
+      "element": "L2",
+      "nets": [
+        "a",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "L2",
+      "type": "L",
+      "params": {
+        "L": 0.015
+      },
+      "connect": [
+        "a",
+        "gnd"
+      ]
+    }
+  ]
+}

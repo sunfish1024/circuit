@@ -1,0 +1,51 @@
+{
+  "id": "A-01",
+  "category": "A",
+  "title": "オームの法則で抵抗値を決める",
+  "difficulty": 1,
+  "statement": "固定電圧源 V1 は 12V で、vin-gnd 間に接続されている。プレイヤーは R1 を vin-gnd 間に配置し、R1 に 2mA の電流を流したい。R1 の値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "オームの法則から、指定電流を流す抵抗値を求める。",
+  "hint": "R = V / I を使う。12V を 2mA で割るとき、mA を A に直す。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "R1",
+      "expected": 0.002,
+      "tolerancePct": 2,
+      "unit": "A"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 6000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ]
+    }
+  ]
+}

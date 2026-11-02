@@ -1,0 +1,76 @@
+{
+  "id": "A-42",
+  "category": "A",
+  "title": "定電流によるコンデンサ充電のランプ電圧",
+  "difficulty": 1,
+  "statement": "図の回路では、t=0 で理想スイッチが閉じ、理想電流源 I1=1mA が C1 を充電する。t=10ms における out-gnd 間電圧が 2V になるように、C1 の値を決定せよ。初期電圧は 0V とする。",
+  "prerequisites": [
+    "A-04"
+  ],
+  "judge": "transient",
+  "learningGoal": "定電流充電では V(t)=I/C·t のランプ波形になることを理解し、指定時刻の電圧になる容量を設計できること。",
+  "hint": "V=I·t/C。I=1mA、t=10ms、V=2V を代入して C を求める。",
+  "availableComponents": [
+    "C",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "I1",
+      "type": "I_DC",
+      "params": {
+        "I": 0.001
+      },
+      "connect": [
+        "a",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "SW",
+      "type": "SW",
+      "params": {
+        "closed": true
+      },
+      "connect": [
+        "a",
+        "out"
+      ],
+      "locked": true,
+      "note": "t=0 で閉じる理想スイッチ。"
+    }
+  ],
+  "checks": [
+    {
+      "type": "transientPoint",
+      "node": "out",
+      "timeSec": 0.01,
+      "expected": 2,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "connection",
+      "element": "C1",
+      "nets": [
+        "out",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 5e-06
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

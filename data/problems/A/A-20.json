@@ -1,0 +1,74 @@
+{
+  "id": "A-20",
+  "category": "A",
+  "title": "容量性分圧回路で出力電圧を合わせる",
+  "difficulty": 3,
+  "statement": "固定交流電圧源 V1 は 1kHz、10Vrms で vin-gnd 間に接続されている。固定コンデンサ C1=1µF が vin-out 間に接続されている。プレイヤーは C2 を out-gnd 間に配置し、out の電圧振幅（実効値）が 4Vrms になるように C2 の値を設定せよ。",
+  "prerequisites": [
+    "A-09",
+    "A-11"
+  ],
+  "judge": "ac",
+  "learningGoal": "直列コンデンサによる分圧（C1/(C1+C2)）から、所望の出力振幅となる静電容量を求める。",
+  "hint": "直列コンデンサでは電荷が共通なので、out 電圧は Vout = Vin × C1 / (C1 + C2) となる。4 = 10 × 1µF / (1µF + C2) を C2 について解く。",
+  "availableComponents": [
+    "C",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 14.142136,
+        "freqHz": 1000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-06
+      },
+      "connect": [
+        "vin",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "acVoltage",
+      "node": "out",
+      "frequencyHz": 1000,
+      "expectedRMS": 4,
+      "tolerancePct": 2
+    },
+    {
+      "type": "componentValue",
+      "element": "C2",
+      "expected": 1.5e-06,
+      "tolerancePct": 2,
+      "unit": "F"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "C2",
+      "type": "C",
+      "params": {
+        "C": 1.5e-06
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

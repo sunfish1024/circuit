@@ -1,0 +1,98 @@
+{
+  "id": "A-30",
+  "category": "A",
+  "title": "KVL閉路方程式でループ電流を決める",
+  "difficulty": 2,
+  "statement": "図の回路は単一閉路を形成している。KVL を用いて閉路方程式を立て、負荷抵抗 R3 を out-gnd 間に配置して閉路電流が 2mA になるように R3 の値を決定せよ。",
+  "prerequisites": [
+    "A-01"
+  ],
+  "judge": "dc",
+  "learningGoal": "KVL（キルヒホッフの電圧則）で閉路方程式を立て、ループ電流を設計できること。",
+  "hint": "閉路を一巡する電圧の和がゼロ。V1 と V2 の向きに注意して式を立てる。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 10
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "vin",
+        "a"
+      ],
+      "locked": true
+    },
+    {
+      "id": "V2",
+      "type": "V_DC",
+      "params": {
+        "V": 2
+      },
+      "connect": [
+        "a",
+        "b"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "b",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "out",
+      "expected": 4,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "connection",
+      "element": "R3",
+      "nets": [
+        "out",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R3",
+      "type": "R",
+      "params": {
+        "R": 2000
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

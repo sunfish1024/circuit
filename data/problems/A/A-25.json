@@ -1,0 +1,78 @@
+{
+  "id": "A-25",
+  "category": "A",
+  "title": "直列RLC回路のQを指定値にする",
+  "difficulty": 3,
+  "statement": "固定交流電圧源 V1=1Vrms が vin-gnd 間に接続されている。固定インダクタ L1=1mH が a-b 間、固定コンデンサ C1=1µF が b-gnd 間に接続されている。プレイヤーは R1 を vin-a 間に配置し、直列 RLC 回路の Q が 10 になるように R1 の値を設定せよ。Q = (1/R)√(L/C) とする。",
+  "prerequisites": [
+    "A-05"
+  ],
+  "judge": "ac",
+  "learningGoal": "直列RLC回路のQ値の式から、所望のQとなる抵抗値を求める。",
+  "hint": "Q = (1/R)√(L/C) を変形すると R = (1/Q)√(L/C) である。L = 1×10^-3 H、C = 1×10^-6 F、Q = 10 を代入する。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 1.414214,
+        "freqHz": 1000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "L1",
+      "type": "L",
+      "params": {
+        "L": 0.001
+      },
+      "connect": [
+        "a",
+        "b"
+      ],
+      "locked": true
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-06
+      },
+      "connect": [
+        "b",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 3.1623,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 3.1623
+      },
+      "connect": [
+        "vin",
+        "a"
+      ]
+    }
+  ]
+}

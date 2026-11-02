@@ -1,0 +1,86 @@
+{
+  "id": "A-26",
+  "category": "A",
+  "title": "テブナン等価回路の開放電圧と等価抵抗を求める",
+  "difficulty": 2,
+  "statement": "図の回路において、端子 out-gnd から見たテブナン等価回路を求めよ。開放電圧 Vth と等価抵抗 Rth を計算し、その等価回路を用いて、負荷抵抗 R3 を out-gnd 間に配置したとき out の電圧が 4V になるように R3 の値を決定せよ。",
+  "prerequisites": [
+    "A-02"
+  ],
+  "judge": "dc",
+  "learningGoal": "テブナン等価回路（開放電圧 Vth、等価抵抗 Rth）を求めて負荷抵抗を設計できること。",
+  "hint": "開放電圧は R2 の分圧、等価抵抗は V1 を短絡したときの R1 と R2 の並列合成。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 300
+      },
+      "connect": [
+        "vin",
+        "out"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 600
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "out",
+      "expected": 4,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "connection",
+      "element": "R3",
+      "nets": [
+        "out",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R3",
+      "type": "R",
+      "params": {
+        "R": 200
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

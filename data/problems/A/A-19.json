@@ -1,0 +1,72 @@
+{
+  "id": "A-19",
+  "category": "A",
+  "title": "直流定常状態でのインダクタ電流を指定値にする",
+  "difficulty": 2,
+  "statement": "固定電圧源 V1=5V が vin-gnd 間に接続され、固定インダクタ L1=10mH が out-gnd 間に接続されている。プレイヤーは R1 を vin-out 間に配置し、十分時間が経過した後の R1 に流れる電流が 5mA になるように R1 の値を設定せよ。インダクタは理想（直流抵抗0）とする。",
+  "prerequisites": [
+    "A-01"
+  ],
+  "judge": "dc",
+  "learningGoal": "直流定常状態では理想インダクタが短絡として振る舞うことを理解し、オームの法則で電流を設計する。",
+  "hint": "直流定常状態では L1 は短絡となり、out 電圧は 0V（gnd と同電位）になる。よって電流は V1 / R1 で決まる。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "L1",
+      "type": "L",
+      "params": {
+        "L": 0.01
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "R1",
+      "expected": 0.005,
+      "tolerancePct": 2,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 1000,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "vin",
+        "out"
+      ]
+    }
+  ]
+}

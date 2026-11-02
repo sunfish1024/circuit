@@ -1,0 +1,53 @@
+{
+  "id": "A-11",
+  "category": "A",
+  "title": "コンデンサの直列合成容量を指定値にする",
+  "difficulty": 2,
+  "statement": "固定コンデンサ C1=2µF が out-gnd 間に接続されている。プレイヤーは C2 を C1 と直列になるように vin-out 間へ配置し、vin-gnd 間の合成容量が 1µF になるように C2 の値を設定せよ。",
+  "prerequisites": [
+    "A-09"
+  ],
+  "judge": "dc",
+  "learningGoal": "直列接続したコンデンサの合成容量が逆数和になることを理解する。",
+  "hint": "直列合成は 1/C = 1/C1 + 1/C2 である。1µF と 2µF から C2 を逆算する。",
+  "availableComponents": [
+    "C",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 2e-06
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "C2",
+      "expected": 2e-06,
+      "tolerancePct": 2,
+      "unit": "F"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "C2",
+      "type": "C",
+      "params": {
+        "C": 2e-06
+      },
+      "connect": [
+        "vin",
+        "out"
+      ]
+    }
+  ]
+}

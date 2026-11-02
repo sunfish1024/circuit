@@ -1,0 +1,63 @@
+{
+  "id": "A-04",
+  "category": "A",
+  "title": "RC時定数を指定値にする",
+  "difficulty": 2,
+  "statement": "固定電圧源 V1=5V が vin-gnd 間に接続されている。固定コンデンサ C1=1µF が out-gnd 間に接続されている。プレイヤーは R1 を vin-out 間に配置し、この RC 回路の時定数が 2ms になるように R1 の値を設定せよ。",
+  "prerequisites": [
+    "A-01"
+  ],
+  "judge": "transient",
+  "learningGoal": "RC直列回路の時定数 τ = R × C から抵抗値を求める。",
+  "hint": "τ = R × C である。C = 1µF = 1×10^-6 F、τ = 2ms = 2×10^-3 s を代入する。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-06
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "timeConstant",
+      "expected": 0.002,
+      "tolerancePct": 5
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 2000
+      },
+      "connect": [
+        "vin",
+        "out"
+      ]
+    }
+  ]
+}

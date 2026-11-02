@@ -1,0 +1,63 @@
+{
+  "id": "A-07",
+  "category": "A",
+  "title": "RL回路の時定数を指定値にする",
+  "difficulty": 2,
+  "statement": "固定電圧源 V1=5V が vin-gnd 間に接続されている。固定インダクタ L1=10mH が out-gnd 間に接続されている。プレイヤーは R1 を vin-out 間に配置し、この RL 回路の時定数が 1ms になるように R1 の値を設定せよ。",
+  "prerequisites": [
+    "A-04"
+  ],
+  "judge": "transient",
+  "learningGoal": "RL直列回路の時定数 τ = L / R から抵抗値を求める。",
+  "hint": "τ = L / R である。L = 10mH = 0.01H、τ = 1ms = 0.001s を代入して R を求める。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "L1",
+      "type": "L",
+      "params": {
+        "L": 0.01
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "timeConstant",
+      "expected": 0.001,
+      "tolerancePct": 5
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 10
+      },
+      "connect": [
+        "vin",
+        "out"
+      ]
+    }
+  ]
+}

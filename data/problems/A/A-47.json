@@ -1,0 +1,77 @@
+{
+  "id": "A-47",
+  "category": "A",
+  "title": "電圧比からデシベルへの変換",
+  "difficulty": 2,
+  "statement": "図の回路は R1 と R2 による分圧回路である。入力 vin に 1kHz、1V RMS の正弦波を印加する。周波数 1kHz における vin から out への電圧利得が -6.02dB になるように、R2 の値を決定せよ。R1=10kΩ は vin-out 間に固定されている。",
+  "prerequisites": [
+    "A-02",
+    "A-46"
+  ],
+  "judge": "ac",
+  "learningGoal": "電圧比とデシベルの変換を理解し、指定の減衰量になる分圧回路を設計できること。",
+  "hint": "-6.02dB は電圧比 10^(−6.02/20)=0.5。分圧比が 0.5 になる R2 を求める。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 1.414214,
+        "freqHz": 1000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "vin",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "acGaindB",
+      "input": "vin",
+      "output": "out",
+      "frequencyHz": 1000,
+      "expected": -6.02,
+      "tolerancePct": 2
+    },
+    {
+      "type": "connection",
+      "element": "R2",
+      "nets": [
+        "out",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

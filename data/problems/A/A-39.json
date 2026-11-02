@@ -1,0 +1,96 @@
+{
+  "id": "A-39",
+  "category": "A",
+  "title": "スイッチ切替を含むRC回路の最終値と時定数",
+  "difficulty": 2,
+  "statement": "図の回路では、C1=100µF が初期電圧 5V に充電されている。t=0 で理想スイッチ SW が閉じ、V1=15V が R1 を介して C1 に接続される。充電の時定数が 0.02s になるように R1 の値を決定せよ。また、t=0.02s における a-gnd 間電圧が 11.32V になることを確認せよ。",
+  "prerequisites": [
+    "A-14",
+    "A-37"
+  ],
+  "judge": "transient",
+  "learningGoal": "スイッチ切替後のRC充電回路で、最終値と時定数から抵抗値を設計できること。",
+  "hint": "最終値は 15V、初期値は 5V、時定数は τ=R1·C1。τ=0.02s より R1 を求める。t=τ では初期値から最終値へ向かう変化量の 1−e^(−1)≈63.2% に達する。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 15
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "SW",
+      "type": "SW",
+      "params": {
+        "closed": true
+      },
+      "connect": [
+        "vcc",
+        "b"
+      ],
+      "locked": true,
+      "note": "t=0 で閉じる理想スイッチ。"
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 0.0001,
+        "initialV": 5
+      },
+      "connect": [
+        "a",
+        "gnd"
+      ],
+      "locked": true,
+      "note": "初期電圧 5V。"
+    }
+  ],
+  "checks": [
+    {
+      "type": "timeConstant",
+      "expected": 0.02,
+      "tolerancePct": 5
+    },
+    {
+      "type": "transientPoint",
+      "node": "a",
+      "timeSec": 0.02,
+      "expected": 11.32,
+      "tolerancePct": 3,
+      "unit": "V"
+    },
+    {
+      "type": "connection",
+      "element": "R1",
+      "nets": [
+        "b",
+        "a"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 200
+      },
+      "connect": [
+        "b",
+        "a"
+      ]
+    }
+  ]
+}

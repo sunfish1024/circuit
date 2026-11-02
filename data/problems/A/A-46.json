@@ -1,0 +1,75 @@
+{
+  "id": "A-46",
+  "category": "A",
+  "title": "実効値と最大値の関係（波高率）",
+  "difficulty": 2,
+  "statement": "図の回路では、V1 は 1kHz、最大値 10V の正弦波である。R1=1kΩ は vin-out 間に固定されている。出力 out-gnd 間の正弦波の実効値が 3.535V RMS になるように、R2 の値を決定せよ。",
+  "prerequisites": [
+    "A-02"
+  ],
+  "judge": "ac",
+  "learningGoal": "正弦波の最大値と実効値の関係を理解し、目標の実効値になる分圧比を設計できること。",
+  "hint": "10Vpeak の正弦波の実効値は 10/√2=7.071V RMS。出力実効値を 3.535V RMS にするには分圧比 0.5 が必要。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 10,
+        "freqHz": 1000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "vin",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "acVoltage",
+      "node": "out",
+      "frequencyHz": 1000,
+      "expectedRMS": 3.535,
+      "tolerancePct": 2
+    },
+    {
+      "type": "connection",
+      "element": "R2",
+      "nets": [
+        "out",
+        "gnd"
+      ],
+      "unordered": true
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

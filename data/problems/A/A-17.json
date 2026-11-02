@@ -1,0 +1,53 @@
+{
+  "id": "A-17",
+  "category": "A",
+  "title": "コンデンサの蓄積エネルギーを指定値にする",
+  "difficulty": 2,
+  "statement": "固定電圧源 V1=10V が vin-gnd 間に接続されている。プレイヤーは C1 を vin-gnd 間に配置し、C1 に蓄積されるエネルギーが 50µJ になるように C1 の値を設定せよ。E = 1/2 × C × V² とする。",
+  "prerequisites": [
+    "A-01"
+  ],
+  "judge": "dc",
+  "learningGoal": "コンデンサの蓄積エネルギー E = 1/2 × C × V² から、所望のエネルギーとなる静電容量を求める。",
+  "hint": "E = 1/2 × C × V² を変形すると C = 2E / V² である。E = 50×10^-6 J、V = 10V を代入する。",
+  "availableComponents": [
+    "C",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 10
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "C1",
+      "expected": 1e-06,
+      "tolerancePct": 2,
+      "unit": "F"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-06
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ]
+    }
+  ]
+}

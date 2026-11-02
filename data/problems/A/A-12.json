@@ -1,0 +1,53 @@
+{
+  "id": "A-12",
+  "category": "A",
+  "title": "RCローパスの遮断周波数を合わせる",
+  "difficulty": 3,
+  "statement": "固定コンデンサ C1=10nF が out-gnd 間に接続されている。プレイヤーは R1 を vin-out 間に配置し、この RC ローパスフィルタの遮断周波数が 1kHz になるように R1 の値を設定せよ。",
+  "prerequisites": [
+    "A-04"
+  ],
+  "judge": "ac",
+  "learningGoal": "RCローパスフィルタの遮断周波数の式から抵抗値を求める。",
+  "hint": "fc = 1 / (2πRC) を変形すると R = 1 / (2πfcC) である。f = 1000Hz、C = 10×10^-9 F を代入する。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-08
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 15915,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 15915
+      },
+      "connect": [
+        "vin",
+        "out"
+      ]
+    }
+  ]
+}

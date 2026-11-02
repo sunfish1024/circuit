@@ -1,0 +1,72 @@
+{
+  "id": "A-03",
+  "category": "A",
+  "title": "並列接続で合計電流を増やす",
+  "difficulty": 2,
+  "statement": "固定電圧源 V1 は 10V で、vin-gnd 間に接続されている。固定抵抗 R1=1kΩ が vin-gnd 間に接続されている。プレイヤーは R2 を R1 と並列に vin-gnd 間へ配置し、電源 V1 から流れる合計電流が 15mA になるように R2 の値を設定せよ。",
+  "prerequisites": [
+    "A-01"
+  ],
+  "judge": "dc",
+  "learningGoal": "並列回路の分流を理解し、追加抵抗の値を求める。",
+  "hint": "R1 には 10V/1kΩ=10mA が流れる。合計 15mA にするには、R2 に 5mA を流せばよい。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 10
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "R2",
+      "expected": 0.005,
+      "tolerancePct": 2,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "R2",
+      "expected": 2000,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 2000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ]
+    }
+  ]
+}

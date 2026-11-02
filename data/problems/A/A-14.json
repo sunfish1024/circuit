@@ -1,0 +1,66 @@
+{
+  "id": "A-14",
+  "category": "A",
+  "title": "RC充電の指定時刻電圧を合わせる",
+  "difficulty": 3,
+  "statement": "固定電圧源 V1=5V が vin-gnd 間に接続されている。固定コンデンサ C1=1µF が out-gnd 間に接続されている。プレイヤーは R1 を vin-out 間に配置し、充電開始から 1ms 後に out の電圧が 3.16V になるように R1 の値を設定せよ。",
+  "prerequisites": [
+    "A-04"
+  ],
+  "judge": "transient",
+  "learningGoal": "RC充電波形の式から、指定時刻に目標電圧へ達する抵抗値を求める。",
+  "hint": "3.16V は 5V × (1 − e^(−1)) にほぼ等しく、1ms が時定数 τ の1倍に相当する。τ = RC = 1ms となる R を求める。",
+  "availableComponents": [
+    "R",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-06
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "transientPoint",
+      "node": "out",
+      "timeSec": 0.001,
+      "expected": 3.16,
+      "tolerancePct": 5,
+      "unit": "V"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "vin",
+        "out"
+      ]
+    }
+  ]
+}

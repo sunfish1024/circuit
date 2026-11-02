@@ -1,0 +1,54 @@
+{
+  "id": "A-16",
+  "category": "A",
+  "title": "容量性リアクタンスを指定値にする",
+  "difficulty": 3,
+  "statement": "固定交流電圧源 V1 は 1kHz、1Vrms で vin-gnd 間に接続されている。プレイヤーは C1 を vin-gnd 間に配置し、C1 の容量性リアクタンスが 100Ω になるように C1 の値を設定せよ。XC = 1 / (2πfC) とする。",
+  "prerequisites": [
+    "A-10"
+  ],
+  "judge": "ac",
+  "learningGoal": "容量性リアクタンス XC = 1 / (2πfC) から、所望のリアクタンスとなる静電容量を求める。",
+  "hint": "XC = 1 / (2πfC) を変形すると C = 1 / (2πf × XC) である。f = 1000Hz、XC = 100Ω を代入する。",
+  "availableComponents": [
+    "C",
+    "GND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 1.414214,
+        "freqHz": 1000
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "componentValue",
+      "element": "C1",
+      "expected": 1.5915e-06,
+      "tolerancePct": 2,
+      "unit": "F"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1.5915e-06
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ]
+    }
+  ]
+}
