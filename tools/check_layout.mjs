@@ -201,6 +201,29 @@ function selfTest() {
       expect: (is) => is.length === 0,
     },
     {
+      // エミッタを gnd に直結しても、長い値ラベルが自動 GND 記号と重ならない（値ラベルは本体の右横へ）
+      name: "トランジスタのエミッタ直結 GND と値ラベルが重ならない",
+      problem: {
+        fixedComponents: ["Q_NPN", "M_N", "J_N"].map((type, i) => ({
+          id: `Q${i + 1}`, type, params: { Is: 1e-14, Bf: 200 }, connect: ["c", "b", "gnd"], rotation: 0,
+          position: { x: 100 + 200 * i, y: 200 },
+        })),
+        layout: { guides: true },
+      },
+      expect: (is) => !codes(is).includes("c") && !codes(is).includes("a"),
+    },
+    {
+      // SW_V（4 端子）: 制御入力は左、接点は右。ID・値・ピン名ラベルが重ならない（0° と 90°）
+      name: "SW_V のラベルが重ならない",
+      problem: {
+        fixedComponents: [
+          { id: "S1", type: "SW_V", params: { Ron: 0.01, Vth: 2.5 }, connect: ["a", "b", "ctl", "gnd"], rotation: 0, position: { x: 200, y: 200 } },
+          { id: "S2", type: "SW_V", params: { Ron: 0.01, Vth: 2.5 }, connect: ["a2", "b2", "ctl2", "gnd"], rotation: 90, position: { x: 500, y: 200 } },
+        ],
+      },
+      expect: (is) => !codes(is).includes("c") && !codes(is).includes("a"),
+    },
+    {
       name: "部品の重なりを検出 [a]",
       problem: { fixedComponents: [R("R1", 200, 200, 0, ["a", "b"]), R("R2", 240, 210, 0, ["c", "d"])] },
       expect: (is) => codes(is).includes("a"),

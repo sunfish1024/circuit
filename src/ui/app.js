@@ -2913,6 +2913,32 @@ function buildDigitalResultHtml(state, digital) {
   return html;
 }
 
+/** デジタル解析で扱う部品（アナログ解析の警告「未対応の部品」を出さない対象）。 */
+const DIGITAL_COMPONENT_TYPES = new Set([
+  "LOGIC_IN", "DFF", "DFF_R",
+  "U_NOT", "U_AND", "U_OR", "U_NAND", "U_NOR", "U_XOR", "U_XNOR", "U_AND3", "U_OR3",
+]);
+
+/**
+ * 表示する警告を選びます。
+ * judge に digital を含む問題では、デジタル部品についての「アナログ解析では未対応」の警告は
+ * 意図どおり（デジタル解析が扱う）なので表示しない。
+ *
+ * @param {string[]} warnings
+ * @param {object|null} problem
+ * @returns {string[]}
+ */
+function filterSimWarnings(warnings, problem) {
+  if (!Array.isArray(warnings)) return [];
+  const judge = problem?.judge;
+  const isDigital = Array.isArray(judge) ? judge.includes("digital") : judge === "digital";
+  if (!isDigital) return warnings;
+  return warnings.filter((message) => {
+    const match = /\(([A-Z0-9_]+)\)\s*$/.exec(String(message));
+    return !(match && DIGITAL_COMPONENT_TYPES.has(match[1]));
+  });
+}
+
 /**
  * シミュレーション結果パネルの HTML を生成します。
  *
@@ -2951,7 +2977,7 @@ function renderSimulationResults(state) {
 
   const errorsHtml = buildSimMessageList(result.errors, "sim-messages-error");
   const warningsHtml = buildSimMessageList(
-    result.warnings,
+    filterSimWarnings(result.warnings, state.currentProblem),
     "sim-messages-warning"
   );
 
@@ -3236,9 +3262,10 @@ async function handleSimulate() {
       );
     } else {
       const errorCount = Array.isArray(result.errors) ? result.errors.length : 0;
-      const warningCount = Array.isArray(result.warnings)
-        ? result.warnings.length
-        : 0;
+      const warningCount = filterSimWarnings(
+        result.warnings,
+        getState().currentProblem
+      ).length;
 
       setStatus(
         `シミュレーション完了（エラー ${errorCount} 件 / 警告 ${warningCount} 件）。詳細は右のインスペクタを確認してください。`,

@@ -31,6 +31,7 @@
  *   - DFF: D (0,12) / CLK (0,27) / Q (72,12) / Q_NOT (72,27)
  *   - DFF_R: D (0,12) / CLK (0,27) / CLR (36,39 = 下中央) / Q (72,12) / Q_NOT (72,27)
  *   - LOGIC_IN（論理入力。1 ピン Y）: 右 (72,19.5)。ID は記号の上、値の 0/1 は記号の中（回転しても正立）
+ *   - SW_V（電圧制御スイッチ）: 1 (72,12) / 2 (72,27) / ctrl_p (0,12) / ctrl_n (0,27)。接点が右、制御入力が左
  */
 
 import { getSymbolDefinition, getSymbolPins } from "./symbols.js";
@@ -340,11 +341,13 @@ export function componentValueText(component, unitOf = () => "") {
  * 配置規則（部品ごとに決まり、他の部品には依存しない）:
  * - ピン名ラベル: ピンから出る線の「横」に置き、線と重ならないようにする。
  *     左ピン → ピンの左上（右寄せ）／右ピン → 右上／上ピン → ピンの右上／下ピン → ピンの右下
+ *     （同じ上辺・下辺に 2 本以上並ぶときは、いちばん左のピンだけラベルをピンの左側へ出す）
  * - ID・値ラベル:
  *     回転 0° でシンボル定義に idLabel / valueLabel があればそれを使う（TP、トランジスタなど）。
  *     それ以外は、ピンの無い辺を選んで置く。横長（0/180°）は「上に ID・下に値」→ 右 → 左、
  *     縦長（90/270°）は「右に ID と値」→ 左 → 上下 の順に、ピンの無い辺を探す。
  *     これで回転した電源の「上ピンのラベル」と「ID ラベル」が重ならない。
+ * - トランジスタ類（回転 0°）の値ラベルは既定で下中央。下ピン（エミッタ/ソース）に自動 GND 記号が付くときだけ本体の右横へ移す。
  * - シンボル定義で idLabel / valueLabel が null の部品（GND など）はどの回転でも出さない。
  * - GND 部品のピン名ラベルは出さない（常に gnd なので）。hiddenPins に入れたピン（自動 GND 記号を描くピン）も出さない。
  *
@@ -387,6 +390,17 @@ export function computeLabelLayout(component, options = {}) {
     }
   });
 
+  // 同じ上辺・下辺に 2 本以上のピンが並ぶとき（回転した DFF や SW_V など）は、いちばん左のピンのラベルを
+  // ピンの左側へ出す（右へ並べると隣のピンのラベルと重なる）。
+  for (const side of ["top", "bottom"]) {
+    const idxs = pinNames
+      .map((_, i) => i)
+      .filter((i) => pins[i] && pinSide(geo[i] ?? { x: 0, y: 0 }, box) === side);
+    if (idxs.length < 2) continue;
+    const leftmost = idxs.reduce((a, b) => (geo[b].x < geo[a].x ? b : a));
+    pins[leftmost] = { ...pins[leftmost], x: geo[leftmost].x - PAD, anchor: "end" };
+  }
+
   const idHidden = def?.idLabel === null;
   const valueHidden = def?.valueLabel === null || !valueText;
 
@@ -414,6 +428,12 @@ export function computeLabelLayout(component, options = {}) {
       id: def.idLabel ?? modes.tb.id,
       value: def.valueLabel ?? modes.tb.value,
     };
+    // 下ピンに自動 GND 記号が付くとき（エミッタ/ソースを gnd に直結）、下中央の値ラベルは GND 記号と重なる。
+    // その場合だけ値ラベルを部品本体の右横（ピン・リード線の外側）へ移す。
+    const bottomHidden = pinNames.some((_, i) => hiddenPins.has(i) && pinSide(geo[i] ?? { x: 0, y: 0 }, box) === "bottom");
+    if (bottomHidden && place.value.y > box.h) {
+      place.value = { x: 76, y: box.h / 2 + 5, anchor: "start" };
+    }
   } else {
     const order = rotation === 90 || rotation === 270 ? ["right", "left", "tb"] : ["tb", "right", "left"];
     const key = order.find((k) => modes[k].free) ?? order[0];
