@@ -34,11 +34,16 @@ import {
   componentValueText,
   computeFixedLayout,
   computeLabelLayout,
+  getComponentRect,
   getInnerRotationTransform,
+  getLabelRects,
   getPinPoint as geoGetPinPoint,
   getRotatedBox,
   getRotatedPinGeometry as geoGetRotatedPinGeometry,
+  inflateRect,
   normalizeRotation,
+  rectsOverlap,
+  segmentCrossesRect,
 } from "./geometry.js";
 import {
   loadGameData,
@@ -710,6 +715,82 @@ function bindComponentButtons(root) {
 }
 
 /**
+ * クリック追加する部品の置き場所を探します。
+ *
+ * 既存の部品（固定・配置済み）の外接ボックスとラベル、固定部品のガイド線に重ならない位置のうち、
+ * ボード中央にいちばん近い格子点（SNAP 単位）を返します。空きが無いときは中央付近へ重ねて置きます。
+ *
+ * @param {object} draft 追加する部品（type, rotation を持つ）
+ * @returns {{x:number, y:number}}
+ */
+function findFreePosition(draft) {
+  const state = getState();
+  const { width, height } = getBoardSize();
+  const rotation = normalizeRotation(draft.rotation ?? 0);
+  const box = getRotatedBox(rotation);
+  const w = box.w * COMP_SCALE;
+  const h = box.h * COMP_SCALE;
+  const MARGIN = 14; // 新しい部品の周囲に残す空き（ID・値ラベルとピンの引き出し線の分）
+
+  // 障害物: 既存部品の外接ボックス + ラベル
+  const obstacles = [];
+  for (const component of state.board.components) {
+    try {
+      obstacles.push(getComponentRect(component));
+      const layout = computeLabelLayout(component, {
+        pinNames: safePinNames(component.type),
+        showPinNets: Boolean(component.locked),
+        valueText: componentValueText(component, unitOfParam),
+      });
+      for (const item of getLabelRects(component, layout)) {
+        obstacles.push(item.rect);
+      }
+    } catch {
+      // 配置の補助なので、計算に失敗した部品は無視する
+    }
+  }
+
+  // 固定部品のガイド線（水平・垂直の線分）
+  const segments = [];
+  const guides = getFixedLayout(state)?.guides;
+  for (const net of guides?.nets ?? []) {
+    for (const polyline of net.polylines ?? []) {
+      for (let i = 1; i < polyline.length; i += 1) {
+        segments.push([polyline[i - 1], polyline[i]]);
+      }
+    }
+  }
+
+  const isFree = (x, y) => {
+    const rect = inflateRect({ x, y, w, h }, MARGIN);
+    return (
+      !obstacles.some((o) => rectsOverlap(rect, o)) &&
+      !segments.some(([a, b]) => segmentCrossesRect(a, b, inflateRect({ x, y, w, h }, 4)))
+    );
+  };
+
+  const cx = width / 2 - w / 2;
+  const cy = height / 2 - h / 2;
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (let y = SNAP; y <= height - h - SNAP; y += SNAP) {
+    for (let x = SNAP; x <= width - w - SNAP; x += SNAP) {
+      const distance = Math.hypot(x - cx, y - cy);
+      if (distance < bestDistance && isFree(x, y)) {
+        best = { x, y };
+        bestDistance = distance;
+      }
+    }
+  }
+
+  return clampPositionToBoard(
+    best ?? { x: snapValue(cx), y: snapValue(cy) },
+    rotation
+  );
+}
+
+/**
  * パレットから部品を追加します。
  *
  * @param {string} type
@@ -727,18 +808,8 @@ function addComponentFromPalette(type, position) {
   if (position) {
     draft.position = clampPositionToBoard(position);
   } else {
-    // クリック追加の場合はボードの中央付近にカスケード配置する。
-    // （画面外に生成されないようにするため）
-    const count = getState().board.components.length;
-    const { width, height } = getBoardSize();
-    const slot = count % 12;
-    const offsetX = (slot % 4) * 60 - 90;
-    const offsetY = Math.floor(slot / 4) * 50 - 50;
-
-    draft.position = clampPositionToBoard({
-      x: snapValue(width / 2 - (COMP_W * COMP_SCALE) / 2 + offsetX),
-      y: snapValue(height / 2 - (COMP_H * COMP_SCALE) / 2 + offsetY),
-    });
+    // クリック追加の場合は、既存の部品・ラベル・固定配線と重ならない、ボード中央に最も近い空き位置に置く。
+    draft.position = findFreePosition(draft);
   }
 
   addComponent(draft);
@@ -957,6 +1028,9 @@ async function handleProblemSelect(problemId) {
 
     resetProblemView(problem);
     setCurrentProblem(problem);
+
+    // addComponent は追加した部品を選択状態にするので、読み込み直後は何も選択していない状態に戻す。
+    clearSelection();
 
     wireMode = false;
     wireDraft = null;
@@ -1427,7 +1501,8 @@ function buildComponentsSvg(state, fixedLayout) {
       return `
         <g class="board-component ${isSelected ? "is-selected" : ""}"
            transform="translate(${x}, ${y}) scale(${COMP_SCALE})"
-           data-comp-id="${escapeHtml(component.id)}">
+           data-comp-id="${escapeHtml(component.id)}"
+           data-comp-type="${escapeHtml(component.type)}">
           ${rotatedBody}
           ${textSvg(labels.id, "board-comp-id")}
           ${textSvg(labels.value, "board-comp-params")}
@@ -1575,6 +1650,11 @@ function bindBoardEvents(root, state) {
           });
         } else {
           selectComponent(componentId);
+
+          // 論理入力はクリックで 0/1 を切り替える（固定部品でも値の切替だけは許可）
+          if (component.type === "LOGIC_IN") {
+            setLogicInputValue(componentId);
+          }
         }
       };
 
@@ -1920,6 +2000,48 @@ function renderInspector(root, state) {
 
   bindRotateSelected(root);
   bindDeleteSelected(root);
+  bindLogicInputToggle(root);
+}
+
+/**
+ * 論理入力（LOGIC_IN）の値を 0/1 に設定します。value を省略すると反転します。
+ * 固定部品（locked）でも値の切替だけは許可します（シミュレーションで動作を試すため）。
+ * 動作結果（ネットの論理値）を表示中なら、新しい値で解析し直します。
+ *
+ * @param {string} id
+ * @param {0|1} [value]
+ */
+function setLogicInputValue(id, value) {
+  const component = getComponentById(id);
+
+  if (!component || component.type !== "LOGIC_IN") return;
+
+  const current = Number(component.params?.value) >= 0.5 ? 1 : 0;
+  const next = value === undefined ? 1 - current : value;
+
+  updateComponent(id, { params: { ...component.params, value: next } });
+  setStatus(`${id} を ${next} にしました。`, "info");
+
+  const shown = getState().simulation.result?.digital?.netValues;
+  if (shown && Object.keys(shown).length > 0) {
+    handleSimulate();
+  }
+}
+
+/**
+ * インスペクタの論理値トグル（LOGIC_IN 用）のイベントをバインドします。
+ *
+ * @param {HTMLElement} root
+ */
+function bindLogicInputToggle(root) {
+  root.querySelectorAll("[data-logic-set]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setLogicInputValue(
+        button.dataset.logicId,
+        Number(button.dataset.logicSet) >= 0.5 ? 1 : 0
+      );
+    });
+  });
 }
 
 /**
@@ -1990,6 +2112,25 @@ function renderComponentInspector(component, knownNets = []) {
 
   const connectFields = renderConnectFields(component, isLocked);
 
+  const logicValue = Number(component.params?.value) >= 0.5 ? 1 : 0;
+  const logicSection =
+    component.type === "LOGIC_IN"
+      ? `
+    <div class="inspector-section">
+      <h3 class="inspector-title">論理値</h3>
+      <div class="logic-toggle" role="group" aria-label="論理入力の値">
+        ${[0, 1]
+          .map(
+            (v) => `<button type="button" class="logic-toggle-button ${v === logicValue ? "is-active" : ""}"
+          data-logic-id="${escapeHtml(component.id)}" data-logic-set="${v}"
+          aria-pressed="${v === logicValue}">${v}</button>`
+          )
+          .join("")}
+      </div>
+      <div class="field-help">シミュレーションで動作を試すときの値です（ボード上の記号をクリックしても切り替わります）。チェックでは判定が自動で 0/1 を与えます。</div>
+    </div>`
+      : "";
+
   const rotationDeg = getRotation(component);
   const rotationText = `${rotationDeg}°`;
 
@@ -2055,6 +2196,8 @@ function renderComponentInspector(component, knownNets = []) {
       <h3 class="inspector-title">接続</h3>
       ${connectFields}
     </div>
+
+    ${logicSection}
 
     <div class="inspector-section">
       <h3 class="inspector-title">パラメータ</h3>
@@ -2380,6 +2523,222 @@ function simValue(value, unit) {
   return escapeHtml(formatMetricValue(value, unit));
 }
 
+/** 論理値（0 / 1 / x）を表示用の文字に直します。 */
+function logicChar(value) {
+  const text = String(value ?? "x").toLowerCase();
+  return text === "0" || text === "1" ? text : "X";
+}
+
+/** 論理値のセル（<td> の中身）。expected が与えられて食い違うときは赤く「正 n」を添える。 */
+function buildLogicCell(actual, expected) {
+  const a = logicChar(actual);
+  const known = expected !== undefined && expected !== null && String(expected).toLowerCase() !== "x";
+  const mismatch = known && logicChar(expected) !== a;
+
+  return {
+    mismatch,
+    html: mismatch
+      ? `<span class="logic-cell logic-ng v${a.toLowerCase()}" title="期待値は ${logicChar(expected)}">${a}<small>正 ${logicChar(expected)}</small></span>`
+      : `<span class="logic-cell v${a.toLowerCase()}">${a}</span>`,
+  };
+}
+
+/**
+ * 表に出す行番号を選びます。上限を超えるときは、不一致の行を優先して残します。
+ *
+ * @param {number} total
+ * @param {Set<number>} mismatched
+ * @param {number} limit
+ * @returns {number[]}
+ */
+function pickLogicRows(total, mismatched, limit) {
+  if (total <= limit) return Array.from({ length: total }, (_, i) => i);
+
+  const picked = new Set([...mismatched].slice(0, limit));
+  for (let i = 0; i < total && picked.size < limit; i += 1) picked.add(i);
+
+  return [...picked].sort((a, b) => a - b);
+}
+
+/** 真理値表の判定（check）から、入力の組に対する期待出力を返します。 */
+function expectedTruthRow(check, inputNames, outputNames, inputValues) {
+  if (!check) return null;
+
+  if (Array.isArray(check.table)) {
+    const row = check.table.find((r) =>
+      Array.isArray(r) && inputNames.every((_, j) => Number(r[j]) === Number(inputValues[j]))
+    );
+
+    return row ? outputNames.map((_, j) => row[inputNames.length + j]) : null;
+  }
+
+  if (check.expect && typeof check.expect === "object") {
+    // 入力を 2 進数で数えた順（inputs[0] が最上位ビット）
+    const index = inputValues.reduce((acc, v) => acc * 2 + (Number(v) >= 0.5 ? 1 : 0), 0);
+
+    return outputNames.map((name) => check.expect[name]?.[index]);
+  }
+
+  return null;
+}
+
+const LOGIC_TABLE_MAX_ROWS = 64;
+
+/**
+ * digital 解析の結果 HTML を生成します。
+ * - ネットの論理値（LOGIC_IN の現在値で評価）
+ * - 真理値表（入力列→出力列。期待値と違う行は赤）
+ * - 順序回路の出力系列（ステップごとの表。期待値と違うセルは赤）
+ *
+ * チェックの文章メッセージ（「a=1, b=1 のとき s=1（正しくは 0）」など）は「チェック結果」欄に出る。
+ *
+ * @param {object} state
+ * @param {object} digital result.digital
+ * @returns {string}
+ */
+function buildDigitalResultHtml(state, digital) {
+  if (!digital) return "";
+
+  const checks = state.currentProblem?.checks ?? [];
+  let html = "";
+
+  /* --- ネットの論理値 --- */
+  const nets = Object.entries(digital.netValues ?? {});
+
+  if (nets.length > 0) {
+    const shown = nets.slice(0, 40);
+    const chips = shown
+      .map(
+        ([net, value]) =>
+          `<span class="logic-chip v${logicChar(value).toLowerCase()}"><b>${escapeHtml(net)}</b><i>${logicChar(value)}</i></span>`
+      )
+      .join("");
+
+    html += `
+      <h4 class="sim-table-title">ネットの論理値（論理入力の現在値で評価）</h4>
+      <div class="logic-chips">${chips}</div>
+      ${nets.length > shown.length ? `<p class="sim-more">＋ 他 ${nets.length - shown.length} 件</p>` : ""}
+    `;
+  }
+
+  /* --- 真理値表 --- */
+  const rows = Array.isArray(digital.truthTable) ? digital.truthTable : [];
+
+  if (rows.length > 0) {
+    const check = checks.find((c) => c?.type === "truthTable");
+    const inputNames = digital.inputs?.length ? digital.inputs : (check?.inputs ?? []);
+    const outputNames = digital.outputs?.length ? digital.outputs : (check?.outputs ?? []);
+    const bad = new Set();
+
+    const cells = rows.map((row, index) => {
+      const inputValues = inputNames.map((_, j) => row[j]);
+      const expected = expectedTruthRow(check, inputNames, outputNames, inputValues);
+      const outputCells = outputNames.map((_, j) =>
+        buildLogicCell(row[inputNames.length + j], expected?.[j])
+      );
+
+      if (outputCells.some((cell) => cell.mismatch)) bad.add(index);
+
+      return {
+        index,
+        html: [
+          ...inputValues.map((v) => `<span class="logic-cell logic-input v${logicChar(v).toLowerCase()}">${logicChar(v)}</span>`),
+          ...outputCells.map((cell) => cell.html),
+        ],
+      };
+    });
+
+    const picked = pickLogicRows(cells.length, bad, LOGIC_TABLE_MAX_ROWS);
+    const verdict = check
+      ? bad.size > 0
+        ? `<p class="logic-verdict is-ng">期待と違う行: ${bad.size} / ${rows.length} 行（赤い行）</p>`
+        : `<p class="logic-verdict is-ok">全 ${rows.length} 行が期待どおりです。</p>`
+      : "";
+
+    const table = `
+      <table class="sim-table logic-table">
+        <thead>
+          <tr>
+            ${inputNames.map((n) => `<th class="logic-in-head">${escapeHtml(n)}</th>`).join("")}
+            ${outputNames.map((n) => `<th class="logic-out-head">${escapeHtml(n)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${picked
+            .map(
+              (i) =>
+                `<tr class="${bad.has(i) ? "is-mismatch" : ""}">${cells[i].html
+                  .map((cell, j) => `<td class="${j === inputNames.length - 1 ? "logic-split" : ""}">${cell}</td>`)
+                  .join("")}</tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+      ${rows.length > picked.length ? `<p class="sim-more">＋ 他 ${rows.length - picked.length} 行</p>` : ""}
+    `;
+
+    html += `
+      <h4 class="sim-table-title">真理値表（左: 入力 → 右: 出力）</h4>
+      ${verdict}
+      ${table}
+    `;
+  }
+
+  /* --- 順序回路の出力系列 --- */
+  const sequence = digital.sequence && typeof digital.sequence === "object" ? digital.sequence : null;
+  const outputNets = sequence ? Object.keys(sequence) : [];
+
+  if (outputNets.length > 0) {
+    const check = checks.find((c) => c?.type === "sequence");
+    const inputSeqs = check?.inputs && typeof check.inputs === "object" ? Object.entries(check.inputs) : [];
+    const steps = Math.max(...outputNets.map((n) => String(sequence[n]).length));
+    const bad = new Set();
+
+    const body = Array.from({ length: steps }, (_, k) => {
+      const inputCells = inputSeqs.map(
+        ([, seq]) => `<td><span class="logic-cell logic-input v${logicChar(seq?.[k]).toLowerCase()}">${logicChar(seq?.[k])}</span></td>`
+      );
+      const outputCells = outputNets.map((net) => {
+        const cell = buildLogicCell(String(sequence[net])[k], check?.outputs?.[net]?.[k]);
+        if (cell.mismatch) bad.add(k);
+        return `<td>${cell.html}</td>`;
+      });
+
+      return { k, html: `<td class="logic-step">${k + 1}</td>${inputCells.join("")}${outputCells.join("")}` };
+    });
+
+    const picked = pickLogicRows(steps, bad, LOGIC_TABLE_MAX_ROWS);
+    const stepLabel = check?.clock ? `クロック(${escapeHtml(check.clock)})` : "ステップ";
+    const verdict = check
+      ? bad.size > 0
+        ? `<p class="logic-verdict is-ng">期待と違うステップ: ${bad.size} / ${steps}（赤いセル）</p>`
+        : `<p class="logic-verdict is-ok">全 ${steps} ステップが期待どおりです。</p>`
+      : "";
+
+    html += `
+      <h4 class="sim-table-title">出力系列（上から順に ${check?.clock ? "立ち上がり" : "ステップ"}ごと）</h4>
+      ${verdict}
+      <table class="sim-table logic-table">
+        <thead>
+          <tr>
+            <th class="logic-step">${stepLabel}</th>
+            ${inputSeqs.map(([n]) => `<th class="logic-in-head">${escapeHtml(n)}</th>`).join("")}
+            ${outputNets.map((n) => `<th class="logic-out-head">${escapeHtml(n)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${picked
+            .map((i) => `<tr class="${bad.has(i) ? "is-mismatch" : ""}">${body[i].html}</tr>`)
+            .join("")}
+        </tbody>
+      </table>
+      ${steps > picked.length ? `<p class="sim-more">＋ 他 ${steps - picked.length} ステップ</p>` : ""}
+    `;
+  }
+
+  return html;
+}
+
 /**
  * シミュレーション結果パネルの HTML を生成します。
  *
@@ -2387,6 +2746,7 @@ function simValue(value, unit) {
  * - エラー / 警告（バリデーションエラーや未実装モードの警告など）
  * - DC: ノード電圧・素子の電圧 / 電流 / 電力
  * - AC: ノード電圧の振幅と位相・素子電流
+ * - digital: ネットの論理値・真理値表・出力系列
  * - 過渡解析: 概要とノードの最終電圧
  *
  * @param {object} state
@@ -2421,7 +2781,7 @@ function renderSimulationResults(state) {
     "sim-messages-warning"
   );
 
-  let dataHtml = "";
+  let dataHtml = buildDigitalResultHtml(state, result.digital);
 
   /* --- DC 解析 --- */
   const dcNodes = Object.entries(result.dc?.nodes ?? {});

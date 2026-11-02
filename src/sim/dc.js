@@ -33,6 +33,13 @@
  *    - DIAC: DC ではほぼ開放
  *    - U_WILSON / U_CASCODE: 参照端子に Vref の電圧源、出力に
  *      Iout ≈ Iref の電流源を持つブラックボックスカレントミラー
+ *    - OPAMP: 電圧制御電圧源 Vout = Aol·(V(in+) − V(in−))（入力電流 0、出力抵抗 0）。
+ *      出力は [下側レール + Vdrop, 上側レール − Vdrop] で飽和（区分線形の状態切替）。
+ *      上側レール = v_plus ピンが配線されていればそのノード電圧、未配線なら params.Vpos。
+ *      下側レール = v_minus ピンが配線されていればそのノード電圧、未配線なら params.Vneg。
+ *      電源ピンは電圧を見るだけで電流は流れない（出力電流はグラウンドから供給される理想源）。
+ *      GBP（利得帯域幅積）は AC 解析だけで使う（DC・過渡では周波数特性なし）。
+ *  - 交流電源: V_AC は DC では 0V（短絡）、I_AC は 0A（開放）として扱う（SPICE と同じ）。
  *
  * 解法:
  *  - 素子の状態（導通/非導通/動作領域）ごとに回路を線形化し、
@@ -52,7 +59,7 @@
 import { registerSimulationMode } from "./simulator.js";
 import { CONFIG } from "../config.js";
 import { parseMetricValue } from "../core/units.js";
-import { prepareNetlist, filterNodeResults, GMIN_NODE } from "./netlist.js";
+import { prepareNetlist, filterNodeResults, GMIN_NODE, NC_PREFIX } from "./netlist.js";
 
 /** コンデンサを DC で「ほぼ開放」と見なすときの単位静電容量あたりのコンダクタンス */
 const EPS_CONDUCTANCE_PER_FARAD = 1e-3;
@@ -67,7 +74,7 @@ const R_INDUCTOR_DC = 1e-3;
  * 非線形素子のオフ状態 / 数値安定化に使う微小コンダクタンス（S）。
  * 電圧 10V で 10nA の漏れに相当し、判定許容誤差に影響しない。
  */
-const G_MIN = 1e-9;
+export const G_MIN = 1e-9;
 
 /**
  * ダイオード系素子の ON 状態における直列抵抗（Ω）。
@@ -75,7 +82,7 @@ const G_MIN = 1e-9;
  * 電流分割が不定になり行列が特異するため、直列抵抗で決定論化する。
  * 10mA で 10mV の追加降下であり、判定許容誤差（1%以上）に影響しない。
  */
-const RS_DIODE = 1;
+export const RS_DIODE = 1;
 
 /**
  * BJT ベース直列抵抗（Ω）。
@@ -83,10 +90,15 @@ const RS_DIODE = 1;
  * 並列になっても電流分割が確定するようにする。ベース電流 1mA で 10mV、
  * 通常のバイアス設計（数十µA）では 0.1mV 程度の影響しかない。
  */
-const RB_BASE = 10;
+export const RB_BASE = 10;
 
-/** 熱電圧（V）。params.Is の指数則 BJT モデルで使用する。 */
-const VT_THERMAL = 0.026;
+/**
+ * 熱電圧 VT = kT/q（V）。26mV（室温 約 29℃ 相当。300K では 25.85mV）。
+ * - params.Is の指数則 BJT モデル
+ * - AC 小信号モデルの gm = IC/VT, re = VT/IE（教科書の「re = 26mV / IE」と同じ値）
+ * で使用する。
+ */
+export const VT_THERMAL = 0.026;
 
 /** ツェナー / TVS の順方向電圧（V）。 */
 const VF_ZENER_FORWARD = 0.7;
@@ -247,6 +259,14 @@ function classifyComponents(components, warnings) {
       case "I_DC":
         iSources.push({ id: c.id, p: pins[0], n: pins[1], value: getNumericParam(c, "I", 0) });
         break;
+      case "V_AC":
+        // 交流電源は DC では 0V（短絡）。直列に入った交流源で回路が切れないようにする
+        vSources.push({ id: c.id, p: pins[0], n: pins[1], value: 0 });
+        break;
+      case "I_AC":
+        // 交流電流源は DC では 0A（開放）
+        iSources.push({ id: c.id, p: pins[0], n: pins[1], value: 0 });
+        break;
       case "C": {
         const C = getNumericParam(c, "C", 1e-6);
         resistors.push({ id: c.id, p: pins[0], n: pins[1], g: EPS_CONDUCTANCE_PER_FARAD * C, isCapacitor: true });
@@ -282,6 +302,7 @@ function classifyComponents(components, warnings) {
       case "DIAC":
       case "U_WILSON":
       case "U_CASCODE":
+      case "OPAMP":
         devices.push(createDevice(c, pins));
         break;
       default:
@@ -361,9 +382,41 @@ function createDevice(c, pins) {
     device.kind = "mirror";
     device.vref = Math.max(getNumericParam(c, "Vref", 1.4), 0);
     device.state = { iref: 0 };
+  } else if (c.type === "OPAMP") {
+    // pins = [in_plus, in_minus, out, v_plus, v_minus]
+    device.kind = "opamp";
+    device.aol = Math.max(getNumericParam(c, "Aol", 1e5), 1);
+    device.gbp = getNumericParam(c, "GBP", 1e6);
+    device.vpos = getNumericParam(c, "Vpos", 15);
+    device.vneg = getNumericParam(c, "Vneg", -15);
+    device.vdrop = Math.max(getNumericParam(c, "Vdrop", 0), 0);
+    const wired = (net) => typeof net === "string" && net !== "" && !net.startsWith(NC_PREFIX);
+    device.railHighNet = wired(pins[3]) ? pins[3] : null;
+    device.railLowNet = wired(pins[4]) ? pins[4] : null;
+    device.state = { mode: "linear", vout: 0 };
   }
 
   return device;
+}
+
+/** 非線形素子（createDevice で扱う）部品種別。過渡・AC 解析でも使う。 */
+export const NONLINEAR_TYPES = new Set([
+  ...Object.keys(DIODE_FAMILY), ...Object.keys(BREAKDOWN_FAMILY),
+  "Q_NPN", "Q_PNP", "M_N", "M_P", "J_N", "PD", "PT", "U_OPTO",
+  "SCR", "TRIAC", "DIAC", "U_WILSON", "U_CASCODE", "OPAMP",
+]);
+
+export { createDevice };
+
+/**
+ * OPAMP の上下レール電圧（飽和したときの出力電圧）を返します。
+ * @param {object} dev
+ * @param {(net: string) => number} vOf
+ */
+function opampRails(dev, vOf) {
+  const hi = (dev.railHighNet ? vOf(dev.railHighNet) : dev.vpos) - dev.vdrop;
+  const lo = (dev.railLowNet ? vOf(dev.railLowNet) : dev.vneg) + dev.vdrop;
+  return { hi, lo };
 }
 
 /* ==========================================================================
@@ -512,7 +565,20 @@ function assembleSystem(ctx, devices) {
   }
 
   // --- 非線形素子をスタンプ ---
-  let branchCursor = N + M;
+  branchRows.push(...stampDevices(A, b, idx, devices, N + M));
+
+  return { A, b, size, branchRows };
+}
+
+/**
+ * 非線形素子の現在の状態に応じた線形化モデルを A, b にスタンプします。
+ * 素子の電圧源ブランチは branchStart 行目から順に割り当てます。
+ *
+ * @returns {Array<{deviceId: string, role: string}>} ブランチ行の対応表
+ */
+function stampDevices(A, b, idx, devices, branchStart) {
+  const branchRows = [];
+  let branchCursor = branchStart;
 
   for (const dev of devices) {
     const st = dev.state;
@@ -757,12 +823,45 @@ function assembleSystem(ctx, devices) {
         break;
       }
 
+      case "opamp": {
+        // pins = [in_plus, in_minus, out, v_plus, v_minus]
+        const ip = idx(dev.pins[0]);
+        const im = idx(dev.pins[1]);
+        const o = idx(dev.pins[2]);
+        const row = branchCursor++;
+        branchRows.push({ deviceId: dev.id, role: "out" });
+        // 出力は gnd 基準の電圧源ブランチ（ブランチ電流 = out から素子へ流れ込む電流）
+        if (o >= 0) { A[o][row] += 1; A[row][o] += 1; }
+        if (dev.forceOut !== undefined) {
+          // 帰還率の計算用: 出力を固定電圧にする（opampFeedbackFactor）
+          b[row] = dev.forceOut;
+        } else if (st.mode === "linear") {
+          // V(out) − Aol·(V(in+) − V(in−)) = 0
+          if (ip >= 0) A[row][ip] -= dev.aol;
+          if (im >= 0) A[row][im] += dev.aol;
+          b[row] = 0;
+        } else {
+          // 飽和: V(out) = レール電圧（配線された電源ピンのノード電圧 ∓ Vdrop、または Vpos/Vneg ∓ Vdrop）
+          const high = st.mode === "satHigh";
+          const railNet = high ? dev.railHighNet : dev.railLowNet;
+          if (railNet) {
+            const r = idx(railNet);
+            if (r >= 0) A[row][r] -= 1;
+            b[row] = high ? -dev.vdrop : dev.vdrop;
+          } else {
+            b[row] = high ? dev.vpos - dev.vdrop : dev.vneg + dev.vdrop;
+          }
+        }
+        break;
+      }
+
       default:
         break;
     }
   }
 
-  return { A, b, size, branchRows };
+
+  return branchRows;
 }
 
 /**
@@ -798,6 +897,7 @@ function countDeviceBranches(devices) {
         if (dev.state.gateMode === "on") count += 1;
         break;
       case "mirror":
+      case "opamp":
         count += 1;
         break;
       default:
@@ -1027,6 +1127,35 @@ function updateDeviceStates(devices, ctx, x, branchRows, deviceBranchBase) {
         break;
       }
 
+      case "opamp": {
+        const vd = vOf(dev.pins[0]) - vOf(dev.pins[1]);
+        const target = dev.aol * vd; // 飽和が無いときの出力
+        const { hi, lo } = opampRails(dev, vOf);
+        st.vout = vOf(dev.pins[2]);
+        const unstable = dev.aol * (dev.loopBeta ?? 0) > 1; // 正帰還: 線形の平衡点は不安定
+        if (hi <= lo) {
+          // レールが逆転（電源がつながっていない等）: 上側レールに張り付けて扱う
+          st.mode = "satHigh";
+        } else if (unstable) {
+          // 正帰還では飽和状態しか取れない。飽和が成り立たなくなったら反対側へ反転
+          //（シュミットトリガのしきい値を越えた）。線形からは平衡点の出力の符号で決める
+          if (st.mode === "linear") st.mode = st.vout >= 0 ? "satHigh" : "satLow";
+          else if (st.mode === "satHigh" && target < hi) st.mode = "satLow";
+          else if (st.mode === "satLow" && target > lo) st.mode = "satHigh";
+        } else if (st.mode === "linear") {
+          if (target > hi) st.mode = "satHigh";
+          else if (target < lo) st.mode = "satLow";
+        } else if (st.mode === "satHigh") {
+          // 飽和から抜けるときは必ずいったん線形へ（反対側の飽和へ直接跳ぶと
+          // 「上で飽和→下で飽和→…」の往復になり収束しないため）
+          if (target < hi) st.mode = "linear";
+        } else if (target > lo) {
+          st.mode = "linear";
+        }
+        parts.push(`${dev.id}:${st.mode}`);
+        break;
+      }
+
       default:
         parts.push(`${dev.id}:static`);
         break;
@@ -1147,6 +1276,12 @@ function extractDeviceElements(devices, ctx, x, branchRows, deviceBranchBase) {
         i = st.iref ?? 0;
         break;
       }
+      case "opamp": {
+        // v = 出力電圧（gnd 基準）、i = 出力端子から外部回路へ流れ出す電流
+        v = vOf(dev.pins[2]);
+        i = -branchCurrent(dev.id, "out");
+        break;
+      }
       default:
         break;
     }
@@ -1156,6 +1291,195 @@ function extractDeviceElements(devices, ctx, x, branchRows, deviceBranchBase) {
 
   return elements;
 }
+
+/**
+ * 非線形素子の動作点（判定 operatingRegion と AC 小信号モデルで使う）をまとめます。
+ *
+ * region の値:
+ *  - BJT: "off"（遮断）/ "active"（活性）/ "saturation"（飽和）
+ *  - MOSFET（K>0）: "off" / "triode"（線形領域）/ "saturation"（飽和領域）。K=0 のスイッチモードは "on" / "off"
+ *  - JFET: "saturation"（VGS > VGS(off)）/ "off"
+ *  - D/SD/LED: "on" / "off"、ZD/TVS: "forward" / "breakdown" / "off"
+ *  - OPAMP: "linear" / "satHigh"（上側で飽和）/ "satLow"（下側で飽和）
+ *
+ * 小信号パラメータ（AC 解析が使う。VT = VT_THERMAL = 26mV）:
+ *  - BJT（活性）: gm = |IC|/VT, rπ = β/gm
+ *  - MOSFET（飽和）: gm = K·(VGS−|Vth|) = √(2K·ID)（DC モデル ID = ½K(VGS−|Vth|)² の微分）
+ *  - MOSFET（線形領域）: gds = K·(VGS−|Vth|)（DC モデルのオン抵抗 1/(K·Vov) と同じ）
+ *  - JFET: gm = −2·IDSS/VGS(off)·(1 − VGS/VGS(off))
+ *
+ * @returns {Record<string, object>}
+ */
+export function describeOperatingPoints(devices, vOf, elements) {
+  const ops = {};
+  for (const dev of devices) {
+    const st = dev.state;
+    const e = elements?.[dev.id] ?? {};
+    switch (dev.kind) {
+      case "bjtN":
+      case "bjtP": {
+        let region;
+        let ic;
+        if (dev.isExp) {
+          ic = Math.abs(e.i ?? 0);
+          region = ic > 1e-12 ? "active" : "off";
+        } else {
+          region = st.mode;
+          ic = region === "off" ? 0 : Math.abs(st.ic ?? 0);
+        }
+        const gm = region === "active" ? ic / VT_THERMAL : 0;
+        ops[dev.id] = {
+          kind: "bjt", type: dev.type, region,
+          ic, ib: dev.isExp ? ic / dev.beta : Math.abs(st.ib ?? 0),
+          vbe: vOf(dev.pins[1]) - vOf(dev.pins[2]),
+          vce: vOf(dev.pins[0]) - vOf(dev.pins[2]),
+          beta: dev.beta, gm, rpi: gm > 0 ? dev.beta / gm : Infinity,
+        };
+        break;
+      }
+      case "mosN":
+      case "mosP": {
+        const vgs = st.vgs ?? 0;
+        const vds = st.vds ?? 0;
+        const vov = Math.max(vgs - Math.abs(dev.vth), 0);
+        let region = st.mode;
+        let gm = 0;
+        let gds = 0;
+        if (dev.k <= 0) {
+          gds = st.mode === "on" ? 1 / dev.rdsOn : 0;
+        } else if (st.mode === "saturation") {
+          gm = dev.k * vov;
+        } else if (st.mode === "triode") {
+          gds = dev.k * vov;
+        } else {
+          region = "off";
+        }
+        ops[dev.id] = { kind: "mos", type: dev.type, region, vgs, vds, vov, id: Math.abs(e.i ?? 0), gm, gds };
+        break;
+      }
+      case "jfetN": {
+        const vgs = Math.min(st.vgs ?? 0, 0);
+        let gm = 0;
+        if (vgs > dev.vgsOff) gm = (-2 * dev.idss * (1 - vgs / dev.vgsOff)) / dev.vgsOff;
+        ops[dev.id] = {
+          kind: "jfet", type: dev.type, region: vgs > dev.vgsOff ? "saturation" : "off",
+          vgs: st.vgs ?? 0, id: st.id ?? 0, gm,
+        };
+        break;
+      }
+      case "diode":
+      case "breakdown":
+        ops[dev.id] = { kind: dev.kind, type: dev.type, region: st.mode, i: e.i ?? 0 };
+        break;
+      case "opamp":
+        ops[dev.id] = {
+          kind: "opamp", type: dev.type, region: st.mode, vout: vOf(dev.pins[2]),
+          aol: dev.aol, gbp: dev.gbp, railHighNet: dev.railHighNet, railLowNet: dev.railLowNet,
+        };
+        break;
+      case "mirror":
+        ops[dev.id] = { kind: "mirror", type: dev.type, region: "on", iref: st.iref ?? 0 };
+        break;
+      case "optocoupler":
+        ops[dev.id] = { kind: dev.kind, type: dev.type, region: st.ledMode };
+        break;
+      case "scr":
+      case "triac":
+        ops[dev.id] = { kind: dev.kind, type: dev.type, region: st.gateMode };
+        break;
+      default:
+        ops[dev.id] = { kind: dev.kind, type: dev.type, region: "static" };
+    }
+  }
+  return ops;
+}
+
+/**
+ * 線形部分（stampLinear）＋非線形素子の連立方程式を、素子の状態が変わらなくなるまで反復して解きます。
+ * 過渡解析（各時刻）から使う。devices の state は呼び出し間で保持される（前の時刻の状態から始める）。
+ *
+ * @param {object} args
+ * @param {number} args.baseSize  線形部分の未知数の数（ノード数 + 線形電圧源数）
+ * @param {(A: number[][], b: number[]) => void} args.stampLinear 線形部分をスタンプする関数
+ * @param {(net: string) => number} args.idx ネット名 → 行番号（gnd は -1）
+ * @param {Map<string, number>} args.nodeIdx
+ * @param {Array<object>} args.devices createDevice で作った素子
+ * @param {number} [args.maxIter]
+ * @returns {{ x: number[] | null, branchRows: Array<object>, converged: boolean, iterations: number }}
+ */
+export function solveWithDevices({ baseSize, stampLinear, idx, nodeIdx, devices, maxIter = MAX_DEVICE_ITERATIONS }) {
+  const assemble = () => {
+    const size = baseSize + countDeviceBranches(devices);
+    const A = Array.from({ length: size }, () => new Array(size).fill(0));
+    const b = new Array(size).fill(0);
+    stampLinear(A, b);
+    const branchRows = stampDevices(A, b, idx, devices, baseSize);
+    return { A, b, size, branchRows };
+  };
+  const r = solveDeviceLoop({ assemble, devices, nodeIdx, deviceBranchBase: baseSize, maxIter });
+  return { x: r.x ?? null, branchRows: r.branchRows ?? [], converged: !!r.converged, iterations: r.iterations ?? 0 };
+}
+
+/**
+ * 素子の状態反復（DC・過渡共通）。
+ * OPAMP については毎回、帰還率 β = ∂(V+−V−)/∂Vout（出力を電圧源に置き換えて求める）を計算し、
+ * DC ループ利得 Aol·β > 1（正帰還）なら線形動作の平衡点は不安定とみなして、出力をレールに
+ * 張り付ける（updateDeviceStates の opamp）。実際のオペアンプはこの平衡点に留まれず、
+ * どちらかの電源電圧へ振り切れる（コンパレータ・シュミットトリガ・無安定マルチバイブレータの動作、
+ * +/− 入力を取り違えた増幅器が飽和するのと同じ）。
+ *
+ * @returns {{ x?: number[]|null, branchRows?: Array<object>, converged?: boolean, iterations?: number, empty?: boolean, failed?: boolean }}
+ */
+function solveDeviceLoop({ assemble, devices, nodeIdx, deviceBranchBase, maxIter = MAX_DEVICE_ITERATIONS }) {
+  let x = null;
+  let branchRows = [];
+  let converged = false;
+  let iterations = 0;
+  let prevSignature = null;
+  const opamps = devices.filter((d) => d.kind === "opamp");
+  for (let iter = 0; iter < maxIter; iter++) {
+    iterations++;
+    const sys = assemble();
+    if (sys.size === 0) return { empty: true, iterations };
+    const solution = solveLinearSystem(sys.A, sys.b);
+    if (!solution) return { x: null, failed: true, branchRows: sys.branchRows, iterations };
+    x = solution;
+    branchRows = sys.branchRows;
+    if (devices.length === 0) {
+      converged = true;
+      break;
+    }
+    for (const dev of opamps) dev.loopBeta = opampFeedbackFactor(dev, assemble, nodeIdx, deviceBranchBase);
+    const signature = updateDeviceStates(devices, { nodeIdx }, x, branchRows, deviceBranchBase);
+    if (signature === prevSignature) {
+      converged = true;
+      break;
+    }
+    prevSignature = signature;
+  }
+  return { x, branchRows, converged, iterations };
+}
+
+/**
+ * OPAMP の帰還率 β = ∂(V+ − V−)/∂Vout を返します（他の素子は現在の状態で線形化）。
+ * 出力を電圧源に置き換えた回路に、出力電圧 1V だけを与えて（他の独立電源は 0）解いたときの V+−V−。
+ * 負帰還なら β < 0、正帰還なら β > 0。
+ */
+function opampFeedbackFactor(dev, assemble, nodeIdx, deviceBranchBase) {
+  dev.forceOut = 0;
+  const sys = assemble();
+  dev.forceOut = undefined;
+  const k = sys.branchRows.findIndex((br) => br.deviceId === dev.id && br.role === "out");
+  if (k < 0) return 0;
+  const b = new Array(sys.size).fill(0);
+  b[deviceBranchBase + k] = 1;
+  const x = solveLinearSystem(sys.A, b);
+  if (!x) return 0;
+  const vAt = (net) => (isGroundNet(net) ? 0 : (x[nodeIdx.get(net)] ?? 0));
+  return vAt(dev.pins[0]) - vAt(dev.pins[1]);
+}
+
+export { extractDeviceElements };
 
 /* ==========================================================================
    DC シミュレーション本体
@@ -1219,41 +1543,24 @@ export function runDc(circuitIn) {
     circuit,
   };
 
-  // --- 非線形反復 ---
-  let x = null;
-  let prevSignature = null;
-  let converged = false;
-
-  for (let iter = 0; iter < MAX_DEVICE_ITERATIONS; iter++) {
-    const { A, b, size, branchRows } = assembleSystem(ctx, devices);
-
-    if (size === 0) {
-      return { ok: true, dc: { nodes: { gnd: 0 }, elements: {}, ...netInfo }, errors, warnings };
-    }
-
-    const solution = solveLinearSystem(A, b);
-    if (!solution) {
-      errors.push(
-        "DCシミュレーションで連立方程式を解けませんでした。浮遊ノードや短絡がないか確認してください。"
-      );
-      return { ok: false, dc: { nodes: {}, elements: {}, ...netInfo }, errors, warnings };
-    }
-
-    x = solution;
-    const signature = updateDeviceStates(
-      devices,
-      ctx,
-      x,
-      branchRows,
-      N + vSources.length
-    );
-
-    if (signature === prevSignature) {
-      converged = true;
-      break;
-    }
-    prevSignature = signature;
+  // --- 非線形反復（OPAMP の正帰還による不安定平衡点の除去を含む） ---
+  const loop = solveDeviceLoop({
+    assemble: () => assembleSystem(ctx, devices),
+    devices,
+    nodeIdx,
+    deviceBranchBase: N + vSources.length,
+  });
+  if (loop.empty) {
+    return { ok: true, dc: { nodes: { gnd: 0 }, elements: {}, ...netInfo }, errors, warnings };
   }
+  if (loop.failed || !loop.x) {
+    errors.push(
+      "DCシミュレーションで連立方程式を解けませんでした。浮遊ノードや短絡がないか確認してください。"
+    );
+    return { ok: false, dc: { nodes: {}, elements: {}, ...netInfo }, errors, warnings };
+  }
+  const x = loop.x;
+  const converged = loop.converged;
 
   if (!converged && devices.length > 0) {
     warnings.push(
@@ -1296,10 +1603,11 @@ export function runDc(circuitIn) {
     N + vSources.length
   );
   Object.assign(elements, deviceElements);
+  const operatingPoints = describeOperatingPoints(devices, vOf, elements);
 
   return {
     ok: true,
-    dc: { nodes: filterNodeResults(nodes, prep), elements, ...netInfo },
+    dc: { nodes: filterNodeResults(nodes, prep), elements, operatingPoints, converged: converged || devices.length === 0, ...netInfo },
     errors,
     warnings,
   };

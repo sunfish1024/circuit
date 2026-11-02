@@ -91,12 +91,49 @@
     {
       "type": "truthTable",
       "requiredSim": "digital",
-      "description": "デジタルシミュレーションで得られた真理値表が期待テーブルと一致するかどうかを判定します。",
+      "description": "入力ネット（inputs）の全組み合わせを判定が自動で与え、出力ネット（outputs）の論理値を期待値と比べます（組み合わせ回路）。期待値は table（[入力..., 出力...] の行。書いた行だけ判定）または expect（{出力ネット: \"0110\"}、入力を2進数で数えた順、inputs[0] が最上位）。出力の \"x\" は don't care。入力ネットには LOGIC_IN、出力ネットには TP を固定部品として置く。判定対象の出力に影響する未接続入力・出力の衝突があれば不合格。ゲートの無い回路（ダイオードロジック）は DC 解析で評価（driveLowV, driveHighV, vih, vil）。",
       "required": [
-        "table"
+        "inputs",
+        "outputs",
+        "table|expect"
       ],
       "fields": [
-        "table"
+        "inputs",
+        "outputs",
+        "table",
+        "expect",
+        "driveLowV",
+        "driveHighV",
+        "vih",
+        "vil"
+      ]
+    },
+    {
+      "type": "sequence",
+      "requiredSim": "digital",
+      "description": "順序回路の出力系列を判定します。clock（ネット名）の立ち上がりごとに、inputs（{ネット: \"0110\"}）の k 番目の値を与えてから clock を上げ、outputs（{ネット: \"0011\"}）と比べます。sampleAt: \"afterRise\"（既定。立ち上がり後に記録）/ \"beforeRise\"（入力を与えた後・立ち上がり前に記録。ミーリ型の出力向け）。clock 省略時は入力を与えるたびに記録（ラッチ）。電源投入時 DFF の Q=0、ゲートで組んだラッチは X。出力の \"x\" は don't care。",
+      "required": [
+        "outputs",
+        "clock|inputs"
+      ],
+      "fields": [
+        "clock",
+        "inputs",
+        "outputs",
+        "sampleAt"
+      ]
+    },
+    {
+      "type": "componentCount",
+      "description": "プレイヤーが置いた部品（固定部品を除く）のうち types の種別の個数が min 以上 max 以下かを判定します。「NAND 4個で XOR を作る」などの最小構成の課題に使います。シミュレーション不要。",
+      "required": [
+        "types",
+        "min|max"
+      ],
+      "fields": [
+        "types",
+        "min",
+        "max"
       ]
     },
     {
@@ -190,7 +227,7 @@
     {
       "type": "acVoltage",
       "requiredSim": "ac",
-      "description": "指定周波数でのノード電圧の実効値（RMS）を比較します。V_AC の Vpk はピーク値。",
+      "description": "指定周波数でのノード電圧の実効値（RMS）を比較します。V_AC の Vpk はピーク値。nodeRef を書くと差動電圧 V(node)−V(nodeRef)。sources（{電源ID: {Vpk, phaseDeg}}）を書くと、その固定電源のパラメータを置き換えた回路で判定（差動入力⇔同相入力の切替など）。",
       "required": [
         "node",
         "expectedRMS|expected"
@@ -202,13 +239,15 @@
         "expected",
         "tolerancePct",
         "toleranceAbs",
-        "unit"
+        "unit",
+        "nodeRef",
+        "sources"
       ]
     },
     {
       "type": "acGaindB",
       "requiredSim": "ac",
-      "description": "20·log10(|V(output)|/|V(input)|) [dB] を比較します。input/output はノード名（既定 vin/out）。dB は toleranceAbs で指定するのが基本。",
+      "description": "20·log10(|V(output)−V(outputRef)|/|V(input)−V(inputRef)|) [dB] を比較します。input/output はノード名（既定 vin/out）、inputRef/outputRef（任意）で差動入力・差動出力。sources で固定電源のパラメータを置き換えた回路で判定（同相利得など）。dB は toleranceAbs で指定するのが基本。トランジスタ・オペアンプは DC 動作点で線形化した小信号モデル。",
       "required": [
         "expected"
       ],
@@ -219,13 +258,16 @@
         "expected",
         "tolerancePct",
         "toleranceAbs",
-        "unit"
+        "unit",
+        "inputRef",
+        "outputRef",
+        "sources"
       ]
     },
     {
       "type": "bodePoint",
       "requiredSim": "ac",
-      "description": "指定周波数の利得 gainDB と位相 phaseDeg（∠V(output)−∠V(input)、度）を比較します。許容は gainToleranceDB / phaseToleranceDeg（絶対値）を推奨。",
+      "description": "指定周波数の利得 gainDB と位相 phaseDeg（∠出力−∠入力、度）を比較します。inputRef/outputRef で差動、sources で電源の置き換え（acGaindB と同じ）。許容は gainToleranceDB / phaseToleranceDeg（絶対値）を推奨。",
       "required": [
         "gainDB|phaseDeg"
       ],
@@ -238,7 +280,69 @@
         "gainToleranceDB",
         "phaseToleranceDeg",
         "tolerancePct",
-        "toleranceAbs"
+        "toleranceAbs",
+        "inputRef",
+        "outputRef",
+        "sources"
+      ]
+    },
+    {
+      "type": "acImpedance",
+      "requiredSim": "ac",
+      "description": "小信号インピーダンス |V/I|（Ω）。独立電源をすべて 0（電圧源は短絡・電流源は開放）にし、exclude（固定部品IDの配列）を取り除いて、node−nodeRef（既定 gnd）間に試験電流を流して求める。トランジスタ等は元の回路の DC 動作点で線形化。入力インピーダンスは信号源を exclude、出力インピーダンスは負荷を exclude する。quantity: magnitude（既定）/ real / imag / phase。",
+      "required": [
+        "node",
+        "expected"
+      ],
+      "fields": [
+        "node",
+        "nodeRef",
+        "exclude",
+        "frequencyHz",
+        "quantity",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit"
+      ]
+    },
+    {
+      "type": "operatingRegion",
+      "requiredSim": "dc",
+      "description": "非線形素子の DC 動作領域を判定します（judge に dc か ac が必要）。region は文字列または配列。BJT: off/active/saturation、MOSFET: off/triode/saturation（K=0 のスイッチは on/off）、JFET: saturation/off、D 系: on/off、ZD/TVS: forward/breakdown/off、OPAMP: linear/satHigh/satLow。element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
+      "required": [
+        "element|match",
+        "region"
+      ],
+      "fields": [
+        "element",
+        "match",
+        "region"
+      ]
+    },
+    {
+      "type": "transientMeasure",
+      "requiredSim": "transient",
+      "description": "過渡波形の区間 [fromSec, toSec] の統計量を比較します。measure: max / min / pp（最大−最小）/ average（時間平均）/ rms / acRms（平均を除いた実効値）。node（nodeRef で差動）または element + quantity（v|i。電流は既定で向きを問わず max/min は |i|、average は |平均|。signed: true で符号つき）。定常の値を見るときは fromSec を必ず指定。",
+      "required": [
+        "node|element|match",
+        "measure",
+        "expected"
+      ],
+      "fields": [
+        "node",
+        "nodeRef",
+        "element",
+        "match",
+        "quantity",
+        "signed",
+        "measure",
+        "fromSec",
+        "toSec",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit"
       ]
     }
   ]

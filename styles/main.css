@@ -2397,3 +2397,159 @@ label {
 .problem-frame.is-resizing {
   user-select: none;
 }
+
+/* ==========================================================================
+   デジタル結果（ネットの論理値 / 真理値表 / 出力系列）と論理入力
+   ========================================================================== */
+
+.logic-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+
+.logic-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--color-surface-3);
+}
+
+.logic-chip b {
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.logic-chip i {
+  font-style: normal;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.logic-chip.v1 i,
+.logic-cell.v1 {
+  color: var(--color-success);
+}
+
+.logic-chip.v0 i,
+.logic-cell.v0 {
+  color: var(--color-text-muted);
+}
+
+.logic-chip.vx i,
+.logic-cell.vx {
+  color: var(--color-warning);
+}
+
+.logic-table th,
+.logic-table td {
+  text-align: center;
+}
+
+.logic-table th.logic-in-head {
+  color: var(--color-accent);
+}
+
+.logic-table td.logic-split,
+.logic-table th.logic-step,
+.logic-table td.logic-step {
+  border-right: 1px solid var(--color-border-strong);
+}
+
+.logic-table td.logic-step {
+  color: var(--color-text-faint);
+}
+
+.logic-cell {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.logic-cell.logic-input {
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.logic-cell small {
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.logic-cell.logic-ng {
+  color: var(--color-danger);
+  background: rgba(248, 113, 113, 0.22);
+  outline: 1px solid rgba(248, 113, 113, 0.5);
+}
+
+.logic-table tr.is-mismatch td {
+  background: var(--color-danger-soft);
+}
+
+.logic-verdict {
+  margin: 2px 0 4px;
+  font-size: 11px;
+}
+
+.logic-verdict.is-ok {
+  color: var(--color-success);
+}
+
+.logic-verdict.is-ng {
+  color: var(--color-danger);
+}
+
+.logic-toggle {
+  display: inline-flex;
+  gap: 0;
+  margin-bottom: 4px;
+}
+
+.logic-toggle-button {
+  min-width: 56px;
+  padding: 6px 0;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.logic-toggle-button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.logic-toggle-button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.logic-toggle-button.is-active {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.board-component[data-comp-type="LOGIC_IN"] .board-comp-hit {
+  cursor: pointer;
+}
+
+.symbol-body .sym-logic-on,
+.symbol-body .sym-logic-off {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.symbol-body .sym-logic-on {
+  fill: var(--color-success);
+}
+
+.symbol-body .sym-logic-off {
+  fill: var(--color-text-muted);
+}

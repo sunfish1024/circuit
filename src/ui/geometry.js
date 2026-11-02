@@ -24,6 +24,13 @@
  *     "routes": [ { "net": "a", "points": [[x,y], [x,y], ...] } ]  // 手動経路（そのネットは自動配線しない）
  *   }
  *   部品の位置・回転は従来どおり fixedComponents[].position / rotation。
+ *
+ * ピン位置（0°、position からのずれ。設計座標 x 0.75。pinNames 順）:
+ *   - 2 入力ゲート（U_AND / U_OR / U_XOR / U_XNOR など）: A (0,12) / B (0,27) / Y (72,19.5)
+ *   - 3 入力ゲート（U_AND3 / U_OR3）: A (0,7.5) / B (0,19.5) / C (0,31.5) / Y (72,19.5)
+ *   - DFF: D (0,12) / CLK (0,27) / Q (72,12) / Q_NOT (72,27)
+ *   - DFF_R: D (0,12) / CLK (0,27) / CLR (36,39 = 下中央) / Q (72,12) / Q_NOT (72,27)
+ *   - LOGIC_IN（論理入力。1 ピン Y）: 右 (72,19.5)。ID は記号の上、値の 0/1 は記号の中（回転しても正立）
  */
 
 import { getSymbolDefinition, getSymbolPins } from "./symbols.js";

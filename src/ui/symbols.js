@@ -93,6 +93,27 @@ const PINS_DFF = [
 ];
 
 /**
+ * 3入力ゲートの 4 端子ピン位置（A/B/C = 左, Y = 右）です。
+ */
+const PINS_GATE3 = [
+  { x: 0, y: 10 },
+  { x: 0, y: 26 },
+  { x: 0, y: 42 },
+  { x: 96, y: 26 },
+];
+
+/**
+ * クリア付き D フリップフロップの 5 端子ピン位置（D/CLK = 左, CLR = 下, Q/Q_NOT = 右）です。
+ */
+const PINS_DFF_R = [
+  { x: 0, y: 16 },
+  { x: 0, y: 36 },
+  { x: 48, y: 52 },
+  { x: 96, y: 16 },
+  { x: 96, y: 36 },
+];
+
+/**
  * トランスの 4 端子ピン位置です。
  */
 const PINS_XFMR = [
@@ -617,6 +638,72 @@ const SYMBOLS = {
       label(58, 20, "Q") +
       label(58, 40, "Q") +
       line(54, 31, 62, 31, "sym-thin"),
+  },
+
+  U_XNOR: {
+    pins: PINS_GATE,
+    render: () =>
+      line(0, 16, 30, 16) +
+      line(0, 36, 30, 36) +
+      path("M 24 8 Q 34 26 24 44") +
+      path("M 30 8 Q 40 26 30 44 Q 56 44 72 26 Q 56 8 30 8 Z") +
+      circle(76, 26, 4) +
+      line(80, 26, 96, 26),
+  },
+
+  U_AND3: {
+    pins: PINS_GATE3,
+    render: () =>
+      line(0, 10, 30, 10) +
+      line(0, 26, 30, 26) +
+      line(0, 42, 30, 42) +
+      path("M 30 4 L 46 4 A 22 22 0 0 1 46 48 L 30 48 Z") +
+      line(68, 26, 96, 26),
+  },
+
+  U_OR3: {
+    pins: PINS_GATE3,
+    render: () =>
+      line(0, 10, 32, 10) +
+      line(0, 26, 36, 26) +
+      line(0, 42, 32, 42) +
+      path("M 28 4 Q 40 26 28 48 Q 56 48 74 26 Q 56 4 28 4 Z") +
+      line(74, 26, 96, 26),
+  },
+
+  DFF_R: {
+    pins: PINS_DFF_R,
+    render: () =>
+      line(0, 16, 28, 16) +
+      line(0, 36, 28, 36) +
+      `<rect class="sym-stroke" x="28" y="4" width="40" height="38" rx="2"></rect>` +
+      line(68, 16, 96, 16) +
+      line(68, 36, 96, 36) +
+      circle(48, 45, 3) +
+      line(48, 48, 48, 52) +
+      path("M 28 32 L 36 36 L 28 40") +
+      label(38, 18, "D") +
+      label(45, 31, "CLR", "sym-label-sm") +
+      label(60, 18, "Q") +
+      label(61, 40, "Q") +
+      line(57, 31, 65, 31, "sym-thin"),
+  },
+
+  LOGIC_IN: {
+    pins: [{ x: 96, y: 26 }],
+    idLabel: { x: 30, y: 6, anchor: "middle" },
+    valueLabel: null,
+    render: (component) => {
+      const v = Number(component?.params?.value) >= 0.5 ? "1" : "0";
+      // 記号は回転グループの中で描かれるので、値の文字だけ逆回転して常に正立させる
+      const rot = ((Number(component?.rotation) || 0) % 360 + 360) % 360;
+      const cls = v === "1" ? "sym-label sym-logic-on" : "sym-label sym-logic-off";
+      return (
+        path("M 12 14 L 48 14 L 60 26 L 48 38 L 12 38 Z") +
+        `<text class="${cls}" x="34" y="31" text-anchor="middle"${rot ? ` transform="rotate(${-rot} 34 26)"` : ""}>${v}</text>` +
+        line(60, 26, 96, 26)
+      );
+    },
   },
 
   /* -------------------------------------------------------------- */

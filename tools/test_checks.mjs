@@ -344,6 +344,333 @@ const RC = (extra = []) => board(
   expect("acVoltage 取得（共振時ノード a）", vc.ok);
 }
 
+/* ---------------------------------------------------------------- 分野C: 増幅回路（BJT / MOSFET / JFET / OPAMP / 差動） */
+// 許容誤差の根拠（このブロック）:
+// - DC 動作点: 区分線形モデルを直接解くので、手計算との差は「C の DC 漏れ 1e-3·C [S]」
+//   （1mF で 1MΩ。RE=470Ω と並列で 0.05%）とゲートの 1nS リンクだけ → IC/ID は 0.2% で比較。
+// - AC 小信号: 複素 MNA を直接解く。結合・バイパスコンデンサのリアクタンスは試験周波数で
+//   相手のインピーダンスの 0.1% 未満になるように選んだ（例: CE=1mF は 100kHz で 1.6mΩ ≪ re≈10Ω）。
+//   さらに上の DC 誤差 0.2% が gm に入る → 利得は ±0.05dB（0.6%）、位相 ±0.5° で比較。
+//   オペアンプ（抵抗だけで決まる回路）は有限 Aol まで含めた厳密式と比べるので ±0.001dB / 0.01%。
+// - 過渡: 刻み T/100。正弦波の最大値をサンプル点で拾う誤差は 1−cos(π/100) ≈ 5e-4、
+//   積分器の傾き（台形則）は区間内で厳密 → 0.5〜1% で比較。
+const VT = 0.026; // src/sim/dc.js の VT_THERMAL（熱電圧 26mV）
+const par = (...rs) => 1 / rs.reduce((s, r) => s + 1 / r, 0);
+const db = (x) => 20 * Math.log10(Math.abs(x));
+{
+  // --- BJT 電圧帰還（分圧）バイアスの共通エミッタ増幅 ---
+  // VCC=12, R1=47k, R2=10k, RC=2.2k, RE=470, β=100, VBE=0.7, RL=10k
+  // テブナン: VTH = 12·10/57 = 2.1053V, RTH = 8.2456kΩ
+  // IB = (VTH − 0.7)/(RTH + 10Ω（モデルのベース抵抗） + (β+1)RE), IC = β·IB ≈ 2.5218mA
+  const beta = 100, VCC = 12, R1 = 47e3, R2 = 10e3, RC = 2200, RE = 470, RL = 10e3;
+  const VTH = (VCC * R2) / (R1 + R2), RTH = par(R1, R2);
+  const IC = (beta * (VTH - 0.7)) / (RTH + 10 + (beta + 1) * RE);
+  const gm = IC / VT, rpi = beta / gm;
+  const f = 1e5;
+  const ce = ({ bypass = true, rs = 0, r2 = R2, type = "Q_NPN" } = {}) => board(
+    comp("V1", "V_AC", [rs ? "src" : "vin", "gnd"], { Vpk: 0.01, freqHz: f }),
+    ...(rs ? [comp("RS", "R", ["src", "vin"], { R: rs })] : []),
+    comp("VCC", "V_DC", ["vcc", "gnd"], { V: VCC }),
+    comp("C1", "C", ["vin", "b"], { C: 10e-6 }),
+    comp("R1", "R", ["vcc", "b"], { R: R1 }), comp("R2", "R", ["b", "gnd"], { R: r2 }),
+    comp("RC", "R", ["vcc", "c"], { R: RC }), comp("RE", "R", ["e", "gnd"], { R: RE }),
+    ...(bypass ? [comp("CE", "C", ["e", "gnd"], { C: 1e-3 })] : []),
+    comp("Q1", type, ["c", "b", "e"], { beta }),
+    comp("C2", "C", ["c", "out"], { C: 10e-6 }), comp("RL", "R", ["out", "gnd"], { R: RL }),
+    comp("TP1", "TP", ["out"])
+  );
+  const dcSim = await simulate(ce(), { mode: "dc" });
+  near("BJT 分圧バイアス IC = 2.5218mA（手計算）", dcSim.dc.operatingPoints.Q1.ic, IC, 2e-3);
+  near("BJT 分圧バイアス VCE = VCC − IC·RC − IE·RE", dcSim.dc.operatingPoints.Q1.vce, VCC - IC * RC - (IC * (beta + 1) / beta) * RE, 2e-3);
+  const reg = await check(ce(), "dc", { type: "operatingRegion", match: { type: "Q_NPN" }, region: "active" });
+  expect("operatingRegion: 分圧バイアスの Q1 は活性領域", reg.ok, reg.message);
+  const regAc = await check(ce(), "ac", { type: "operatingRegion", element: "Q1", region: ["active"] });
+  expect("operatingRegion: judge ac でも動作点を参照できる", regAc.ok, regAc.message);
+  // R2 を 100k にするとベース電圧が上がりすぎて飽和（VCE ≈ 0.2V）
+  const regSat = await check(ce({ r2: 100e3 }), "dc", { type: "operatingRegion", element: "Q1", region: "active" });
+  expect("operatingRegion: バイアス過大で飽和 → active 判定は不合格", !regSat.ok && /飽和/.test(regSat.message), regSat.message);
+
+  const AvByp = -gm * par(RC, RL);
+  const bp = await check(ce(), "ac", { type: "bodePoint", input: "vin", output: "out", frequencyHz: f, gainDB: db(AvByp), phaseDeg: 180, gainToleranceDB: 0.05, phaseToleranceDeg: 0.5 });
+  expect(`CE（バイパスあり）Av = −gm(RC∥RL) = ${AvByp.toFixed(2)}（gm=IC/26mV）`, bp.ok, bp.message);
+  const AvRE = (-beta * par(RC, RL)) / (rpi + (beta + 1) * RE);
+  const g2 = await check(ce({ bypass: false }), "ac", { type: "acGaindB", input: "vin", output: "out", frequencyHz: f, expected: db(AvRE), toleranceAbs: 0.05 });
+  expect(`CE（RE バイパスなし）Av = −β(RC∥RL)/(rπ+(β+1)RE) = ${AvRE.toFixed(3)}`, g2.ok, g2.message);
+  const gPnp = await check(
+    board(
+      comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 0.01, freqHz: f }),
+      comp("VCC", "V_DC", ["vcc", "gnd"], { V: VCC }),
+      comp("C1", "C", ["vin", "b"], { C: 10e-6 }),
+      comp("R1", "R", ["b", "gnd"], { R: R1 }), comp("R2", "R", ["vcc", "b"], { R: R2 }),
+      comp("RC", "R", ["c", "gnd"], { R: RC }), comp("RE", "R", ["vcc", "e"], { R: RE }), comp("CE", "C", ["vcc", "e"], { C: 1e-3 }),
+      comp("Q1", "Q_PNP", ["c", "b", "e"], { beta }),
+      comp("C2", "C", ["c", "out"], { C: 10e-6 }), comp("RL", "R", ["out", "gnd"], { R: RL })
+    ),
+    "ac", { type: "bodePoint", input: "vin", output: "out", frequencyHz: f, gainDB: db(AvByp), phaseDeg: 180, gainToleranceDB: 0.05, phaseToleranceDeg: 0.5 }
+  );
+  expect("PNP の CE（上下反転）も同じ利得・反転", gPnp.ok, gPnp.message);
+  const gSat = await check(ce({ r2: 100e3 }), "ac", { type: "acGaindB", input: "vin", output: "out", frequencyHz: f, expected: db(AvByp), toleranceAbs: 1 });
+  expect("飽和したトランジスタは増幅しない（利得判定が不合格）", !gSat.ok, gSat.message);
+
+  // 入出力インピーダンス（RS=1k の信号源。入力は信号源 V1 を外して base から見る）
+  const zin = await check(ce({ rs: 1000 }), "ac", { type: "acImpedance", node: "b", exclude: ["V1"], frequencyHz: f, expected: par(R1, R2, rpi), tolerancePct: 0.5 });
+  expect(`acImpedance 入力 Zin = R1∥R2∥rπ = ${par(R1, R2, rpi).toFixed(1)}Ω`, zin.ok, zin.message);
+  const zinRE = await check(ce({ rs: 1000, bypass: false }), "ac", { type: "acImpedance", node: "b", exclude: ["V1"], frequencyHz: f, expected: par(R1, R2, rpi + (beta + 1) * RE), tolerancePct: 0.5 });
+  expect("acImpedance 入力（RE あり）Zin = R1∥R2∥(rπ+(β+1)RE)", zinRE.ok, zinRE.message);
+  const zout = await check(ce({ rs: 1000 }), "ac", { type: "acImpedance", node: "out", exclude: ["RL"], frequencyHz: f, expected: RC, tolerancePct: 0.1 });
+  expect("acImpedance 出力 Zout = RC（ro=∞、負荷 RL を外す）", zout.ok, zout.message);
+  const zoutL = await check(ce({ rs: 1000 }), "ac", { type: "acImpedance", node: "out", frequencyHz: f, expected: par(RC, RL), tolerancePct: 0.1 });
+  expect("acImpedance 出力（負荷込み）= RC∥RL", zoutL.ok, zoutL.message);
+  const zNone = await check(ce(), "ac", { type: "acImpedance", node: "nowhere", frequencyHz: f, expected: 1 });
+  expect("acImpedance: 回路に無いノードは不合格", !zNone.ok);
+  // 信号源抵抗込みの利得: vout/vsrc = Av·Zin/(RS+Zin)
+  const zinV = par(R1, R2, rpi);
+  const gRs = await check(ce({ rs: 1000 }), "ac", { type: "acGaindB", input: "src", output: "out", frequencyHz: f, expected: db((AvByp * zinV) / (1000 + zinV)), toleranceAbs: 0.05 });
+  expect("信号源抵抗 RS=1k による入力側の分圧 vout/vs = Av·Zin/(RS+Zin)", gRs.ok, gRs.message);
+
+  // 過渡（DC 動作点から開始）: BJT は VBE 一定モデルなので re が入らない
+  //   → RE バイパスなしの利得は −(RC∥RL)/(RE + (RTH∥…)/β) に近く、AC（rπ 入り）より約 2% 大きい
+  const trSim = await simulate(ce({ bypass: false }), { mode: "transient", problem: { simulation: { initialCondition: "dc", tStop: 5e-5 } } });
+  expect("過渡: BJT を含む回路が解ける（initialCondition dc）", trSim.ok && trSim.warnings.length === 0, JSON.stringify(trSim.warnings));
+  near("過渡: t=0 で結合コンデンサ C2 は DC 動作点の電圧（VC）", trSim.transient.elements.C2.v[0], VCC - IC * RC, 2e-3);
+  const ppTr = await check(ce({ bypass: false }), "transient", { type: "transientMeasure", node: "out", measure: "pp", fromSec: 2e-5, toSec: 5e-5, expected: 2 * 0.01 * Math.abs(AvRE), tolerancePct: 5 }, {}, { simulation: { initialCondition: "dc", tStop: 5e-5 } });
+  expect("過渡: CE（RE あり）の出力振幅は AC の利得と 5% 以内（VBE 一定モデルの差 約2%）", ppTr.ok, ppTr.message);
+}
+{
+  // --- MOSFET ソース接地（平方則 ID = ½K(VGS−Vth)²）---
+  // VDD=10, R1=R2=1M → VG=5, RS=1k（CS=1mF でバイパス）, K=1mA/V², Vth=2
+  // Vov = VGS−Vth = 3 − 1000·½K·Vov² → ½Vov² + Vov − 3 = 0 → Vov = −1+√7 = 1.6458V
+  // ID = ½K·Vov² = 1.3542mA, gm = K·Vov = √(2K·ID) = 1.6458mS
+  const K = 1e-3, Vth = 2, RD = 3300, RL = 10e3;
+  const vov = -1 + Math.sqrt(7), ID = 0.5 * K * vov * vov, gm = K * vov;
+  const f = 1e4;
+  const cs = board(
+    comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 0.01, freqHz: f }), comp("VDD", "V_DC", ["vdd", "gnd"], { V: 10 }),
+    comp("C1", "C", ["vin", "g"], { C: 1e-6 }), comp("R1", "R", ["vdd", "g"], { R: 1e6 }), comp("R2", "R", ["g", "gnd"], { R: 1e6 }),
+    comp("RD", "R", ["vdd", "d"], { R: RD }), comp("RS", "R", ["s", "gnd"], { R: 1000 }), comp("CS", "C", ["s", "gnd"], { C: 1e-3 }),
+    comp("M1", "M_N", ["d", "g", "s"], { Vth, K }), comp("C2", "C", ["d", "out"], { C: 10e-6 }), comp("RL", "R", ["out", "gnd"], { R: RL }),
+    comp("TP1", "TP", ["out"])
+  );
+  const sim = await simulate(cs, { mode: "ac", checks: [] });
+  near("MOSFET 自己バイアス ID = 1.3542mA（2次方程式の解）", sim.ac.operatingPoints.M1.id, ID, 3e-3);
+  near("MOSFET gm = K·Vov = √(2K·ID)", sim.ac.operatingPoints.M1.gm, Math.sqrt(2 * K * ID), 3e-3);
+  expect("MOSFET の動作領域は saturation（増幅に使う領域）", (await check(cs, "dc", { type: "operatingRegion", element: "M1", region: "saturation" })).ok);
+  const Av = -gm * par(RD, RL);
+  const bp = await check(cs, "ac", { type: "bodePoint", input: "vin", output: "out", frequencyHz: f, gainDB: db(Av), phaseDeg: 180, gainToleranceDB: 0.05, phaseToleranceDeg: 0.5 });
+  expect(`MOSFET ソース接地 Av = −gm(RD∥RL) = ${Av.toFixed(3)}`, bp.ok, bp.message);
+  // 過渡: 平方則は AC モデルと同じ式なので波形の振幅も一致（2乗の項は pp では打ち消し合う）
+  const pp = await check(cs, "transient", { type: "transientMeasure", node: "out", measure: "pp", fromSec: 2e-4, toSec: 5e-4, expected: 2 * 0.01 * Math.abs(Av), tolerancePct: 1 }, {}, { simulation: { initialCondition: "dc", tStop: 5e-4 } });
+  expect("過渡: MOSFET 増幅の出力 pp = 2·Vpk·|Av|（±1%）", pp.ok, pp.message);
+  const avg = await check(cs, "transient", { type: "transientMeasure", node: "out", measure: "average", fromSec: 2e-4, toSec: 5e-4, expected: 0, toleranceAbs: 2e-3 }, {}, { simulation: { initialCondition: "dc", tStop: 5e-4 } });
+  expect("過渡: 結合コンデンサ後の出力の平均は 0V（DC 動作点から開始）", avg.ok, avg.message);
+
+  // --- JFET ソース接地: IDSS=10mA, VGS(off)=−2V, 自己バイアス RS=100Ω（バイパス）, RD=1k
+  // ID = IDSS(1+ID·RS/2)²… を数値で解いた動作点の gm = −2IDSS/VGS(off)·(1−VGS/VGS(off)) で Av = −gm·RD
+  const jf = board(
+    comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 0.01, freqHz: f }), comp("VDD", "V_DC", ["vdd", "gnd"], { V: 15 }),
+    comp("C1", "C", ["vin", "g"], { C: 1e-6 }), comp("RG", "R", ["g", "gnd"], { R: 1e6 }),
+    comp("RD", "R", ["vdd", "d"], { R: 1000 }), comp("RS", "R", ["s", "gnd"], { R: 100 }), comp("CS", "C", ["s", "gnd"], { C: 1e-3 }),
+    comp("J1", "J_N", ["d", "g", "s"], { Idss: 0.01, VgsOff: -2 }), comp("TP1", "TP", ["d"])
+  );
+  // 手計算: VGS = −ID·RS = −100·ID, ID = IDSS(1 − VGS/VGS(off))² = 0.01(1 − 50·ID)²
+  //   → 25·ID² − 2·ID + 0.01 = 0 → ID = (2 − √3)/50 = 5.359mA（もう一方の解は VGS < VGS(off) で不適）
+  //   gm = 2·IDSS/|VGS(off)|·(1 − VGS/VGS(off)) = 0.01·(1 − 50·ID) = 7.32mS
+  const a = 25, b = -2, c = 0.01;
+  const IDj = (-b - Math.sqrt(b * b - 4 * a * c)) / (2 * a);
+  const gmj = (2 * 0.01 / 2) * (1 - (IDj * 100) / 2);
+  const gj = await check(jf, "ac", { type: "acGaindB", input: "vin", output: "d", frequencyHz: f, expected: db(gmj * 1000), toleranceAbs: 0.05 });
+  expect(`JFET ソース接地 Av = −gm·RD（ID=${(IDj * 1e3).toFixed(3)}mA）`, gj.ok, gj.message);
+}
+{
+  // --- オペアンプ（Aol=1e5 の有限利得まで含めた厳密式と比較）---
+  const Aol = 1e5;
+  const opamp = (id, inP, inM, out, params = {}, vp = "", vm = "") => comp(id, "OPAMP", [inP, inM, out, vp, vm], { Aol, ...params });
+  const exactInv = (Rf, Rin) => -(Rf / Rin) / (1 + (1 + Rf / Rin) / Aol);
+  const exactNon = (G) => G / (1 + G / Aol);
+  const dcOut = async (b) => (await simulate(b, { mode: "dc" })).dc.nodes.out;
+  // 反転増幅 −Rf/Rin
+  const inv = (vin, params = {}, vp = "", vm = "") => board(comp("V1", "V_DC", ["vin", "gnd"], { V: vin }), comp("R1", "R", ["vin", "n"], { R: 1000 }), comp("R2", "R", ["n", "out"], { R: 10000 }), opamp("U1", "gnd", "n", "out", params, vp, vm), comp("TP1", "TP", ["out"]));
+  near("OPAMP DC 反転増幅 0.5V × (−10)", await dcOut(inv(0.5)), 0.5 * exactInv(10000, 1000), 1e-4);
+  // 非反転増幅 1+Rf/Rin = 11
+  near("OPAMP DC 非反転増幅 0.5V × 11", await dcOut(board(comp("V1", "V_DC", ["vin", "gnd"], { V: 0.5 }), comp("R1", "R", ["n", "gnd"], { R: 1000 }), comp("R2", "R", ["n", "out"], { R: 10000 }), opamp("U1", "vin", "n", "out"))), 0.5 * exactNon(11), 1e-4);
+  // ボルテージフォロワ
+  near("OPAMP DC ボルテージフォロワ 3.3V", await dcOut(board(comp("V1", "V_DC", ["vin", "gnd"], { V: 3.3 }), opamp("U1", "vin", "out", "out"), comp("RL", "R", ["out", "gnd"], { R: 100 }))), 3.3 * exactNon(1), 1e-4);
+  // 加算: −Rf(V1/R1 + V2/R2) = −10k(1/10k + 0.5/5k) = −2V
+  near("OPAMP DC 加算 −Rf(V1/R1+V2/R2) = −2V", await dcOut(board(
+    comp("V1", "V_DC", ["a", "gnd"], { V: 1 }), comp("V2", "V_DC", ["b", "gnd"], { V: 0.5 }),
+    comp("R1", "R", ["a", "n"], { R: 10e3 }), comp("R2", "R", ["b", "n"], { R: 5e3 }), comp("RF", "R", ["n", "out"], { R: 10e3 }), opamp("U1", "gnd", "n", "out"))), -2, 1e-3);
+  // 差動増幅（4抵抗）: (R2/R1)(Va − Vb) = 10·(1.2 − 1.0) = 2V
+  near("OPAMP DC 差動増幅 (R2/R1)(Va−Vb) = 2V", await dcOut(board(
+    comp("Va", "V_DC", ["a", "gnd"], { V: 1.2 }), comp("Vb", "V_DC", ["b", "gnd"], { V: 1.0 }),
+    comp("R1", "R", ["b", "n"], { R: 10e3 }), comp("R2", "R", ["n", "out"], { R: 100e3 }), comp("R3", "R", ["a", "p"], { R: 10e3 }), comp("R4", "R", ["p", "gnd"], { R: 100e3 }), opamp("U1", "p", "n", "out"))), 2, 1e-3);
+  // 飽和: 2V × (−10) = −20V → 電源 ±15V（Vpos/Vneg）で −15V
+  near("OPAMP DC 飽和（Vneg=−15V で頭打ち）", await dcOut(inv(2)), -15, 1e-9);
+  near("OPAMP DC 飽和（上側）", await dcOut(inv(-2, { Vpos: 12 })), 12, 1e-9);
+  const sat = await check(inv(2), "dc", { type: "operatingRegion", element: "U1", region: "linear" });
+  expect("operatingRegion: 飽和した OPAMP は linear 判定で不合格", !sat.ok && /satLow|下側/.test(sat.message), sat.message);
+  // 電源ピンを配線: 単電源 +12V（v_minus = gnd）、Vdrop=1V → 出力範囲 1V〜11V
+  const single = (vin) => board(comp("V1", "V_DC", ["vin", "gnd"], { V: vin }), comp("VP", "V_DC", ["vcc", "gnd"], { V: 12 }), comp("R1", "R", ["vin", "n"], { R: 1000 }), comp("R2", "R", ["n", "out"], { R: 10000 }), opamp("U1", "gnd", "n", "out", { Vdrop: 1 }, "vcc", "gnd"));
+  near("OPAMP 電源ピン配線（単電源 12V, Vdrop 1V）: 負に振れず 1V で頭打ち", await dcOut(single(0.5)), 1, 1e-9);
+  near("OPAMP 電源ピン配線: 上側は 12 − 1 = 11V", await dcOut(single(-2)), 11, 1e-9);
+  // 電源を外すと（v_plus のネットが浮く → 0V）出力は出ない
+  near("OPAMP 電源ピンの電源を外すと出力が出ない", await dcOut(board(comp("V1", "V_DC", ["vin", "gnd"], { V: -0.5 }), comp("R1", "R", ["vin", "n"], { R: 1000 }), comp("R2", "R", ["n", "out"], { R: 10000 }), opamp("U1", "gnd", "n", "out", {}, "vcc", "vee"))), 0, 0, 1e-6);
+
+  // AC: GBP=1MHz の 1 次遅れ A(f) = Aol/(1 + j·f·Aol/GBP) の閉ループ厳密式と比較
+  const acInv = (params) => board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 1, freqHz: 1000 }), comp("R1", "R", ["vin", "n"], { R: 1000 }), comp("R2", "R", ["n", "out"], { R: 10000 }), opamp("U1", "gnd", "n", "out", params), comp("TP1", "TP", ["out"]));
+  for (const fq of [100, 1e4, 1e5]) {
+    const A = { re: Aol / (1 + (fq * Aol / 1e6) ** 2), im: -(fq * Aol * Aol / 1e6) / (1 + (fq * Aol / 1e6) ** 2) };
+    // G = −10 / (1 + 11/A)
+    const invA = { re: A.re / (A.re ** 2 + A.im ** 2), im: -A.im / (A.re ** 2 + A.im ** 2) };
+    const den = { re: 1 + 11 * invA.re, im: 11 * invA.im };
+    const G = { re: (-10 * den.re) / (den.re ** 2 + den.im ** 2), im: (10 * den.im) / (den.re ** 2 + den.im ** 2) };
+    const r = await check(acInv({ GBP: 1e6 }), "ac", { type: "bodePoint", input: "vin", output: "out", frequencyHz: fq, gainDB: db(Math.hypot(G.re, G.im)), phaseDeg: (Math.atan2(G.im, G.re) * 180) / Math.PI, gainToleranceDB: 0.001, phaseToleranceDeg: 0.01 });
+    expect(`OPAMP AC 反転増幅 ×10, GBP=1MHz の ${fq}Hz（閉ループ帯域 ≈ GBP/11 = 91kHz）`, r.ok, r.message);
+  }
+  const ideal = await check(acInv({ GBP: 0 }), "ac", { type: "bodePoint", input: "vin", output: "out", frequencyHz: 1e5, gainDB: db(exactInv(10000, 1000)), phaseDeg: 180, gainToleranceDB: 0.001, phaseToleranceDeg: 0.01 });
+  expect("OPAMP AC GBP=0 は周波数特性なし（100kHz でも 20dB）", ideal.ok, ideal.message);
+  // 積分器: R=10k, C=10nF, 1kHz → |H| = 1/(ωRC) = 1.5915（4.036dB）, 位相 +90°（−1/(jωRC)）
+  const integ = (src) => board(src, comp("R1", "R", ["vin", "n"], { R: 10e3 }), comp("C1", "C", ["n", "out"], { C: 10e-9 }), opamp("U1", "gnd", "n", "out", { GBP: 0 }), comp("TP1", "TP", ["out"]));
+  const ia = await check(integ(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 1, freqHz: 1000 })), "ac", { type: "bodePoint", input: "vin", output: "out", frequencyHz: 1000, gainDB: db(1 / (2 * Math.PI * 1000 * 1e-4)), phaseDeg: 90, gainToleranceDB: 0.001, phaseToleranceDeg: 0.01 });
+  expect("OPAMP AC 積分器 −1/(jωRC): 4.036dB, +90°", ia.ok, ia.message);
+  // 微分器: C=10nF 入力, R=10k 帰還, 1kHz → |H| = ωRC = 0.6283, 位相 −90°（−jωRC）
+  const da = await check(board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 1, freqHz: 1000 }), comp("C1", "C", ["vin", "n"], { C: 10e-9 }), comp("R1", "R", ["n", "out"], { R: 10e3 }), opamp("U1", "gnd", "n", "out", { GBP: 0 }), comp("TP1", "TP", ["out"])), "ac", { type: "bodePoint", input: "vin", output: "out", frequencyHz: 1000, gainDB: db(2 * Math.PI * 1000 * 1e-4), phaseDeg: -90, gainToleranceDB: 0.001, phaseToleranceDeg: 0.01 });
+  expect("OPAMP AC 微分器 −jωRC: −4.036dB, −90°", da.ok, da.message);
+  // DC で飽和していると AC 利得は出ない（非反転 ×11 に 2V の直流が乗る → +15V で飽和）
+  const biased = board(comp("VB", "V_DC", ["vb", "gnd"], { V: 2 }), comp("V1", "V_AC", ["vin", "vb"], { Vpk: 0.01, freqHz: 1000 }), comp("R1", "R", ["n", "gnd"], { R: 1000 }), comp("R2", "R", ["n", "out"], { R: 10000 }), opamp("U1", "vin", "n", "out"), comp("TP1", "TP", ["out"]));
+  const gb = await check(biased, "ac", { type: "acGaindB", input: "vin", output: "out", frequencyHz: 1000, expected: db(11), toleranceAbs: 0.1 });
+  expect("OPAMP: DC 動作点で飽和していると AC 利得判定は不合格", !gb.ok, gb.message);
+
+  // 過渡: 積分器に ±1V・1kHz の方形波 → 傾き 1/(RC) = 1e4 V/s、0.25ms で −2.5V、三角波 pp 5V
+  const sq = comp("V1", "V_PULSE", ["vin", "gnd"], { Vlow: -1, Vhigh: 1, delaySec: 0, riseSec: 1e-9, fallSec: 1e-9, widthSec: 0.5e-3, periodSec: 1e-3 });
+  const it = await check(integ(sq), "transient", { type: "transientPoint", node: "out", timeSec: 0.25e-3, expected: -2.5, tolerancePct: 0.5 }, {}, { simulation: { tStop: 3e-3 } });
+  expect("OPAMP 過渡 積分器 v(0.25ms) = −t/(RC) = −2.5V", it.ok, it.message);
+  const ipp = await check(integ(sq), "transient", { type: "transientMeasure", node: "out", measure: "pp", fromSec: 1e-3, toSec: 3e-3, expected: 5, tolerancePct: 0.5 }, {}, { simulation: { tStop: 3e-3 } });
+  expect("OPAMP 過渡 積分器の三角波 pp = (1V/RC)·0.5ms = 5V", ipp.ok, ipp.message);
+  // 過渡クリップ: 2Vpk × (−10) を ±12V 電源・Vdrop 1.5V → ±10.5V で頭打ち
+  const clip = board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 2, freqHz: 1000 }), comp("R1", "R", ["vin", "n"], { R: 1000 }), comp("R2", "R", ["n", "out"], { R: 10000 }),
+    opamp("U1", "gnd", "n", "out", { Vdrop: 1.5 }, "vp", "vm"), comp("VP", "V_DC", ["vp", "gnd"], { V: 12 }), comp("VM", "V_DC", ["gnd", "vm"], { V: 12 }), comp("TP1", "TP", ["out"]));
+  const clipSim = await simulate(clip, { mode: "transient", checks: [], problem: { simulation: { tStop: 3e-3 } } });
+  expect("OPAMP 過渡クリップ: 収束警告なし", clipSim.ok && clipSim.warnings.length === 0, JSON.stringify(clipSim.warnings));
+  for (const [m, e] of [["max", 10.5], ["min", -10.5], ["pp", 21]]) {
+    const r = await check(clip, "transient", { type: "transientMeasure", node: "out", measure: m, fromSec: 1e-3, toSec: 3e-3, expected: e, tolerancePct: 0.1 }, {}, { simulation: { tStop: 3e-3 } });
+    expect(`OPAMP 過渡クリップ ${m} = ${e}V（レール 12V − Vdrop 1.5V）`, r.ok, r.message);
+  }
+  const noClip = await check(clip, "transient", { type: "transientMeasure", node: "out", measure: "pp", fromSec: 1e-3, toSec: 3e-3, expected: 40, tolerancePct: 5 }, {}, { simulation: { tStop: 3e-3 } });
+  expect("OPAMP 過渡クリップ: クリップしない想定の 40Vpp は不合格", !noClip.ok);
+
+  // 正帰還: + と − を取り違えた反転増幅は不安定な平衡点に留まらず飽和する（AC の利得判定も不合格）
+  const swapped = (src) => board(src, comp("R1", "R", ["vin", "n"], { R: 1000 }), comp("R2", "R", ["n", "out"], { R: 10000 }), opamp("U1", "n", "gnd", "out"), comp("TP1", "TP", ["out"]));
+  near("OPAMP 正帰還（+/− 取り違え）: DC で飽和（0.1V 入力 → −15V）", await dcOut(swapped(comp("V1", "V_DC", ["vin", "gnd"], { V: 0.1 }))), -15, 1e-9);
+  const sw = await check(swapped(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 0.1, freqHz: 1000 })), "ac", { type: "bodePoint", input: "vin", output: "out", frequencyHz: 1000, gainDB: 20, phaseDeg: 180, gainToleranceDB: 0.5, phaseToleranceDeg: 5 });
+  expect("OPAMP 正帰還（+/− 取り違え）: AC の利得判定は不合格（飽和して増幅しない）", !sw.ok, sw.message);
+  // シュミットトリガ（非反転型）: しきい値 ±Vsat·R1/R2 = ±15·10k/100k = ±1.5V。
+  // 入力 3Vpk・100Hz、刻み 2µs（入力の変化 ≤ 2π·100·3·2e-6 = 3.8mV/刻み）→ 反転時の入力を ±1% で比較
+  const sch = board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 3, freqHz: 100 }), comp("R1", "R", ["vin", "p"], { R: 10e3 }), comp("R2", "R", ["p", "out"], { R: 100e3 }), opamp("U1", "p", "gnd", "out"), comp("TP1", "TP", ["out"]));
+  const schSim = await simulate(sch, { mode: "transient", tStop: 0.02, dt: 2e-6 });
+  const so = schSim.transient.nodes.out, sv = schSim.transient.nodes.vin;
+  const flips = [];
+  for (let i = 1; i < so.length; i++) if (Math.sign(so[i]) !== Math.sign(so[i - 1])) flips.push(sv[i]);
+  expect("シュミットトリガ: 2周期で3回反転（ヒステリシスあり）", flips.length === 3, JSON.stringify(flips));
+  near("シュミットトリガ: 下側しきい値 −1.5V で −15V へ反転", flips[0], -1.5, 0.01);
+  near("シュミットトリガ: 上側しきい値 +1.5V で +15V へ反転", flips[1], 1.5, 0.01);
+  // 無安定マルチバイブレータ: R=10k, C=100nF, 分圧 β=1/2 → f = 1/(2RC·ln((1+β)/(1−β))) = 1/(2RC·ln3) = 455.1Hz
+  // 刻み 1µs（周期の 1/2200）。零交差の測定誤差は刻み/半周期 ≈ 0.1% → 0.5% で比較
+  const ast = board(comp("R", "R", ["out", "n"], { R: 10e3 }), comp("C", "C", ["n", "gnd"], { C: 100e-9 }), comp("R1", "R", ["out", "p"], { R: 10e3 }), comp("R2", "R", ["p", "gnd"], { R: 10e3 }), opamp("U1", "p", "n", "out"), comp("TP1", "TP", ["out"]));
+  const af = await check(ast, "transient", { type: "oscillationFrequency", node: "out", fromSec: 0.005, expected: 1 / (2 * 1e-3 * Math.log(3)), tolerancePct: 0.5 }, {}, { simulation: { tStop: 0.02, dt: 1e-6 } });
+  expect("OPAMP 無安定マルチバイブレータ f = 1/(2RC·ln3) = 455.1Hz", af.ok, af.message);
+}
+{
+  // --- 差動増幅（BJT 差動対、テール抵抗 RE）: 2つの V_AC で差動入力、sources で同相入力に切替 ---
+  // VCC=+12, VEE=−12, RC=10k（両側）, RE=10k, β=100。各 IC ≈ α(12−0.7)/(2RE) = 0.5594mA
+  // 差動利得（片側出力 c2, 入力 in1−in2）Ad = gm·RC/2、同相利得 Acm = −β·RC/(rπ + (β+1)·2RE)
+  const beta = 100, RC = 10e3, RE = 10e3;
+  const dp = board(
+    comp("V1", "V_AC", ["in1", "gnd"], { Vpk: 0.005, freqHz: 1000, phaseDeg: 0 }),
+    comp("V2", "V_AC", ["in2", "gnd"], { Vpk: 0.005, freqHz: 1000, phaseDeg: 180 }),
+    comp("VCC", "V_DC", ["vcc", "gnd"], { V: 12 }), comp("VEE", "V_DC", ["gnd", "vee"], { V: 12 }),
+    comp("RC1", "R", ["vcc", "c1"], { R: RC }), comp("RC2", "R", ["vcc", "c2"], { R: RC }), comp("RE", "R", ["e", "vee"], { R: RE }),
+    comp("Q1", "Q_NPN", ["c1", "in1", "e"], { beta }), comp("Q2", "Q_NPN", ["c2", "in2", "e"], { beta }),
+    comp("TP1", "TP", ["c1"]), comp("TP2", "TP", ["c2"])
+  );
+  // 2つのベース電流が 10Ω（モデルのベース抵抗）を流れる分を含めた厳密値: IE_total = (12 − 0.7 − IB·10)/RE
+  const IEt = (12 - 0.7) / (RE + (10 / (beta + 1)) / 2);
+  const IC = (IEt / 2) * (beta / (beta + 1));
+  const sim = await simulate(dp, { mode: "ac", checks: [] });
+  near("差動対 IC = α·(VEE−0.7)/(2RE) = 0.5594mA", sim.ac.operatingPoints.Q1.ic, IC, 1e-3);
+  const gm = IC / VT, rpi = beta / gm;
+  const Ad = (gm * RC) / 2, Acm = (beta * RC) / (rpi + (beta + 1) * 2 * RE);
+  const rAd = await check(dp, "ac", { type: "bodePoint", input: "in1", inputRef: "in2", output: "c2", frequencyHz: 1000, gainDB: db(Ad), phaseDeg: 0, gainToleranceDB: 0.05, phaseToleranceDeg: 0.5 });
+  expect(`差動対 差動利得 Ad = gm·RC/2 = ${Ad.toFixed(1)}（inputRef で差動入力）`, rAd.ok, rAd.message);
+  const rAdd = await check(dp, "ac", { type: "acGaindB", input: "in1", inputRef: "in2", output: "c2", outputRef: "c1", frequencyHz: 1000, expected: db(gm * RC), toleranceAbs: 0.05 });
+  expect("差動対 差動出力（outputRef）Ad = gm·RC", rAdd.ok, rAdd.message);
+  const cm = { V2: { phaseDeg: 0 } };
+  const rAcm = await check(dp, "ac", { type: "bodePoint", input: "in1", output: "c2", sources: cm, frequencyHz: 1000, gainDB: db(Acm), phaseDeg: 180, gainToleranceDB: 0.05, phaseToleranceDeg: 0.5 });
+  expect(`差動対 同相利得 Acm = −β·RC/(rπ+(β+1)2RE) = −${Acm.toFixed(4)}（sources で V2 を同相に）`, rAcm.ok, rAcm.message);
+  const rAcmD = await check(dp, "ac", { type: "acVoltage", node: "c2", nodeRef: "c1", sources: cm, frequencyHz: 1000, expectedRMS: 0, toleranceAbs: 1e-9 });
+  expect("差動対 同相入力では差動出力 c2−c1 = 0（完全対称）", rAcmD.ok, rAcmD.message);
+  const rWrongSrc = await check(dp, "ac", { type: "acGaindB", input: "in1", output: "c2", sources: { V2: { phaseDeg: 0 } }, frequencyHz: 1000, expected: db(Ad), toleranceAbs: 1 });
+  expect("差動対 同相入力の利得を差動利得として判定すると不合格", !rWrongSrc.ok);
+  // 4抵抗の差動増幅（OPAMP）: 抵抗が揃えば同相出力 0、R4 が 10% ずれると vcm·{(R4/(R3+R4))(1+R2/R1) − R2/R1}
+  const da = (r4) => board(
+    comp("V1", "V_AC", ["a", "gnd"], { Vpk: 0.5, freqHz: 100 }), comp("V2", "V_AC", ["b", "gnd"], { Vpk: 0.5, freqHz: 100, phaseDeg: 180 }),
+    comp("R1", "R", ["b", "n"], { R: 10e3 }), comp("R2", "R", ["n", "out"], { R: 100e3 }), comp("R3", "R", ["a", "p"], { R: 10e3 }), comp("R4", "R", ["p", "gnd"], { R: r4 }),
+    comp("U1", "OPAMP", ["p", "n", "out", "", ""], { GBP: 0 }), comp("TP1", "TP", ["out"]));
+  expect("OPAMP 差動増幅 Ad = R2/R1 = 20dB（inputRef）", (await check(da(100e3), "ac", { type: "acGaindB", input: "a", inputRef: "b", output: "out", frequencyHz: 100, expected: 20, toleranceAbs: 0.01 })).ok);
+  expect("OPAMP 差動増幅 抵抗が揃うと同相出力 ≈ 0", (await check(da(100e3), "ac", { type: "acVoltage", node: "out", sources: cm, frequencyHz: 100, expectedRMS: 0, toleranceAbs: 1e-6 })).ok);
+  const mis = (110 / 120) * 11 - 10;
+  const rMis = await check(da(110e3), "ac", { type: "acVoltage", node: "out", sources: cm, frequencyHz: 100, expectedRMS: (0.5 * mis) / Math.SQRT2, tolerancePct: 0.1 });
+  expect("OPAMP 差動増幅 R4 が 10% ずれると同相出力 = 29.46mVrms", rMis.ok, rMis.message);
+}
+{
+  // --- transientMeasure（直流 2V + 正弦 1Vpk 1kHz、整数周期の区間）---
+  // max 3, min 1, pp 2, average 2, rms √(4 + 0.5) = 2.1213, acRms 1/√2 = 0.7071
+  // 台形則の積分誤差は刻み T/100 の正弦で (ωh)²/12 ≈ 3e-4 未満 → 0.1% で比較
+  const b = board(comp("VB", "V_DC", ["m", "gnd"], { V: 2 }), comp("V1", "V_AC", ["out", "m"], { Vpk: 1, freqHz: 1000 }), comp("R1", "R", ["out", "gnd"], { R: 1000 }), comp("TP1", "TP", ["out"]));
+  const cases = [["max", 3], ["min", 1], ["pp", 2], ["average", 2], ["rms", Math.sqrt(4.5)], ["acRms", Math.SQRT1_2]];
+  for (const [m, e] of cases) {
+    const r = await check(b, "transient", { type: "transientMeasure", node: "out", measure: m, fromSec: 1e-3, toSec: 4e-3, expected: e, tolerancePct: 0.1 });
+    expect(`transientMeasure ${m} = ${e.toFixed(4)}`, r.ok, r.message);
+  }
+  const ri = await check(b, "transient", { type: "transientMeasure", element: "R1", quantity: "i", measure: "average", fromSec: 1e-3, toSec: 4e-3, expected: 2e-3, tolerancePct: 0.1 });
+  expect("transientMeasure element 電流の平均 2mA", ri.ok, ri.message);
+  const rref = await check(b, "transient", { type: "transientMeasure", node: "out", nodeRef: "m", measure: "average", fromSec: 1e-3, toSec: 4e-3, expected: 0, toleranceAbs: 1e-3 });
+  expect("transientMeasure nodeRef（out−m の平均 0）", rref.ok, rref.message);
+  const bad = await check(b, "transient", { type: "transientMeasure", node: "out", measure: "average", fromSec: 1e-3, toSec: 4e-3, expected: 2.1, tolerancePct: 1 });
+  expect("transientMeasure: 5% 違う期待値は不合格", !bad.ok);
+}
+{
+  // --- 分野C の判定の validation ---
+  const base = {
+    id: "T-09", category: "T", title: "t", statement: "s", judge: ["dc", "ac"],
+    hints: ["方針", "式", "ほぼ答え"],
+    explanation: { solution: "a", why: "b", mistakes: "c", practice: "d", next: "e" },
+    fixedComponents: [
+      { id: "V1", type: "V_AC", params: { Vpk: 0.01, freqHz: 1000 }, connect: ["in1", "gnd"] },
+      { id: "VCC", type: "V_DC", params: { V: 12 }, connect: ["vcc", "gnd"] },
+      { id: "TP1", type: "TP", connect: ["out"] },
+    ],
+    referenceSolution: [{ id: "R1", type: "R", params: { R: 1000 }, connect: ["in1", "out"] }],
+    checks: [{ type: "acGaindB", input: "in1", output: "out", expected: 0, toleranceAbs: 0.1 }],
+  };
+  const v = (checks, patch = {}) => validateProblem({ ...base, ...patch, checks }, vopts);
+  expect("validation: sources（固定の V_AC）は可", v([{ type: "acGaindB", input: "in1", output: "out", sources: { V1: { phaseDeg: 180 } }, expected: 0, toleranceAbs: 0.1 }]).ok);
+  expect("validation: sources に V_DC はエラー", !v([{ type: "acGaindB", input: "in1", output: "out", sources: { VCC: { Vpk: 1 } }, expected: 0 }]).ok);
+  expect("validation: sources にプレイヤーの部品はエラー", !v([{ type: "acGaindB", input: "in1", output: "out", sources: { R1: { Vpk: 1 } }, expected: 0 }]).ok);
+  expect("validation: sources の未知パラメータはエラー", !v([{ type: "acGaindB", input: "in1", output: "out", sources: { V1: { freqHz: 5 } }, expected: 0 }]).ok);
+  expect("validation: sources は transientPoint では使えない", !v([{ type: "transientPoint", node: "out", timeSec: 1, sources: { V1: { Vpk: 1 } }, expected: 0 }]).ok);
+  expect("validation: inputRef に固定部品が無いと警告", v([{ type: "acGaindB", input: "in1", inputRef: "zz", output: "out", expected: 0 }]).warnings.some((w) => /inputRef/.test(w)));
+  expect("validation: acImpedance は可", v([{ type: "acImpedance", node: "out", exclude: ["V1"], expected: 100 }]).ok);
+  expect("validation: acImpedance の exclude にプレイヤーの部品は警告", v([{ type: "acImpedance", node: "out", exclude: ["R1"], expected: 100 }]).warnings.some((w) => /exclude/.test(w)));
+  expect("validation: acImpedance に node が無いとエラー", !v([{ type: "acImpedance", expected: 100 }]).ok);
+  expect("validation: operatingRegion は可", v([{ type: "operatingRegion", match: { type: "R" }, region: ["active", "saturation"] }]).ok);
+  expect("validation: operatingRegion の未知の region はエラー", !v([{ type: "operatingRegion", element: "R1", region: "amplifying" }]).ok);
+  expect("validation: transientMeasure は可", v([{ type: "transientMeasure", node: "out", measure: "pp", fromSec: 0.001, toSec: 0.002, expected: 1 }]).ok);
+  expect("validation: transientMeasure の measure 不正はエラー", !v([{ type: "transientMeasure", node: "out", measure: "peak", fromSec: 0, expected: 1 }]).ok);
+  expect("validation: transientMeasure の fromSec 無しは警告", v([{ type: "transientMeasure", node: "out", measure: "pp", expected: 1 }]).warnings.some((w) => /fromSec/.test(w)));
+  expect("validation: simulation.initialCondition dc は可", v(base.checks, { simulation: { initialCondition: "dc" } }).ok);
+  expect("validation: simulation.initialCondition の不正値はエラー", !v(base.checks, { simulation: { initialCondition: "op" } }).ok);
+}
+
 /* ---------------------------------------------------------------- 未配線ピン / TP だけのネット / 浮いた回路 */
 {
   // TP だけがつながったネット "lonely" があっても DC は解ける（以前は浮遊ノードで全体が失敗）
@@ -541,6 +868,251 @@ const RC = (extra = []) => board(
   fs.writeFileSync(path.join(cat, "index.json"), JSON.stringify({ problems: [{ id: "T-01" }, { id: "T-09" }] }));
   const idx = runVerify();
   expect("verify: index.json に無いファイル・ファイルの無い index 項目を NG", idx.code === 1 && /T-09/.test(idx.out) && /T-02\.json が index\.json に載っていません/.test(idx.out), idx.out);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------------------------------------------------------- verify.mjs: OPAMP の誤答（+/− 入力の取り違え、モデル定数は2倍にしない） */
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "verify-opamp-"));
+  fs.mkdirSync(path.join(dir, "T"));
+  // 反転増幅 ×10 をプレイヤーが組む（OPAMP・R1・R2 を置く）。判定は 1kHz の利得と位相
+  const p = {
+    id: "T-05", category: "T", title: "t", statement: "s", judge: "ac",
+    hints: ["a", "b", "c"], explanation: { solution: "a", why: "b", mistakes: "c", practice: "d", next: "e" },
+    fixedComponents: [
+      { id: "V1", type: "V_AC", params: { Vpk: 0.1, freqHz: 1000 }, connect: ["vin", "gnd"], locked: true },
+      { id: "TP1", type: "TP", connect: ["out"], locked: true },
+    ],
+    referenceSolution: [
+      { id: "U1", type: "OPAMP", params: { Aol: 1e5, GBP: 1e6, Vpos: 15, Vneg: -15, Vdrop: 0 }, connect: ["gnd", "n", "out", "", ""] },
+      { id: "R1", type: "R", params: { R: 1000 }, connect: ["vin", "n"] },
+      { id: "R2", type: "R", params: { R: 10000 }, connect: ["n", "out"] },
+    ],
+    checks: [{ type: "bodePoint", input: "vin", output: "out", frequencyHz: 1000, gainDB: 20, phaseDeg: 180, gainToleranceDB: 0.1, phaseToleranceDeg: 2 }],
+  };
+  fs.writeFileSync(path.join(dir, "T", "T-05.json"), JSON.stringify(p));
+  fs.writeFileSync(path.join(dir, "T", "index.json"), JSON.stringify({ problems: [{ id: "T-05", title: "t" }] }));
+  const run = (...a) => {
+    try {
+      return { code: 0, out: execFileSync("node", [path.join(ROOT, "tools/verify.mjs"), `--problems=${dir}`, ...a], { encoding: "utf8" }) };
+    } catch (e) {
+      return { code: e.status, out: String(e.stdout) };
+    }
+  };
+  const ref = run();
+  expect("verify: オペアンプの参照解が合格", ref.code === 0 && /参照解が合格 1 問/.test(ref.out), ref.out);
+  const rev = run("--reverse");
+  expect("verify --reverse: OPAMP の +/− 入力の取り違えは不合格（正帰還で飽和）", rev.code === 0 && /誤答がすべて不合格 1 問/.test(rev.out), rev.out);
+  const mut = run("--mutate");
+  expect("verify --mutate: OPAMP の Aol/GBP/電源は2倍にしない（R1, R2 の2倍だけで不合格）", mut.code === 0 && /不合格になった誤答 2 件/.test(mut.out), mut.out);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/* ---------------------------------------------------------------- デジタル（truthTable / sequence / componentCount） */
+// 論理値は 0/1/X の厳密な計算なので許容誤差は無い（完全一致で比較）。期待値はすべて手で書いた真理値表・系列。
+{
+  const IN = (id, net, value) => comp(id, "LOGIC_IN", [net], value === undefined ? {} : { value });
+  const TPs = (...nets) => nets.map((n) => comp(`TP_${n}`, "TP", [n]));
+  const dig = (b, chk) => check(b, "digital", chk);
+  const tt = (inputs, outputs, expectObj) => ({ type: "truthTable", inputs, outputs, expect: expectObj });
+
+  // 半加算器: S = A xor B = 0110, C = A and B = 0001（入力は A が上位ビット: 00,01,10,11）
+  const ha = [IN("A", "a"), IN("B", "b"), ...TPs("s", "c"), comp("U1", "U_XOR", ["a", "b", "s"]), comp("U2", "U_AND", ["a", "b", "c"])];
+  const haChk = tt(["a", "b"], ["s", "c"], { s: "0110", c: "0001" });
+  expect("truthTable 半加算器（expect 形式）: 合格", (await dig(board(...ha), haChk)).ok);
+  const haTable = { type: "truthTable", inputs: ["a", "b"], outputs: ["s", "c"], table: [[1, 1, 0, 1], [0, 0, 0, 0], [1, 0, 1, 0], [0, 1, 1, 0]] };
+  expect("truthTable 半加算器（table 形式・行の順は自由）: 合格", (await dig(board(...ha), haTable)).ok);
+  const haOr = await dig(board(...ha.map((c) => (c.id === "U1" ? { ...c, type: "U_OR" } : c))), haChk);
+  expect("truthTable: XOR を OR にすると A=1,B=1 の行で不合格", !haOr.ok && /a=1, b=1 のとき s=1（正しくは 0）/.test(haOr.message), haOr.message);
+  const haFloat = await dig(board(...ha.map((c) => (c.id === "U1" ? { ...c, connect: ["a", "", "s"] } : c))), haChk);
+  expect("truthTable: 入力ピン未配線は不合格（未配線と表示）", !haFloat.ok && /U1 の B 入力が未配線/.test(haFloat.message), haFloat.message);
+  const haShort = await dig(board(...ha, comp("U3", "U_NOT", ["a", "s"])), haChk);
+  expect("truthTable: 出力どうしの衝突は不合格", !haShort.ok && /衝突/.test(haShort.message), haShort.message);
+  const haExtra = await dig(board(...ha, comp("U9", "U_AND", ["", "", "zz"])), haChk);
+  expect("truthTable: 判定に関係ない未配線ゲートは無視して合格", haExtra.ok, haExtra.message);
+  const haMissingOut = await dig(board(...ha.filter((c) => c.id !== "U2")), haChk);
+  expect("truthTable: 出力を駆動する部品が無いと不合格", !haMissingOut.ok && /c を駆動するもの/.test(haMissingOut.message), haMissingOut.message);
+  const haCx = await dig(board(...ha), tt(["a", "b"], ["s", "c"], { s: "0110", c: "0xx1" }));
+  expect("truthTable: x は don't care", haCx.ok);
+
+  // NAND 4個の XOR: n1=NAND(a,b), s=NAND(NAND(a,n1), NAND(b,n1))
+  const nx = [IN("A", "a"), IN("B", "b"), ...TPs("s"),
+    comp("U1", "U_NAND", ["a", "b", "n1"]), comp("U2", "U_NAND", ["a", "n1", "n2"]),
+    comp("U3", "U_NAND", ["b", "n1", "n3"]), comp("U4", "U_NAND", ["n2", "n3", "s"])];
+  expect("truthTable: NAND 4個の XOR", (await dig(board(...nx), tt(["a", "b"], ["s"], { s: "0110" }))).ok);
+  const cnt = { type: "componentCount", types: ["U_NAND"], max: 4 };
+  expect("componentCount: NAND 4個で max 4 は合格", (await dig(board(...nx), cnt)).ok);
+  const cnt5 = await dig(board(...nx, comp("U5", "U_NAND", ["a", "a", "zz"])), cnt);
+  expect("componentCount: NAND 5個で max 4 は不合格", !cnt5.ok && /5 個/.test(cnt5.message), cnt5.message);
+  expect("componentCount: 固定部品（locked）は数えない", (await dig(board(...nx, { ...comp("U9", "U_NAND", ["a", "b", "zz"]), locked: true }), cnt)).ok);
+
+  // 全加算器（半加算器2個 + OR）: S = 01101001, Cout = 00010111（入力 a, b, cin）
+  const fa = [IN("A", "a"), IN("B", "b"), IN("CI", "cin"), ...TPs("s", "co"),
+    comp("U1", "U_XOR", ["a", "b", "p"]), comp("U2", "U_XOR", ["p", "cin", "s"]),
+    comp("U3", "U_AND", ["a", "b", "g"]), comp("U4", "U_AND", ["p", "cin", "t"]), comp("U5", "U_OR", ["g", "t", "co"])];
+  expect("truthTable: 全加算器（3入力2出力）", (await dig(board(...fa), tt(["a", "b", "cin"], ["s", "co"], { s: "01101001", co: "00010111" }))).ok);
+
+  // 2:1 MUX: y = s ? b : a。入力順 (s, a, b) → 00110101
+  const mux = [IN("S", "sel"), IN("A", "a"), IN("B", "b"), ...TPs("y"),
+    comp("U1", "U_NOT", ["sel", "ns"]), comp("U2", "U_AND", ["a", "ns", "t0"]), comp("U3", "U_AND", ["b", "sel", "t1"]), comp("U4", "U_OR", ["t0", "t1", "y"])];
+  expect("truthTable: 2:1 MUX", (await dig(board(...mux), tt(["sel", "a", "b"], ["y"], { y: "00110101" }))).ok);
+
+  // 4:1 MUX（AND3 + OR3 + OR）: 入力 (s1, s0, d0..d3) の 64 行を JS で期待値を作って比較
+  const mux4 = [IN("S1", "s1"), IN("S0", "s0"), IN("D0", "d0"), IN("D1", "d1"), IN("D2", "d2"), IN("D3", "d3"), ...TPs("y"),
+    comp("N1", "U_NOT", ["s1", "n1"]), comp("N0", "U_NOT", ["s0", "n0"]),
+    comp("A0", "U_AND3", ["n1", "n0", "d0", "t0"]), comp("A1", "U_AND3", ["n1", "s0", "d1", "t1"]),
+    comp("A2", "U_AND3", ["s1", "n0", "d2", "t2"]), comp("A3", "U_AND3", ["s1", "s0", "d3", "t3"]),
+    comp("O1", "U_OR3", ["t0", "t1", "t2", "o1"]), comp("O2", "U_OR", ["o1", "t3", "y"])];
+  let y4 = "";
+  for (let r = 0; r < 64; r += 1) y4 += (r >> (3 - ((r >> 4) & 3))) & 1; // s=(r>>4)、d_k はビット (3-k)
+  expect("truthTable: 4:1 MUX（AND3/OR3、64行）", (await dig(board(...mux4), tt(["s1", "s0", "d0", "d1", "d2", "d3"], ["y"], { y: y4 }))).ok);
+
+  // 2→4 デコーダ: y0 = 1000, y1 = 0100, y2 = 0010, y3 = 0001（入力 a1, a0）
+  const dec = [IN("A1", "a1"), IN("A0", "a0"), ...TPs("y0", "y1", "y2", "y3"),
+    comp("N1", "U_NOT", ["a1", "n1"]), comp("N0", "U_NOT", ["a0", "n0"]),
+    comp("U0", "U_AND", ["n1", "n0", "y0"]), comp("U1", "U_AND", ["n1", "a0", "y1"]),
+    comp("U2", "U_AND", ["a1", "n0", "y2"]), comp("U3", "U_AND", ["a1", "a0", "y3"])];
+  expect("truthTable: 2→4 デコーダ（4出力）", (await dig(board(...dec), tt(["a1", "a0"], ["y0", "y1", "y2", "y3"], { y0: "1000", y1: "0100", y2: "0010", y3: "0001" }))).ok);
+
+  // 4→2 エンコーダ（ワンホット入力、それ以外の行は don't care）: table 形式で4行だけ
+  const enc = [IN("I1", "i1"), IN("I2", "i2"), IN("I3", "i3"), ...TPs("b1", "b0"),
+    comp("U1", "U_OR", ["i2", "i3", "b1"]), comp("U2", "U_OR", ["i1", "i3", "b0"])];
+  const encChk = { type: "truthTable", inputs: ["i1", "i2", "i3"], outputs: ["b1", "b0"], table: [[0, 0, 0, 0, 0], [1, 0, 0, 0, 1], [0, 1, 0, 1, 0], [0, 0, 1, 1, 1]] };
+  expect("truthTable: エンコーダ（書いた行だけ判定）", (await dig(board(...enc), encChk)).ok);
+
+  // 多数決: y = ab + bc + ca = 00010111 / 3入力パリティ = 01101001
+  const maj = [IN("A", "a"), IN("B", "b"), IN("C", "c"), ...TPs("y", "p"),
+    comp("U1", "U_AND", ["a", "b", "t1"]), comp("U2", "U_AND", ["b", "c", "t2"]), comp("U3", "U_AND", ["c", "a", "t3"]),
+    comp("U4", "U_OR3", ["t1", "t2", "t3", "y"]), comp("X1", "U_XOR", ["a", "b", "x1"]), comp("X2", "U_XOR", ["x1", "c", "p"])];
+  expect("truthTable: 多数決とパリティ", (await dig(board(...maj), tt(["a", "b", "c"], ["y", "p"], { y: "00010111", p: "01101001" }))).ok);
+
+  // 定数: 判定が駆動しない LOGIC_IN（value=1）と V_DC 5V はどちらも 1。NAND の片側を 1 にすると NOT
+  const k1 = await dig(board(IN("A", "a"), IN("H", "h", 1), ...TPs("y"), comp("U1", "U_NAND", ["a", "h", "y"])), tt(["a"], ["y"], { y: "10" }));
+  expect("truthTable: LOGIC_IN(value=1) を定数 1 として使える", k1.ok, k1.message);
+  const k2 = await dig(board(IN("A", "a"), comp("V1", "V_DC", ["vcc", "gnd"], { V: 5 }), ...TPs("y"), comp("U1", "U_NOR", ["a", "gnd", "y"]), comp("U2", "U_AND", ["vcc", "vcc", "zz"])), tt(["a"], ["y"], { y: "10" }));
+  expect("truthTable: gnd を定数 0 として使える（NOR の片側を gnd → NOT）", k2.ok, k2.message);
+
+  // プルアップ抵抗 + スイッチ: SW 開 → 入力 n は R で 1、SW 閉 → gnd で 0（強い駆動が優先）。NOT の出力 y は 0 / 1
+  const pu = (closed) => board(IN("A", "a"), comp("V1", "V_DC", ["vcc", "gnd"], { V: 5 }), comp("R1", "R", ["vcc", "n"], { R: 10000 }),
+    comp("SW1", "SW", ["n", "gnd"], { closed }), comp("U1", "U_NOT", ["n", "y"]), comp("U2", "U_AND", ["a", "y", "o"]), ...TPs("o"));
+  expect("truthTable: プルアップ（SW 開）で入力 1 → NOT 出力 0", (await dig(pu(false), tt(["a"], ["o"], { o: "00" }))).ok);
+  expect("truthTable: SW 閉で入力 0 → NOT 出力 1", (await dig(pu(true), tt(["a"], ["o"], { o: "01" }))).ok);
+  const noPu = await dig(board(IN("A", "a"), comp("SW1", "SW", ["n", "gnd"], { closed: false }), comp("U1", "U_NOT", ["n", "y"]), comp("U2", "U_AND", ["a", "y", "o"]), ...TPs("o")), tt(["a"], ["o"], { o: "00" }));
+  expect("truthTable: プルアップ無しで SW 開 → 入力が浮いて不合格", !noPu.ok && /U1 の A 入力が未接続/.test(noPu.message), noPu.message);
+
+  // リング発振（NAND + NOT 2個、A=1 で発振）: 出力は X → 期待値 1 でも 0 でも不合格、x なら合格
+  const ring = board(IN("A", "a"), ...TPs("y"), comp("U1", "U_NAND", ["a", "z", "x"]), comp("U2", "U_NOT", ["x", "y"]), comp("U3", "U_NOT", ["y", "z"]));
+  expect("truthTable: 発振する出力は X（期待 0x で合格）", (await dig(ring, tt(["a"], ["y"], { y: "0x" }))).ok);
+  expect("truthTable: 発振する出力は X（期待 01 で不合格）", !(await dig(ring, tt(["a"], ["y"], { y: "01" }))).ok);
+
+  // ダイオード OR（ゲートなし → DC 解析）: y = 5 − 0.7 = 4.3V ≥ 2.5V → 1。出力 0111
+  const dor = board(comp("D1", "D", ["a", "y"], { Vf: 0.7 }), comp("D2", "D", ["b", "y"], { Vf: 0.7 }), comp("R1", "R", ["y", "gnd"], { R: 10000 }), ...TPs("y"));
+  expect("truthTable: ダイオード OR（DC 解析方式）", (await dig(dor, tt(["a", "b"], ["y"], { y: "0111" }))).ok);
+
+  /* ---- sequence ---- */
+  const CK = IN("CK", "clk");
+  // DFF の Q_NOT を D に戻す 1/2 分周: 電源投入時 Q=0 → クロックごとに 1,0,1,0,…
+  const div2 = [CK, ...TPs("q"), comp("F1", "DFF", ["qn", "clk", "q", "qn"])];
+  expect("sequence: DFF 1/2 分周 10101", (await dig(board(...div2), { type: "sequence", clock: "clk", outputs: { q: "10101" } })).ok);
+  const div2bad = await dig(board(...div2), { type: "sequence", clock: "clk", outputs: { q: "01010" } });
+  expect("sequence: 系列が違えば何回目かを表示して不合格", !div2bad.ok && /クロック 1 回目/.test(div2bad.message), div2bad.message);
+  // beforeRise: 立ち上がり前に記録するので 1 つ遅れる 01010
+  expect("sequence: sampleAt=beforeRise", (await dig(board(...div2), { type: "sequence", clock: "clk", sampleAt: "beforeRise", outputs: { q: "01010" } })).ok);
+  // 非同期 2bit カウンタ（次段のクロックは前段の Q_NOT）: 1,2,3,0,… → q0=1010…, q1=0110…
+  const ripple = [CK, ...TPs("q0", "q1"), comp("F1", "DFF", ["qn0", "clk", "q0", "qn0"]), comp("F2", "DFF", ["qn1", "qn0", "q1", "qn1"])];
+  expect("sequence: 非同期2bitアップカウンタ", (await dig(board(...ripple), { type: "sequence", clock: "clk", outputs: { q0: "10101010", q1: "01100110" } })).ok);
+  // 同期 2bit カウンタ（D1 = q1 xor q0）: 同じ系列
+  const sync = [CK, ...TPs("q0", "q1"), comp("F1", "DFF", ["qn0", "clk", "q0", "qn0"]), comp("F2", "DFF", ["d1", "clk", "q1", ""]), comp("U1", "U_XOR", ["q1", "q0", "d1"])];
+  expect("sequence: 同期2bitカウンタ（Q_NOT 未使用でも可）", (await dig(board(...sync), { type: "sequence", clock: "clk", outputs: { q0: "10101010", q1: "01100110" } })).ok);
+  // 3段シフトレジスタ: d=1011000 → q2 は3クロック遅れ 0001011。同時クロックの DFF はエッジ前の値を取り込む
+  const sr3 = [CK, IN("D", "d"), ...TPs("q2"), comp("F1", "DFF", ["d", "clk", "q0", ""]), comp("F2", "DFF", ["q0", "clk", "q1", ""]), comp("F3", "DFF", ["q1", "clk", "q2", ""])];
+  expect("sequence: 3段シフトレジスタ", (await dig(board(...sr3), { type: "sequence", clock: "clk", inputs: { d: "1011000" }, outputs: { q2: "0010110" } })).ok);
+  // 10進カウンタ（DFF_R 4個 + NAND で 1010 を検出して CLR）: 1..9,0,1,2 → q3 は 8,9 で 1
+  const ffr = (i, clkNet) => comp(`F${i}`, "DFF_R", [`qn${i}`, clkNet, "clr", `q${i}`, `qn${i}`]);
+  const dec10 = [CK, ...TPs("q0", "q3"), ffr(0, "clk"), ffr(1, "qn0"), ffr(2, "qn1"), ffr(3, "qn2"), comp("U1", "U_NAND", ["q3", "q1", "clr"])];
+  expect("sequence: DFF_R + NAND の10進カウンタ", (await dig(board(...dec10), { type: "sequence", clock: "clk", outputs: { q0: "101010101010", q3: "000000011000" } })).ok);
+  const clrFloat = await dig(board(CK, ...TPs("q0"), comp("F0", "DFF_R", ["qn0", "clk", "", "q0", "qn0"])), { type: "sequence", clock: "clk", outputs: { q0: "1010" } });
+  expect("sequence: DFF_R の CLR 未配線は不合格", !clrFloat.ok && /F0 の CLR 入力が未配線/.test(clrFloat.message), clrFloat.message);
+  // NOR 2個の SR ラッチ（クロックなし）: 初期 X → S で 1 → 保持 → R で 0 → 保持 → S で 1 → 保持
+  const srl = [IN("S", "s"), IN("R", "r"), ...TPs("q", "qn"), comp("U1", "U_NOR", ["r", "qn", "q"]), comp("U2", "U_NOR", ["s", "q", "qn"])];
+  const srChk = { type: "sequence", inputs: { s: "0100010", r: "0001000" }, outputs: { q: "x110011", qn: "x001100" } };
+  expect("sequence: NOR の SR ラッチ（保持・初期値 X）", (await dig(board(...srl), srChk)).ok);
+  expect("sequence: SR ラッチの初期値は X（0 を期待すると不合格）", !(await dig(board(...srl), { ...srChk, outputs: { q: "0110011" } })).ok);
+  // S=R=1 から同時に 0 に戻す（禁止入力の解除）→ 発振して X
+  expect("sequence: SR ラッチの禁止入力の解除は X", (await dig(board(...srl), { type: "sequence", inputs: { s: "10", r: "10" }, outputs: { q: "0x" } })).ok);
+  // NAND 4個 + NOT の D ラッチ（EN=1 で透過、EN=0 で保持）
+  const dl = [IN("D", "d"), IN("E", "en"), ...TPs("q"), comp("N1", "U_NOT", ["d", "dn"]),
+    comp("U1", "U_NAND", ["d", "en", "sb"]), comp("U2", "U_NAND", ["dn", "en", "rb"]),
+    comp("U3", "U_NAND", ["sb", "qn", "q"]), comp("U4", "U_NAND", ["rb", "q", "qn"])];
+  expect("sequence: D ラッチ（透過と保持）", (await dig(board(...dl), { type: "sequence", inputs: { d: "100110", en: "101101" }, outputs: { q: "110110" } })).ok);
+
+  /* ---- validation ---- */
+  const vp = (over) => validateProblem({
+    id: "G-99", category: "G", title: "t", statement: "s", judge: "digital",
+    hints: ["a", "b", "c"], explanation: { solution: "a", why: "b", mistakes: "c", practice: "d", next: "e" },
+    fixedComponents: [{ id: "A", type: "LOGIC_IN", connect: ["a"] }, { id: "B", type: "LOGIC_IN", connect: ["b"] }, { id: "TP1", type: "TP", connect: ["y"] }],
+    checks: [{ type: "truthTable", inputs: ["a", "b"], outputs: ["y"], expect: { y: "0001" } }],
+    ...over,
+  }, vopts);
+  expect("validation: 正しい truthTable 問題は OK・警告なし", (() => { const r = vp({}); return r.ok && r.warnings.length === 0; })(), JSON.stringify(vp({})));
+  expect("validation: truthTable に judge digital が無いとエラー", !vp({ judge: "dc" }).ok);
+  expect("validation: expect の長さ違いはエラー", !vp({ checks: [{ type: "truthTable", inputs: ["a", "b"], outputs: ["y"], expect: { y: "001" } }] }).ok);
+  expect("validation: inputs 無しはエラー", !vp({ checks: [{ type: "truthTable", outputs: ["y"], expect: { y: "01" } }] }).ok);
+  expect("validation: 入力ネットに LOGIC_IN が無いと警告", vp({ checks: [{ type: "truthTable", inputs: ["a", "c"], outputs: ["y"], expect: { y: "0001" } }] }).warnings.some((w) => /LOGIC_IN/.test(w)));
+  expect("validation: 一部の行だけの table は警告", vp({ checks: [{ type: "truthTable", inputs: ["a", "b"], outputs: ["y"], table: [[1, 1, 1]] }] }).warnings.some((w) => /1\/4 行/.test(w)));
+  expect("validation: sequence の長さ違いはエラー", !vp({ checks: [{ type: "sequence", clock: "a", inputs: { b: "011" }, outputs: { y: "01" } }] }).ok);
+  expect("validation: sequence の入力に x はエラー", !vp({ checks: [{ type: "sequence", clock: "a", inputs: { b: "0x" }, outputs: { y: "01" } }] }).ok);
+  expect("validation: 正しい sequence は OK", vp({ checks: [{ type: "sequence", clock: "a", inputs: { b: "011" }, outputs: { y: "0x1" } }] }).ok);
+  expect("validation: componentCount の min > max はエラー", !vp({ checks: [{ type: "truthTable", inputs: ["a", "b"], outputs: ["y"], expect: { y: "0001" } }, { type: "componentCount", types: ["U_NAND"], min: 3, max: 2 }] }).ok);
+  expect("validation: componentCount の未知の種別はエラー", !vp({ checks: [{ type: "componentCount", types: ["U_FOO"], max: 2 }] }).ok);
+
+  /* ---- verify.mjs（デジタル問題の --mutate / --reverse / --drop） ---- */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "verify-digital-"));
+  const cat = path.join(dir, "D");
+  fs.mkdirSync(cat);
+  const common = {
+    category: "D", title: "t", statement: "s", judge: "digital",
+    hints: ["a", "b", "c"], explanation: { solution: "a", why: "b", mistakes: "c", practice: "d", next: "e" },
+  };
+  const fx = (list) => list.map((c) => ({ ...c, locked: true }));
+  // D-01 半加算器（厳しい）
+  const d1 = { ...common, id: "D-01",
+    fixedComponents: fx([{ id: "A", type: "LOGIC_IN", connect: ["a"] }, { id: "B", type: "LOGIC_IN", connect: ["b"] }, { id: "TS", type: "TP", connect: ["s"] }, { id: "TC", type: "TP", connect: ["c"] }]),
+    referenceSolution: [{ id: "U1", type: "U_XOR", connect: ["a", "b", "s"] }, { id: "U2", type: "U_AND", connect: ["a", "b", "c"] }],
+    checks: [{ type: "truthTable", inputs: ["a", "b"], outputs: ["s", "c"], expect: { s: "0110", c: "0001" } }] };
+  // D-02 NAND の入力を短絡した NOT: NOR に替えても同じ論理なので mutate はそれを誤答として数えない
+  const d2 = { ...common, id: "D-02",
+    fixedComponents: fx([{ id: "A", type: "LOGIC_IN", connect: ["a"] }, { id: "TY", type: "TP", connect: ["y"] }]),
+    referenceSolution: [{ id: "U1", type: "U_NAND", connect: ["a", "a", "y"] }],
+    checks: [{ type: "truthTable", inputs: ["a"], outputs: ["y"], expect: { y: "10" } }] };
+  // D-03 1/2 分周
+  const d3 = { ...common, id: "D-03",
+    fixedComponents: fx([{ id: "CK", type: "LOGIC_IN", connect: ["clk"] }, { id: "TQ", type: "TP", connect: ["q"] }]),
+    referenceSolution: [{ id: "F1", type: "DFF", connect: ["qn", "clk", "q", "qn"] }],
+    checks: [{ type: "sequence", clock: "clk", outputs: { q: "1010" } }] };
+  // D-04 甘い問題: AND の 11 の行だけ判定 → OR に替えても合格（--mutate が報告すべき）
+  const d4 = { ...common, id: "D-04",
+    fixedComponents: fx([{ id: "A", type: "LOGIC_IN", connect: ["a"] }, { id: "B", type: "LOGIC_IN", connect: ["b"] }, { id: "TY", type: "TP", connect: ["y"] }]),
+    referenceSolution: [{ id: "U1", type: "U_AND", connect: ["a", "b", "y"] }],
+    checks: [{ type: "truthTable", inputs: ["a", "b"], outputs: ["y"], table: [[1, 1, 1]] }] };
+  for (const p of [d1, d2, d3, d4]) fs.writeFileSync(path.join(cat, `${p.id}.json`), JSON.stringify(p));
+  fs.writeFileSync(path.join(cat, "index.json"), JSON.stringify({ problems: ["D-01", "D-02", "D-03", "D-04"].map((id) => ({ id, title: "t" })) }));
+  const runV = (...a) => {
+    try {
+      return { code: 0, out: execFileSync("node", [path.join(ROOT, "tools/verify.mjs"), `--problems=${dir}`, ...a], { encoding: "utf8" }) };
+    } catch (e) {
+      return { code: e.status, out: String(e.stdout) };
+    }
+  };
+  const vr = runV();
+  expect("verify digital ref: 4問とも参照解が合格", /参照解が合格 4 問/.test(vr.out), vr.out);
+  const vm = runV("--mutate");
+  expect("verify digital --mutate: D-04 の OR 差し替えを報告", /D-04（U1（U_AND）を U_OR に替えても合格/.test(vm.out), vm.out);
+  expect("verify digital --mutate: D-01, D-02（NOR は同じ論理なので除外）, D-03 は報告しない", !/D-0[123]/.test(vm.out), vm.out);
+  const vrev = runV("--reverse", "D-0");
+  expect("verify digital --reverse: 入出力の入れ替えは全問で不合格（報告なし）", !/甘い判定の可能性/.test(vrev.out) && /誤答がすべて不合格 4 問/.test(vrev.out), vrev.out);
+  const vd = runV("--drop", "D-0");
+  expect("verify digital --drop: 部品を外すと全問で不合格（報告なし）", !/甘い判定の可能性/.test(vd.out) && /誤答がすべて不合格 4 問/.test(vd.out), vd.out);
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

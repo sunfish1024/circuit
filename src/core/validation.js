@@ -630,17 +630,30 @@ export function validateProblem(problem, options = {}) {
       }
     }
     const fixedNets = new Set();
+    const fixedTypesByNet = new Map(); // デジタル判定用: ネット → 固定部品の種別
     for (const c of Array.isArray(problem.fixedComponents) ? problem.fixedComponents : []) {
       for (const net of Array.isArray(c?.connect) ? c.connect : []) {
-        if (isNonEmptyString(net)) fixedNets.add(net);
+        if (isNonEmptyString(net)) {
+          fixedNets.add(net);
+          if (!fixedTypesByNet.has(net)) fixedTypesByNet.set(net, new Set());
+          fixedTypesByNet.get(net).add(c.type);
+        }
       }
     }
+    const fixedIds = new Set(
+      (Array.isArray(problem.fixedComponents) ? problem.fixedComponents : [])
+        .filter((c) => isPlainObject(c) && isNonEmptyString(c.id))
+        .map((c) => c.id)
+    );
     problem.checks.forEach((check, index) => {
       validateProblemCheck(check, index, result, {
         ...options,
         questionMap,
+        fixedIds,
         componentTypeById,
         fixedNets,
+        fixedTypesByNet,
+        judge: problem.judge,
       });
     });
   }
@@ -760,6 +773,9 @@ function validateProblemComponentList(components, label, result, options = {}) {
           );
         }
         component.connect.forEach((net, netIndex) => {
+          // OPAMP の電源ピン（v_plus / v_minus = 3, 4 番目）は "" で未配線にできる
+          // （未配線なら params.Vpos / Vneg がレールになる。src/sim/dc.js 参照）
+          if (component.type === "OPAMP" && (netIndex === 3 || netIndex === 4) && net === "") return;
           if (!isNonEmptyString(net)) {
             addValidationError(
               result,
@@ -958,6 +974,12 @@ function validateProblemCheck(check, index, result, options = {}) {
     }
   }
 
+  if (check.type === "truthTable" || check.type === "sequence" || check.type === "componentCount") {
+    validateDigitalCheck(check, path, result, options);
+  }
+
+  validateAnalogCheckOptions(check, path, result, options);
+
   // 判定で参照する部品・ノードが問題内に存在するか（警告）
   if (isNonEmptyString(check.element) && options.componentTypeById instanceof Map &&
       !options.componentTypeById.has(check.element)) {
@@ -967,7 +989,7 @@ function validateProblemCheck(check, index, result, options = {}) {
     );
   }
   if (options.fixedNets instanceof Set) {
-    for (const key of ["node", "input", "output"]) {
+    for (const key of ["node", "input", "output", "nodeRef", "inputRef", "outputRef"]) {
       const net = check[key];
       if (isNonEmptyString(net) && net !== "gnd" && !options.fixedNets.has(net)) {
         addValidationWarning(
@@ -979,13 +1001,251 @@ function validateProblemCheck(check, index, result, options = {}) {
   }
 }
 
+/* ---- アナログ判定の追加オプション（分野C で追加）の検証 ---- */
+
+const TRANSIENT_MEASURES = new Set(["max", "min", "pp", "average", "rms", "acRms"]);
+const OPERATING_REGIONS = new Set([
+  "off", "active", "saturation", "triode", "on", "forward", "breakdown", "linear", "satHigh", "satLow",
+]);
+const AC_SOURCE_PARAMS = { V_AC: new Set(["Vpk", "phaseDeg"]), I_AC: new Set(["Ipk", "phaseDeg"]) };
+
+/**
+ * sources（AC 判定の電源置き換え）、nodeRef/inputRef/outputRef、acImpedance、
+ * operatingRegion、transientMeasure の書式を確認します。
+ */
+function validateAnalogCheckOptions(check, path, result, options) {
+  for (const key of ["nodeRef", "inputRef", "outputRef"]) {
+    if (check[key] !== undefined && !isNonEmptyString(check[key])) {
+      addValidationError(result, `${path}.${key} はネット名（文字列）である必要があります。`);
+    }
+  }
+  if (check.sources !== undefined) {
+    if (!["acVoltage", "acGaindB", "bodePoint"].includes(check.type)) {
+      addValidationError(result, `${path}.sources は acVoltage / acGaindB / bodePoint でだけ使えます。`);
+    } else if (!isPlainObject(check.sources) || Object.keys(check.sources).length === 0) {
+      addValidationError(result, `${path}.sources は { 電源ID: { Vpk, phaseDeg } } のオブジェクトである必要があります。`);
+    } else {
+      for (const [id, params] of Object.entries(check.sources)) {
+        const type = options.componentTypeById instanceof Map ? options.componentTypeById.get(id) : undefined;
+        if (options.fixedIds instanceof Set && !options.fixedIds.has(id)) {
+          addValidationError(result, `${path}.sources の "${id}" が fixedComponents にありません（置き換える電源は固定部品にしてください。プレイヤーが置く部品は ID が変わります）。`);
+          continue;
+        }
+        if (type !== undefined && !AC_SOURCE_PARAMS[type]) {
+          addValidationError(result, `${path}.sources の "${id}"（${type}）は V_AC / I_AC ではありません（DC 動作点が変わる置き換えはできません）。`);
+          continue;
+        }
+        if (!isPlainObject(params) || Object.keys(params).length === 0) {
+          addValidationError(result, `${path}.sources.${id} は { Vpk, phaseDeg } などのオブジェクトである必要があります。`);
+          continue;
+        }
+        for (const [k, v] of Object.entries(params)) {
+          const allowed = type ? AC_SOURCE_PARAMS[type] : new Set(["Vpk", "Ipk", "phaseDeg"]);
+          if (!allowed.has(k)) addValidationError(result, `${path}.sources.${id}.${k} は置き換えられません（${[...allowed].join(", ")}）。`);
+          else if (!isFiniteNumber(v)) addValidationError(result, `${path}.sources.${id}.${k} は数値である必要があります。`);
+        }
+      }
+    }
+  }
+  if (check.type === "acImpedance") {
+    if (check.exclude !== undefined && !isStringArray(check.exclude)) {
+      addValidationError(result, `${path}.exclude は部品IDの文字列配列である必要があります。`);
+    } else if (Array.isArray(check.exclude) && options.fixedIds instanceof Set) {
+      for (const id of check.exclude) {
+        if (!options.fixedIds.has(id)) {
+          addValidationWarning(result, `${path}.exclude の "${id}" が fixedComponents にありません（取り除く部品は固定部品にしてください。プレイヤーが置く部品は ID が変わります）。`);
+        }
+      }
+    }
+    if (check.quantity !== undefined && !["magnitude", "real", "imag", "phase"].includes(check.quantity)) {
+      addValidationError(result, `${path}.quantity は magnitude / real / imag / phase のどれかです。`);
+    }
+  }
+  if (check.type === "operatingRegion") {
+    const list = Array.isArray(check.region) ? check.region : [check.region];
+    if (list.length === 0 || !list.every((r) => OPERATING_REGIONS.has(r))) {
+      addValidationError(result, `${path}.region は ${[...OPERATING_REGIONS].join(" / ")} のどれか（または配列）です。`);
+    }
+  }
+  if (check.type === "transientMeasure") {
+    if (!TRANSIENT_MEASURES.has(check.measure)) {
+      addValidationError(result, `${path}.measure は ${[...TRANSIENT_MEASURES].join(" / ")} のどれかです。`);
+    }
+    if (check.quantity !== undefined && !["v", "i"].includes(check.quantity)) {
+      addValidationError(result, `${path}.quantity は "v" または "i" です。`);
+    }
+    if (isFiniteNumber(check.fromSec) && isFiniteNumber(check.toSec) && !(check.toSec > check.fromSec)) {
+      addValidationError(result, `${path}: toSec は fromSec より大きくしてください。`);
+    }
+    if (check.fromSec === undefined) {
+      addValidationWarning(result, `${path}: transientMeasure に fromSec がありません（電源投入直後の過渡を含みます。定常の値を見るなら fromSec を指定）。`);
+    }
+  }
+}
+
+/* ---- デジタル判定（truthTable / sequence / componentCount）の検証 ---- */
+
+/** "0110" / [0,1,1,0] を配列に（sim/digital.js の toLogicSeries と同じ規則）。 */
+function toLogicSeriesV(value) {
+  if (typeof value === "string") return value.replace(/[\s_,]/g, "").split("");
+  if (Array.isArray(value)) return value;
+  return null;
+}
+/** 0/1 → 0/1、"x"/null → null（don't care）、それ以外 → undefined。 */
+function parseLogicV(v) {
+  if (v === 0 || v === "0" || v === false) return 0;
+  if (v === 1 || v === "1" || v === true) return 1;
+  if (v === null || v === "x" || v === "X" || v === "-") return null;
+  return undefined;
+}
+
+function validateDigitalCheck(check, path, result, options) {
+  const judges = Array.isArray(options.judge) ? options.judge : [options.judge ?? "dc"];
+  const fixedTypes = options.fixedTypesByNet instanceof Map ? options.fixedTypesByNet : null;
+  const warnNoInput = (net, label) => {
+    if (fixedTypes && !(fixedTypes.get(net)?.has("LOGIC_IN"))) {
+      addValidationWarning(result, `${path}: ${label} "${net}" に固定部品の LOGIC_IN がありません（入力端子として置いてください）。`);
+    }
+  };
+  const warnNoOutput = (net) => {
+    if (fixedTypes && !fixedTypes.has(net)) {
+      addValidationWarning(result, `${path}: 出力 "${net}" に固定部品がありません（TP を置いてください）。`);
+    }
+  };
+
+  if (check.type === "componentCount") {
+    const types = Array.isArray(check.types) ? check.types : [check.types];
+    if (types.length === 0 || !types.every(isNonEmptyString)) {
+      addValidationError(result, `${path}.types は部品種別の配列である必要があります。`);
+    } else {
+      for (const t of types) validateKnownComponentType(t, path, result, options);
+    }
+    for (const k of ["min", "max"]) {
+      if (check[k] !== undefined && (!isInteger(check[k]) || check[k] < 0)) {
+        addValidationError(result, `${path}.${k} は 0 以上の整数である必要があります。`);
+      }
+    }
+    if (isInteger(check.min) && isInteger(check.max) && check.min > check.max) {
+      addValidationError(result, `${path}: min が max より大きくなっています。`);
+    }
+    return;
+  }
+
+  if (!judges.includes("digital")) {
+    addValidationError(result, `${path}（${check.type}）には judge に "digital" が必要です。`);
+  }
+
+  if (check.type === "truthTable") {
+    const ins = check.inputs;
+    const outs = check.outputs;
+    const okList = (v) => isStringArray(v) && v.length > 0 && v.every((n) => isNonEmptyString(n) && n !== "gnd" && n !== "0");
+    if (!okList(ins)) addValidationError(result, `${path}.inputs は gnd 以外のネット名の配列である必要があります。`);
+    if (!okList(outs)) addValidationError(result, `${path}.outputs は gnd 以外のネット名の配列である必要があります。`);
+    if (!okList(ins) || !okList(outs)) return;
+    if (ins.length > 8) addValidationError(result, `${path}.inputs は 8 個までです。`);
+    if (new Set([...ins, ...outs]).size !== ins.length + outs.length) {
+      addValidationError(result, `${path}: inputs / outputs に重複したネット名があります。`);
+    }
+    ins.forEach((n) => warnNoInput(n, "入力"));
+    outs.forEach(warnNoOutput);
+
+    const rowsAll = 1 << ins.length;
+    const covered = new Set();
+    if (check.table !== undefined) {
+      if (!Array.isArray(check.table)) {
+        addValidationError(result, `${path}.table は行の配列である必要があります。`);
+      } else {
+        check.table.forEach((row, i) => {
+          const cells = toLogicSeriesV(row);
+          if (!cells || cells.length !== ins.length + outs.length) {
+            addValidationError(result, `${path}.table[${i}] の列数は inputs + outputs（${ins.length + outs.length}）である必要があります。`);
+            return;
+          }
+          const iv = cells.slice(0, ins.length).map(parseLogicV);
+          const ov = cells.slice(ins.length).map(parseLogicV);
+          if (iv.some((v) => v !== 0 && v !== 1) || ov.some((v) => v === undefined)) {
+            addValidationError(result, `${path}.table[${i}] は入力が 0/1、出力が 0/1/"x" である必要があります。`);
+            return;
+          }
+          const key = iv.join("");
+          if (covered.has(key)) addValidationError(result, `${path}.table に入力 ${key} の行が重複しています。`);
+          covered.add(key);
+        });
+      }
+    }
+    if (check.expect !== undefined) {
+      if (!isPlainObject(check.expect)) {
+        addValidationError(result, `${path}.expect は { 出力ネット: "0110" } である必要があります。`);
+      } else {
+        for (const [net, series] of Object.entries(check.expect)) {
+          const arr = toLogicSeriesV(series);
+          if (!outs.includes(net)) addValidationError(result, `${path}.expect.${net} は outputs にありません。`);
+          if (!arr || arr.length !== rowsAll || arr.some((v) => parseLogicV(v) === undefined)) {
+            addValidationError(result, `${path}.expect.${net} は 0/1/"x" を ${rowsAll} 個（2^入力数）並べた系列である必要があります。`);
+          }
+        }
+        for (const net of outs) {
+          if (!(net in check.expect) && check.table === undefined) {
+            addValidationWarning(result, `${path}: 出力 ${net} の期待値が expect にありません（判定されません）。`);
+          }
+        }
+        for (let r = 0; r < rowsAll; r += 1) covered.add(ins.map((_, j) => (r >> (ins.length - 1 - j)) & 1).join(""));
+      }
+    }
+    if (covered.size > 0 && covered.size < rowsAll) {
+      addValidationWarning(result, `${path}: 真理値表が ${covered.size}/${rowsAll} 行しかありません（書いていない行は判定されません）。`);
+    }
+    return;
+  }
+
+  // sequence
+  const clock = check.clock;
+  if (clock !== undefined && (!isNonEmptyString(clock) || clock === "gnd")) {
+    addValidationError(result, `${path}.clock は gnd 以外のネット名である必要があります。`);
+  }
+  if (check.sampleAt !== undefined && check.sampleAt !== "afterRise" && check.sampleAt !== "beforeRise") {
+    addValidationError(result, `${path}.sampleAt は "afterRise" または "beforeRise" です。`);
+  }
+  if (check.sampleAt !== undefined && clock === undefined) {
+    addValidationWarning(result, `${path}: clock が無いので sampleAt は使われません。`);
+  }
+  const lengths = [];
+  for (const key of ["inputs", "outputs"]) {
+    const obj = check[key];
+    if (obj === undefined) continue;
+    if (!isPlainObject(obj) || (key === "outputs" && Object.keys(obj).length === 0)) {
+      addValidationError(result, `${path}.${key} は { ネット名: "0110" } である必要があります。`);
+      continue;
+    }
+    for (const [net, series] of Object.entries(obj)) {
+      const arr = toLogicSeriesV(series);
+      const vals = (arr ?? []).map(parseLogicV);
+      const bad = !arr || arr.length === 0 || vals.some((v) => v === undefined) ||
+        (key === "inputs" && vals.some((v) => v === null));
+      if (bad) {
+        addValidationError(result, `${path}.${key}.${net} は ${key === "inputs" ? "0/1" : "0/1/\"x\""} の系列である必要があります。`);
+        continue;
+      }
+      if (net === "gnd") addValidationError(result, `${path}.${key} に gnd は指定できません。`);
+      if (key === "inputs" && net === clock) addValidationError(result, `${path}: clock "${net}" を inputs にも書くことはできません。`);
+      lengths.push(arr.length);
+      if (key === "inputs") warnNoInput(net, "入力");
+      else warnNoOutput(net);
+    }
+  }
+  if (lengths.length > 0 && lengths.some((n) => n !== lengths[0])) {
+    addValidationError(result, `${path}: inputs / outputs の系列の長さがそろっていません（${lengths.join(", ")}）。`);
+  }
+  if (isNonEmptyString(clock)) warnNoInput(clock, "clock");
+}
+
 /** 極性（向き）がある部品種別。connection は pins 形式で判定すべきもの。 */
 export const POLARIZED_TYPES = new Set([
   "D", "LED", "ZD", "SD", "TVS", "PD", "D_VC",
   "Q_NPN", "Q_PNP", "M_N", "M_P", "J_N", "PT",
   "OPAMP", "V_DC", "V_PULSE", "I_DC", "SCR", "TRIAC", "U_OPTO", "XFMR",
-  "U_WILSON", "U_CASCODE", "DFF",
-  "U_NOT", "U_AND", "U_OR", "U_NAND", "U_NOR", "U_XOR",
+  "U_WILSON", "U_CASCODE", "DFF", "DFF_R",
+  "U_NOT", "U_AND", "U_OR", "U_NAND", "U_NOR", "U_XOR", "U_XNOR", "U_AND3", "U_OR3",
 ]);
 
 /** ピン名の略記（runner.js の PIN_ALIASES と同じ） */
@@ -1053,6 +1313,9 @@ function validateSimulationSettings(sim, result) {
     ) {
       addValidationError(result, "problem.simulation.frequencies は正の数値の配列である必要があります。");
     }
+  }
+  if (sim.initialCondition !== undefined && !["zero", "dc"].includes(sim.initialCondition)) {
+    addValidationError(result, 'problem.simulation.initialCondition は "zero"（既定: C=initialV, L=initialI から開始）または "dc"（DC 動作点から開始）です。');
   }
 }
 

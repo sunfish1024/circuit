@@ -26,6 +26,15 @@ import {
   measureTimeConstant,
   estimateOscillationFrequency,
 } from "../sim/waveform.js";
+import { acVariantKey, acImpedanceKey } from "../sim/ac.js";
+import {
+  evaluateTruthTable,
+  evaluateSequence,
+  buildExpectedTruthMap,
+  toLogicSeries,
+  parseExpectedLogic,
+  logicToChar,
+} from "../sim/digital.js";
 
 /**
  * チェックハンドラのレジストリ。
@@ -469,6 +478,92 @@ export function phaseDiffDeg(a, b) {
   return d;
 }
 
+/**
+ * AC 判定用: ノード（または node − ref の差動）の複素フェーザ（ピーク値）を返します。
+ * sources（電源の置き換え指定）があれば ac.variants の解を使います。
+ * 取れなければ { error: 理由 } を返します。
+ *
+ * @returns {{ re: number, im: number } | { error: string }}
+ */
+function acPhasor(simulationResult, node, ref, freq, sources) {
+  const ac = simulationResult?.ac;
+  let nodesData = ac?.nodes;
+  if (sources && typeof sources === "object") {
+    nodesData = ac?.variants?.[acVariantKey(sources)]?.nodes;
+    if (!nodesData) return { error: "電源を置き換えた解析結果がありません（sources の指定を確認してください）。" };
+  }
+  const get = (net) => {
+    if (net === "gnd" || net === "0") return { re: 0, im: 0 };
+    const d = nodesData?.[net]?.[freq] ?? nodesData?.[net]?.[String(freq)];
+    return d && Number.isFinite(d.re) ? d : null;
+  };
+  const a = get(node);
+  if (!a) {
+    return { error: describeNodeProblem(simulationResult, node) ?? `ノード ${node} のAC電圧を取得できませんでした（${freq}Hz）。` };
+  }
+  if (!ref) return { re: a.re, im: a.im };
+  const b = get(ref);
+  if (!b) {
+    return { error: describeNodeProblem(simulationResult, ref) ?? `ノード ${ref} のAC電圧を取得できませんでした（${freq}Hz）。` };
+  }
+  return { re: a.re - b.re, im: a.im - b.im };
+}
+
+/** 「out」または「out−outRef」の表示用ラベル */
+function diffLabel(node, ref) {
+  return ref ? `${node}−${ref}` : node;
+}
+
+/**
+ * 過渡波形の統計量（transientMeasure 用）。区間 [fromSec, toSec] を時間で重み付けして計算します
+ * （刻みが不均一でも正しい平均になるよう台形則で積分）。
+ *
+ * @param {number[]} time
+ * @param {number[]} values
+ * @param {string} measure "max" | "min" | "pp" | "average" | "rms" | "acRms"
+ * @returns {number} 求められなければ NaN
+ */
+export function measureWaveform(time, values, measure, fromSec, toSec) {
+  if (!Array.isArray(time) || !Array.isArray(values) || time.length < 2) return NaN;
+  const t0 = Math.max(fromSec ?? time[0], time[0]);
+  const t1 = Math.min(toSec ?? time[time.length - 1], time[time.length - 1]);
+  if (!(t1 > t0)) return NaN;
+  // 区間の端は線形補間した点を加える
+  const ts = [t0];
+  const vs = [interpolateAt(time, values, t0)];
+  for (let i = 0; i < time.length; i++) {
+    if (time[i] > t0 && time[i] < t1) {
+      ts.push(time[i]);
+      vs.push(values[i]);
+    }
+  }
+  ts.push(t1);
+  vs.push(interpolateAt(time, values, t1));
+  if (measure === "max") return Math.max(...vs);
+  if (measure === "min") return Math.min(...vs);
+  if (measure === "pp") return Math.max(...vs) - Math.min(...vs);
+  let s1 = 0;
+  let s2 = 0;
+  for (let i = 1; i < ts.length; i++) {
+    const h = ts[i] - ts[i - 1];
+    s1 += (h * (vs[i] + vs[i - 1])) / 2;
+    s2 += (h * (vs[i] * vs[i] + vs[i - 1] * vs[i - 1])) / 2;
+  }
+  const T = t1 - t0;
+  const mean = s1 / T;
+  if (measure === "average") return mean;
+  if (measure === "rms") return Math.sqrt(Math.max(s2 / T, 0));
+  if (measure === "acRms") return Math.sqrt(Math.max(s2 / T - mean * mean, 0));
+  return NaN;
+}
+
+/** 動作領域の日本語名（operatingRegion のメッセージ用） */
+const REGION_LABEL = {
+  off: "遮断（オフ）", active: "活性領域", saturation: "飽和領域", triode: "線形領域（三極管領域）",
+  on: "導通", forward: "順方向導通", breakdown: "降伏",
+  linear: "線形動作", satHigh: "出力が上側で飽和", satLow: "出力が下側で飽和", static: "-",
+};
+
 /* ==========================================================================
    ピン名ヘルパー（connection の pins 形式用）
    ========================================================================== */
@@ -907,24 +1002,117 @@ export function registerDefaultCheckHandlers() {
   /**
    * デジタル真理値表をチェックします。
    */
+  /*
+   * truthTable（judge: digital）
+   * 入力ネット（inputs）の全組み合わせを判定が自動で与え、出力ネット（outputs）の論理値を比べる。
+   * 期待値は table（[入力..., 出力...] の行。書いた行だけ判定）または expect（{出力: "0110"}）。
+   * 出力の "x" は don't care。詳細と理想化の前提は src/sim/digital.js と docs/check_reference.md。
+   */
   registerCheckHandler("truthTable", {
     requiresSimulation: true,
-    run: ({ check, simulationResult }) => {
-      const expectedTable = normalizeTruthTable(check.table);
-
-      const actualTable = normalizeTruthTable(
-        simulationResult?.digital?.truthTable
-      );
-
-      const ok = isEqualTruthTable(expectedTable, actualTable);
-
+    run: ({ check, circuit }) => {
+      const r = evaluateTruthTable(circuit, check);
+      if (!r.ok) {
+        return { ok: false, expected: check.table ?? check.expect ?? null, actual: null, message: r.problems.slice(0, 3).join(" / ") || "真理値表を作れませんでした。" };
+      }
+      const { map, errors } = buildExpectedTruthMap(check, r.inputs, r.outputs);
+      if (errors.length > 0) {
+        return { ok: false, expected: null, actual: null, message: `判定データの誤り: ${errors.slice(0, 2).join(" / ")}` };
+      }
+      const actual = r.rows.map((row) => [...row.in, ...row.out.map((v) => (v === 0 || v === 1 ? v : "x"))]);
+      const mismatches = [];
+      for (const row of r.rows) {
+        const exp = map.get(row.in.join(""));
+        if (!exp) continue;
+        const bad = [];
+        exp.forEach((e, j) => {
+          if (e === null) return;
+          if (row.out[j] !== e) bad.push(`${r.outputs[j]}=${logicToChar(row.out[j])}（正しくは ${e}）`);
+        });
+        if (bad.length) {
+          const cond = r.inputs.map((n, j) => `${n}=${row.in[j]}`).join(", ");
+          mismatches.push(`${cond} のとき ${bad.join(", ")}`);
+        }
+      }
+      const ok = mismatches.length === 0;
       return {
         ok,
-        expected: expectedTable,
-        actual: actualTable,
+        expected: check.table ?? check.expect,
+        actual,
         message: ok
-          ? "真理値表が一致しています。"
-          : "真理値表が一致していません。",
+          ? `真理値表が一致しています（${map.size} 行）。`
+          : `真理値表が一致しません（${mismatches.length} 行）: ${mismatches.slice(0, 3).join(" / ")}${mismatches.length > 3 ? " / …" : ""}`,
+        details: { inputs: r.inputs, outputs: r.outputs, method: r.method, warnings: r.warnings },
+      };
+    },
+  });
+
+  /*
+   * sequence（judge: digital）— 順序回路の出力系列
+   * { "type":"sequence", "clock":"clk", "inputs":{"d":"0110"}, "outputs":{"q":"0110"}, "sampleAt":"afterRise" }
+   * clock の立ち上がりごとに出力を記録して期待系列と比べる（clock 省略時は入力を与えるたびに記録）。
+   * 系列は "0110" の文字列か [0,1,1,0]。出力の "x" は don't care。
+   */
+  registerCheckHandler("sequence", {
+    requiresSimulation: true,
+    run: ({ check, circuit }) => {
+      const r = evaluateSequence(circuit, check);
+      if (!r.ok) {
+        return { ok: false, expected: check.outputs ?? null, actual: null, message: r.problems.slice(0, 3).join(" / ") || "系列を作れませんでした。" };
+      }
+      const unit = check.clock ? "クロック" : "ステップ";
+      const bad = [];
+      const actualStr = {};
+      for (const net of r.outputs) {
+        const exp = (toLogicSeries(check.outputs[net]) ?? []).map(parseExpectedLogic);
+        const act = r.actual[net];
+        actualStr[net] = act.map(logicToChar).join("");
+        if (exp.some((v) => v === undefined)) {
+          return { ok: false, expected: check.outputs, actual: actualStr, message: `判定データの誤り: outputs.${net} は 0/1/"x" の系列にしてください。` };
+        }
+        if (exp.length !== r.steps) {
+          return { ok: false, expected: check.outputs, actual: actualStr, message: `判定データの誤り: outputs.${net} の長さ（${exp.length}）がステップ数（${r.steps}）と違います。` };
+        }
+        const k = exp.findIndex((e, i) => e !== null && act[i] !== e);
+        if (k >= 0) {
+          const expStr = exp.map((e) => (e === null ? "x" : String(e))).join("");
+          bad.push(`${net}: ${unit} ${k + 1} 回目で ${logicToChar(act[k])}（正しくは ${exp[k]}）。出力系列 ${actualStr[net]}、正しい系列 ${expStr}`);
+        }
+      }
+      const ok = bad.length === 0;
+      return {
+        ok,
+        expected: check.outputs,
+        actual: actualStr,
+        message: ok ? `出力系列が一致しています（${r.steps} ${unit}）。` : bad.slice(0, 2).join(" / "),
+        details: { warnings: r.warnings },
+      };
+    },
+  });
+
+  /*
+   * componentCount（シミュレーション不要）— 指定種別の部品の個数（固定部品は数えない）
+   * { "type":"componentCount", "types":["U_NAND"], "max":4 }
+   * 「NAND 4個で XOR を作る」のような最小構成の課題や、「この部品を必ず使う」(min) に使う。
+   */
+  registerCheckHandler("componentCount", {
+    requiresSimulation: false,
+    run: ({ check, circuit, problem }) => {
+      const types = Array.isArray(check.types) ? check.types : check.types ? [check.types] : [];
+      const fixedIds = new Set((problem?.fixedComponents ?? []).map((c) => c?.id));
+      const count = (circuit?.components ?? []).filter(
+        (c) => c && !c.locked && !fixedIds.has(c.id) && (types.length === 0 || types.includes(c.type))
+      ).length;
+      const min = Number.isFinite(Number(check.min)) && check.min !== null ? Number(check.min) : -Infinity;
+      const max = Number.isFinite(Number(check.max)) && check.max !== null ? Number(check.max) : Infinity;
+      const label = types.length ? types.join(" / ") : "部品";
+      const ok = count >= min && count <= max;
+      const range = [Number.isFinite(min) ? `${min} 個以上` : "", Number.isFinite(max) ? `${max} 個以下` : ""].filter(Boolean).join("・");
+      return {
+        ok,
+        expected: { min: Number.isFinite(min) ? min : null, max: Number.isFinite(max) ? max : null },
+        actual: count,
+        message: ok ? `${label} は ${count} 個です（${range}）。` : `${label} を ${count} 個使っています（${range}にしてください）。`,
       };
     },
   });
@@ -1184,20 +1372,11 @@ export function registerDefaultCheckHandlers() {
         throw new Error("acVoltage には frequencyHz が必要です。");
       }
 
-      const nodeData = getAcNodeAtFreq(simulationResult, check.node, freq);
-      const actual = nodeData?.rms ?? null;
       const expected = check.expectedRMS ?? check.expected;
-
-      if (!Number.isFinite(actual)) {
-        const why = describeNodeProblem(simulationResult, check.node);
-        if (why) return nodeMissingResult(simulationResult, check.node, expected);
-        return {
-          ok: false,
-          message: `ノード ${check.node} のAC電圧を取得できませんでした（${freq}Hz）。`,
-          expected,
-          actual: null,
-        };
-      }
+      // nodeRef: 差動電圧 V(node) − V(nodeRef)。sources: 電源を置き換えた解析（差動/同相入力の切替）
+      const z = acPhasor(simulationResult, check.node, check.nodeRef, freq, check.sources);
+      if (z.error) return { ok: false, message: z.error, expected, actual: null };
+      const actual = Math.hypot(z.re, z.im) / Math.SQRT2;
 
       return compareNumeric({
         expected,
@@ -1205,7 +1384,7 @@ export function registerDefaultCheckHandlers() {
         tolerancePct: check.tolerancePct,
         toleranceAbs: check.toleranceAbs,
         unit: check.unit ?? "Vrms",
-        label: `${freq}Hz でのノード ${check.node} 電圧（RMS）`,
+        label: `${freq}Hz でのノード ${diffLabel(check.node, check.nodeRef)} 電圧（RMS）`,
       });
     },
   });
@@ -1228,20 +1407,18 @@ export function registerDefaultCheckHandlers() {
         throw new Error("acGaindB には frequencyHz が必要です。");
       }
 
-      const inData = getAcNodeAtFreq(simulationResult, inputNode, freq);
-      const outData = getAcNodeAtFreq(simulationResult, outputNode, freq);
+      // inputRef / outputRef: 差動入力 V(input)−V(inputRef)、差動出力 V(output)−V(outputRef)
+      const zin = acPhasor(simulationResult, inputNode, check.inputRef, freq, check.sources);
+      const zout = acPhasor(simulationResult, outputNode, check.outputRef, freq, check.sources);
+      const why = zin.error ?? zout.error;
+      if (why) return { ok: false, message: why, expected: check.expected, actual: null };
+      const vin = Math.hypot(zin.re, zin.im);
+      const vout = Math.hypot(zout.re, zout.im);
 
-      const vin = inData?.rms;
-      const vout = outData?.rms;
-
-      if (!Number.isFinite(vin) || !Number.isFinite(vout) || vin <= 0 || vout <= 0) {
-        const why =
-          describeNodeProblem(simulationResult, inputNode) ??
-          describeNodeProblem(simulationResult, outputNode);
-        if (why) return { ok: false, message: why, expected: check.expected, actual: null };
+      if (!(vin > 0) || !(vout > 0)) {
         return {
           ok: false,
-          message: `ACゲインを計算できませんでした（${freq}Hz, 入力 ${inputNode} / 出力 ${outputNode}）。`,
+          message: `ACゲインを計算できませんでした（${freq}Hz, 入力 ${diffLabel(inputNode, check.inputRef)} = ${formatValue(vin / Math.SQRT2, "Vrms")} / 出力 ${diffLabel(outputNode, check.outputRef)} = ${formatValue(vout / Math.SQRT2, "Vrms")}）。`,
           expected: check.expected,
           actual: null,
         };
@@ -1255,7 +1432,7 @@ export function registerDefaultCheckHandlers() {
         tolerancePct: check.tolerancePct,
         toleranceAbs: check.toleranceAbs,
         unit: check.unit ?? "dB",
-        label: `${freq}Hz での利得`,
+        label: `${freq}Hz での利得（${diffLabel(outputNode, check.outputRef)} / ${diffLabel(inputNode, check.inputRef)}）`,
       });
     },
   });
@@ -1279,37 +1456,26 @@ export function registerDefaultCheckHandlers() {
         throw new Error("bodePoint には frequencyHz が必要です。");
       }
 
-      const inData = getAcNodeAtFreq(simulationResult, inputNode, freq);
-      const outData = getAcNodeAtFreq(simulationResult, outputNode, freq);
-
-      if (
-        !inData ||
-        !outData ||
-        !Number.isFinite(inData.rms) ||
-        inData.rms <= 0 ||
-        !(outData.rms > 0)
-      ) {
-        const why =
-          describeNodeProblem(simulationResult, inputNode) ??
-          describeNodeProblem(simulationResult, outputNode);
-        if (why) {
-          return {
-            ok: false,
-            message: why,
-            expected: { gainDB: check.gainDB, phaseDeg: check.phaseDeg },
-            actual: null,
-          };
-        }
+      // inputRef / outputRef: 差動入力・差動出力。sources: 電源を置き換えた解析
+      const zin = acPhasor(simulationResult, inputNode, check.inputRef, freq, check.sources);
+      const zout = acPhasor(simulationResult, outputNode, check.outputRef, freq, check.sources);
+      const why = zin.error ?? zout.error;
+      if (why || !(Math.hypot(zin.re, zin.im) > 0) || !(Math.hypot(zout.re, zout.im) > 0)) {
         return {
           ok: false,
-          message: `ボード線図点を取得できませんでした（${freq}Hz, 入力 ${inputNode} / 出力 ${outputNode}）。`,
+          message:
+            why ??
+            `ボード線図点を取得できませんでした（${freq}Hz, 入力 ${diffLabel(inputNode, check.inputRef)} / 出力 ${diffLabel(outputNode, check.outputRef)} の振幅が 0）。`,
           expected: { gainDB: check.gainDB, phaseDeg: check.phaseDeg },
           actual: null,
         };
       }
 
-      const gainDb = 20 * Math.log10(outData.rms / inData.rms);
-      const phaseDeg = phaseDiffDeg(outData.phaseDeg, inData.phaseDeg);
+      const gainDb = 20 * Math.log10(Math.hypot(zout.re, zout.im) / Math.hypot(zin.re, zin.im));
+      const phaseDeg = phaseDiffDeg(
+        (Math.atan2(zout.im, zout.re) * 180) / Math.PI,
+        (Math.atan2(zin.im, zin.re) * 180) / Math.PI
+      );
 
       const relPct = Number.isFinite(check.tolerancePct)
         ? Math.abs(check.tolerancePct)
@@ -1398,6 +1564,170 @@ export function registerDefaultCheckHandlers() {
         toleranceAbs: check.toleranceAbs,
         unit: check.unit ?? "Hz",
         label: "振動周波数",
+      });
+    },
+  });
+
+  /**
+   * 小信号インピーダンス（judge: ac）。
+   * { "type":"acImpedance", "node":"base", "exclude":["V1"], "frequencyHz":1000, "expected":2400, "tolerancePct":3 }
+   * 独立電源をすべて 0（電圧源は短絡、電流源は開放）にし、exclude の部品を取り除いて、
+   * node−nodeRef（既定 gnd）間に試験電流を流したときの |V/I|（Ω）。非線形素子は元の回路の
+   * DC 動作点で線形化する。入力インピーダンスは信号源を exclude、出力インピーダンスは負荷を exclude する。
+   * quantity: "magnitude"（既定）/ "real" / "imag" / "phase"（度）。
+   */
+  registerCheckHandler("acImpedance", {
+    requiresSimulation: true,
+    run: ({ check, simulationResult }) => {
+      if (!check.node) throw new Error("acImpedance には node が必要です。");
+      const freq = check.frequencyHz ?? simulationResult?.ac?.primaryFrequency;
+      if (!Number.isFinite(freq)) throw new Error("acImpedance には frequencyHz が必要です。");
+      const entry = simulationResult?.ac?.impedances?.[acImpedanceKey(check)];
+      const z = entry?.[freq] ?? entry?.[String(freq)] ?? null;
+      if (!z) {
+        return {
+          ok: false,
+          message:
+            describeNodeProblem(simulationResult, check.node) ??
+            `ノード ${diffLabel(check.node, check.nodeRef)} のインピーダンスを求められませんでした（ノードが回路にあるか確認してください）。`,
+          expected: check.expected,
+          actual: null,
+        };
+      }
+      const q = check.quantity ?? "magnitude";
+      const actual = q === "real" ? z.re : q === "imag" ? z.im : q === "phase" ? z.phaseDeg : z.magnitude;
+      if (Math.abs(z.magnitude) > 1e11 && q === "magnitude") {
+        return {
+          ok: false,
+          message: `ノード ${diffLabel(check.node, check.nodeRef)} から見た回路がつながっていません（インピーダンスが無限大）。`,
+          expected: check.expected,
+          actual: Infinity,
+        };
+      }
+      return compareNumeric({
+        expected: check.expected,
+        actual,
+        tolerancePct: check.tolerancePct,
+        toleranceAbs: check.toleranceAbs,
+        unit: check.unit ?? (q === "phase" ? "°" : "Ω"),
+        label: `${freq}Hz でノード ${diffLabel(check.node, check.nodeRef)} から見たインピーダンス${q === "magnitude" ? "" : `（${q}）`}`,
+      });
+    },
+  });
+
+  /**
+   * 非線形素子の DC 動作領域（judge に dc または ac を含む問題）。
+   * { "type":"operatingRegion", "match":{"type":"Q_NPN"}, "region":"active" }
+   * region は文字列または配列（どれかに一致すれば合格）。
+   *  BJT: off / active / saturation、MOSFET: off / triode / saturation（K=0 のスイッチは on / off）、
+   *  JFET: saturation / off、D 系: on / off、ZD/TVS: forward / breakdown / off、
+   *  OPAMP: linear / satHigh / satLow。
+   */
+  registerCheckHandler("operatingRegion", {
+    requiresSimulation: true,
+    run: ({ check, simulationResult }) => {
+      if (!check.element) throw new Error("operatingRegion には element または match が必要です。");
+      const want = Array.isArray(check.region) ? check.region : [check.region];
+      const op =
+        simulationResult?.dc?.operatingPoints?.[check.element] ??
+        simulationResult?.ac?.operatingPoints?.[check.element] ??
+        null;
+      if (!op) {
+        return {
+          ok: false,
+          message: `${check.element} の動作点がありません（非線形素子として回路に置かれているか、judge に dc または ac があるか確認してください）。`,
+          expected: want,
+          actual: null,
+        };
+      }
+      const label = (r) => {
+        if (op.kind === "bjt" && r === "saturation") return "飽和（スイッチ ON の状態）";
+        if (op.kind === "mos" && r === "saturation") return "飽和領域（増幅に使う領域）";
+        return REGION_LABEL[r] ?? r;
+      };
+      const ok = want.includes(op.region);
+      const extra =
+        op.kind === "bjt"
+          ? `（IC = ${formatValue(op.ic, "A")}, VCE = ${formatValue(op.vce, "V")}）`
+          : op.kind === "mos"
+            ? `（VGS = ${formatValue(op.vgs, "V")}, VDS = ${formatValue(op.vds, "V")}）`
+            : op.kind === "opamp"
+              ? `（出力 ${formatValue(op.vout, "V")}）`
+              : "";
+      return {
+        ok,
+        expected: want,
+        actual: op.region,
+        message: ok
+          ? `${check.element} は ${label(op.region)} で動作しています${extra}。`
+          : `${check.element} の動作領域が違います。期待: ${want.map(label).join(" / ")}、実際: ${label(op.region)}${extra}`,
+      };
+    },
+  });
+
+  /**
+   * 過渡波形の統計量（judge: transient）。
+   * { "type":"transientMeasure", "node":"out", "measure":"pp", "fromSec":0.005, "toSec":0.01, "expected":2.0 }
+   * measure: "max" / "min" / "pp"（最大−最小）/ "average"（時間平均）/ "rms"（実効値）/ "acRms"（平均を除いた実効値）。
+   * 区間 [fromSec, toSec]（既定 0〜解析終了）。node（nodeRef で差動）または element + quantity（"v" / "i"）。
+   * 起動直後の過渡を除くため、定常の判定では fromSec を必ず指定すること。
+   */
+  registerCheckHandler("transientMeasure", {
+    requiresSimulation: true,
+    run: ({ check, simulationResult }) => {
+      const tr = simulationResult?.transient ?? {};
+      const measure = check.measure;
+      if (!["max", "min", "pp", "average", "rms", "acRms"].includes(measure)) {
+        throw new Error(`transientMeasure の measure が不正です: ${measure}`);
+      }
+      let values;
+      let what;
+      let unit;
+      if (check.node) {
+        const a = tr.nodes?.[check.node];
+        if (!Array.isArray(a)) return nodeMissingResult(simulationResult, check.node, check.expected);
+        values = a;
+        if (check.nodeRef && check.nodeRef !== "gnd" && check.nodeRef !== "0") {
+          const r = tr.nodes?.[check.nodeRef];
+          if (!Array.isArray(r)) return nodeMissingResult(simulationResult, check.nodeRef, check.expected);
+          values = a.map((v, i) => v - r[i]);
+        }
+        what = `ノード ${diffLabel(check.node, check.nodeRef)} の電圧`;
+        unit = check.unit ?? "V";
+      } else if (check.element) {
+        const q = check.quantity === "i" ? "i" : "v";
+        const a = tr.elements?.[check.element]?.[q];
+        if (!Array.isArray(a)) {
+          return { ok: false, message: `${check.element} の過渡波形がありません。`, expected: check.expected, actual: null };
+        }
+        // 電流は既定で向きを問わない: max/min は |i| の最大/最小、average は |平均|。
+        // signed: true なら符号つき（正の向きは connect[0]→connect[1]、ダイオードは順方向が正）
+        values = q === "i" && check.signed !== true && (measure === "max" || measure === "min")
+          ? a.map((v) => Math.abs(v))
+          : a;
+        what = `${check.element} の${q === "i" ? "電流" : "電圧"}`;
+        unit = check.unit ?? (q === "i" ? "A" : "V");
+      } else {
+        throw new Error("transientMeasure には node または element が必要です。");
+      }
+      let actual = measureWaveform(tr.time, values, measure, check.fromSec, check.toSec);
+      let expected = check.expected;
+      if (check.element && check.quantity === "i" && check.signed !== true && measure === "average") {
+        actual = Math.abs(actual);
+        expected = Math.abs(expected);
+      }
+      if (!Number.isFinite(actual)) {
+        return { ok: false, message: `${what} の ${measure} を計算できませんでした（区間 fromSec〜toSec を確認してください）。`, expected, actual: null };
+      }
+      const names = { max: "最大値", min: "最小値", pp: "ピークtoピーク", average: "平均値", rms: "実効値", acRms: "交流分の実効値" };
+      const range = `${check.fromSec ?? 0}〜${check.toSec ?? "終了"}s`;
+      return compareNumeric({
+        expected,
+        actual,
+        tolerancePct: check.tolerancePct,
+        toleranceAbs: check.toleranceAbs,
+        unit,
+        label: `${what}の${names[measure]}（${range}）`,
       });
     },
   });

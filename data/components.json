@@ -831,7 +831,7 @@
     {
       "type": "OPAMP",
       "nameJa": "オペアンプ",
-      "description": "汎用オペアンプ",
+      "description": "汎用オペアンプ（入力電流0・出力抵抗0。出力 = Aol×(V+−V−) を電源電圧で頭打ち。電源ピン v_plus/v_minus を配線するとそのノード電圧がレール、未配線なら Vpos/Vneg。GBP は AC 解析だけで使う。0 なら周波数特性なし）",
       "category": ["C", "D", "E", "K", "M"],
       "symbol": "opamp",
       "pinCount": 5,
@@ -848,16 +848,16 @@
         },
         {
           "key": "GBP",
-          "labelJa": "利得帯域幅積",
+          "labelJa": "利得帯域幅積（0=理想）",
           "unit": "Hz",
           "default": 1000000,
-          "min": 1,
+          "min": 0,
           "max": 10000000000,
           "editable": true
         },
         {
           "key": "Vpos",
-          "labelJa": "正側電源",
+          "labelJa": "正側電源（v_plus 未配線時）",
           "unit": "V",
           "default": 15,
           "min": 0,
@@ -866,11 +866,20 @@
         },
         {
           "key": "Vneg",
-          "labelJa": "負側電源",
+          "labelJa": "負側電源（v_minus 未配線時）",
           "unit": "V",
           "default": -15,
           "min": -100,
           "max": 0,
+          "editable": true
+        },
+        {
+          "key": "Vdrop",
+          "labelJa": "出力の電源電圧からの落差",
+          "unit": "V",
+          "default": 0,
+          "min": 0,
+          "max": 10,
           "editable": true
         }
       ],
@@ -938,17 +947,7 @@
       "symbol": "gate_not",
       "pinCount": 2,
       "pinNames": ["A", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "NOT"
@@ -968,17 +967,7 @@
       "symbol": "gate_and",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "AND"
@@ -998,17 +987,7 @@
       "symbol": "gate_or",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "OR"
@@ -1028,17 +1007,7 @@
       "symbol": "gate_nand",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "NAND"
@@ -1058,17 +1027,7 @@
       "symbol": "gate_nor",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "NOR"
@@ -1088,17 +1047,7 @@
       "symbol": "gate_xor",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "XOR"
@@ -1118,19 +1067,117 @@
       "symbol": "dff",
       "pinCount": 4,
       "pinNames": ["D", "CLK", "Q", "Q_NOT"],
+      "params": [],
+      "simulation": {
+        "model": "dff"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_XNOR",
+      "nameJa": "XNORゲート",
+      "description": "2入力XNORゲート（一致回路）",
+      "category": ["G", "H", "I"],
+      "symbol": "gate_xnor",
+      "pinCount": 3,
+      "pinNames": ["A", "B", "Y"],
+      "params": [],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "XNOR"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_AND3",
+      "nameJa": "3入力ANDゲート",
+      "description": "3入力ANDゲート",
+      "category": ["G", "H", "I"],
+      "symbol": "gate_and3",
+      "pinCount": 4,
+      "pinNames": ["A", "B", "C", "Y"],
+      "params": [],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "AND3"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_OR3",
+      "nameJa": "3入力ORゲート",
+      "description": "3入力ORゲート",
+      "category": ["G", "H", "I"],
+      "symbol": "gate_or3",
+      "pinCount": 4,
+      "pinNames": ["A", "B", "C", "Y"],
+      "params": [],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "OR3"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "DFF_R",
+      "nameJa": "Dフリップフロップ（クリア付き）",
+      "description": "立ち上がりエッジで D を取り込む DFF。CLR は負論理の非同期クリア（CLR=0 の間 Q=0）",
+      "category": ["H", "I"],
+      "symbol": "dff_r",
+      "pinCount": 5,
+      "pinNames": ["D", "CLK", "CLR", "Q", "Q_NOT"],
+      "params": [],
+      "simulation": {
+        "model": "dff"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "LOGIC_IN",
+      "nameJa": "論理入力",
+      "description": "論理値 0/1 を出す入力端子。判定（truthTable / sequence）では判定側が値を自動で切り替える",
+      "category": ["G", "H", "I"],
+      "symbol": "logic_in",
+      "pinCount": 1,
+      "pinNames": ["Y"],
       "params": [
         {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
+          "key": "value",
+          "labelJa": "出力値（0/1）",
+          "unit": "",
+          "default": 0,
           "min": 0,
           "max": 1,
           "editable": true
         }
       ],
       "simulation": {
-        "model": "dff"
+        "model": "logicInput"
       },
       "ui": {
         "palette": true,

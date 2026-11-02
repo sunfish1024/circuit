@@ -6,7 +6,13 @@
 //   node tools/verify.mjs --mutate   … 参照解の部品を1個ずつ「数値パラメータ2倍（真偽値は反転）」にした誤答、
 //                                      referenceAnswers を1つずつ誤答（数値×2、選択肢は別の番号）にした誤答が
 //                                      不合格になるか
+//                                      デジタル部品は値の代わりに「ゲート種別を別種（同じ入力数）に差し替え」
+//                                      「DFF の Q と Q_NOT の取り違え」を誤答にする（入力を短絡・定数にしていて
+//                                      差し替えても同じ論理になる組み合わせは除外）
 //   node tools/verify.mjs --reverse  … 極性部品を1個ずつ逆向き（connect を逆順）にした誤答が不合格になるか
+//                                      （論理ゲートは入力 A と出力 Y、DFF は D と Q を入れ替えた誤答）
+//                                      （OPAMP は + 入力と − 入力を入れ替えた誤答。--mutate では OPAMP の
+//                                        Aol/GBP/Vpos/Vneg/Vdrop と平方則 MOSFET の RdsOn は2倍にしない＝設計値ではないモデル定数）
 //   node tools/verify.mjs --drop     … 参照解の部品を1個ずつ取り除いた誤答（部品忘れ・つなぎ忘れ）が不合格になるか
 //   --strict                         … 検証警告（hints が3つ無い、explanation が無い、判定ノードに固定部品が無い、
 //                                      極性部品の connection が nets 形式 など）を NG にする
@@ -41,6 +47,7 @@ const { runChecks, summarizeCheckResults } = await imp("src/checks/runner.js");
 const { validateProblem, POLARIZED_TYPES } = await imp("src/core/validation.js");
 const { componentRegistry } = await imp("src/components/registry.js");
 const { buildComponentDefMap, buildCheckTypeDefMap } = await imp("src/core/loader.js");
+const { GATE_DEFS, FLIPFLOP_DEFS } = await imp("src/sim/digital.js");
 
 const readJson = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
 const componentCatalog = readJson(path.join(ROOT, "data/components.json"));
@@ -54,9 +61,96 @@ const validationOptions = {
 };
 
 // 逆向きにする極性部品（connect は components.json の pinNames 順。validateProblem がピン数一致を確認する）
-const POLAR = new Set([...POLARIZED_TYPES].filter((t) => !t.startsWith("U_") || t === "U_OPTO"));
+// 論理ゲート・DFF は「逆向き」の代わりに入力と出力を入れ替える（digitalSwapIO）。
+const isDigitalPart = (t) => !!GATE_DEFS[t] || !!FLIPFLOP_DEFS[t];
+const POLAR = new Set([...POLARIZED_TYPES].filter((t) => (!t.startsWith("U_") || t === "U_OPTO") && !isDigitalPart(t)));
+
+/* ---- デジタル問題用の誤答（--mutate: ゲート種別の差し替え・Q と Q_NOT の取り違え / --reverse: 入出力の入れ替え） ---- */
+
+/** 判定が値を与える入力ネット（truthTable.inputs, sequence.clock / inputs）。 */
+function stimulusNets(p) {
+  const s = new Set();
+  for (const c of p.checks || []) {
+    if (c.type === "truthTable") (c.inputs || []).forEach((n) => s.add(n));
+    if (c.type === "sequence") {
+      if (c.clock) s.add(c.clock);
+      Object.keys(c.inputs || {}).forEach((n) => s.add(n));
+    }
+  }
+  return s;
+}
+
+/** 定数ネット（gnd=0、V_DC(n=gnd) の p、判定が駆動しない LOGIC_IN）→ 0/1。 */
+function constantNets(p, comps) {
+  const stim = stimulusNets(p);
+  const m = new Map([["gnd", 0], ["0", 0]]);
+  for (const c of comps) {
+    if (c.type === "V_DC" && (c.connect?.[1] === "gnd" || c.connect?.[1] === "0")) {
+      const V = Number(c.params?.V ?? 5);
+      if (V >= 2) m.set(c.connect[0], 1);
+      else if (V <= 0.8) m.set(c.connect[0], 0);
+    }
+    if (c.type === "LOGIC_IN" && c.connect?.[0] && !stim.has(c.connect[0])) {
+      m.set(c.connect[0], Number(c.params?.value ?? 0) >= 0.5 ? 1 : 0);
+    }
+  }
+  return m;
+}
+
+/** ゲート c の種別を alt に変えても、つながり方（入力の短絡・定数）から見て同じ論理になるか。 */
+function sameFunctionInPlace(c, alt, consts) {
+  const n = GATE_DEFS[c.type].inputs;
+  const ins = c.connect.slice(0, n);
+  const vars = [...new Set(ins.filter((net) => !consts.has(net)))];
+  for (let a = 0; a < 1 << vars.length; a += 1) {
+    const vals = ins.map((net) => (consts.has(net) ? consts.get(net) : (a >> vars.indexOf(net)) & 1));
+    if (GATE_DEFS[c.type].fn(vals) !== GATE_DEFS[alt].fn(vals)) return false;
+  }
+  return true;
+}
+
+function digitalMutations(p, ref) {
+  const out = [];
+  const consts = constantNets(p, [...(p.fixedComponents || []), ...ref]);
+  ref.forEach((c, i) => {
+    if (GATE_DEFS[c.type]) {
+      const n = GATE_DEFS[c.type].inputs;
+      for (const alt of Object.keys(GATE_DEFS)) {
+        if (alt === c.type || GATE_DEFS[alt].inputs !== n) continue;
+        if (sameFunctionInPlace(c, alt, consts)) continue; // 入力を短絡したゲートなど、差し替えても同じ論理
+        const comps = ref.map((d, j) => (j === i ? { ...d, type: alt } : d));
+        out.push({ label: `${c.id}（${c.type}）を ${alt} に替えても合格`, comps });
+      }
+    } else if (FLIPFLOP_DEFS[c.type]) {
+      const f = FLIPFLOP_DEFS[c.type];
+      const connect = [...c.connect];
+      [connect[f.q], connect[f.qn]] = [connect[f.qn], connect[f.q]];
+      out.push({ label: `${c.id} の Q と Q_NOT を取り違えても合格`, comps: ref.map((d, j) => (j === i ? { ...d, connect } : d)) });
+    }
+  });
+  return out;
+}
+
+function digitalSwapIO(c) {
+  const connect = [...c.connect];
+  if (GATE_DEFS[c.type]) {
+    const n = GATE_DEFS[c.type].inputs;
+    [connect[0], connect[n]] = [connect[n], connect[0]];
+    return { connect, label: `${c.id} の入力 A と出力 Y を入れ替えても合格` };
+  }
+  const f = FLIPFLOP_DEFS[c.type];
+  [connect[f.d], connect[f.q]] = [connect[f.q], connect[f.d]];
+  return { connect, label: `${c.id} の D と Q を入れ替えても合格` };
+}
 // 取り除いても意味のない部品（GND は自動で補う、TP は電気的に何もしない）
 const NO_DROP = new Set(["GND", "TP"]);
+
+// --mutate で2倍にしないモデル定数（設計値ではないもの）。M_N/M_P の RdsOn は K>0（平方則）のときだけ除外
+const MUTATE_MODEL_PARAMS = {
+  OPAMP: ["Aol", "GBP", "Vpos", "Vneg", "Vdrop"],
+  M_N: ["RdsOn"],
+  M_P: ["RdsOn"],
+};
 
 const toComp = (c) => ({
   id: c.id, type: c.type, params: { ...(c.params || {}) },
@@ -79,14 +173,19 @@ function variants(p) {
   const out = [];
   if (mode === "mutate") {
     ref.forEach((c, i) => {
+      // 設計値ではないモデル定数は2倍にしない（OPAMP の Aol/GBP/電源/Vdrop は理想に近い定数で、
+      // 2倍にしても利得が変わらないのが正しい。平方則 MOSFET の RdsOn は使われない）
+      const skip = new Set(MUTATE_MODEL_PARAMS[c.type] ?? []);
+      if ((c.type === "M_N" || c.type === "M_P") && !(Number(c.params?.K) > 0)) skip.delete("RdsOn");
       const entries = Object.entries(c.params || {});
-      const changed = entries.filter(([, v]) => typeof v === "number" || typeof v === "boolean");
+      const changed = entries.filter(([k, v]) => !skip.has(k) && (typeof v === "number" || typeof v === "boolean"));
       if (changed.length === 0) return;
       const params = Object.fromEntries(entries.map(([k, v]) =>
-        [k, typeof v === "number" ? (v === 0 ? 1 : v * 2) : typeof v === "boolean" ? !v : v]));
+        [k, skip.has(k) ? v : typeof v === "number" ? (v === 0 ? 1 : v * 2) : typeof v === "boolean" ? !v : v]));
       const comps = ref.map((d, j) => (j === i ? { ...d, params } : d));
       out.push({ label: `${c.id} の値を2倍にしても合格`, comps, answers });
     });
+    for (const v of digitalMutations(p, ref)) out.push({ ...v, answers });
     const qmap = new Map((p.questions || []).map((q) => [q.key, q]));
     for (const [key, v] of Object.entries(answers)) {
       const q = qmap.get(key);
@@ -101,6 +200,17 @@ function variants(p) {
     }
   } else if (mode === "reverse") {
     ref.forEach((c, i) => {
+      if (isDigitalPart(c.type) && Array.isArray(c.connect)) {
+        const { connect, label } = digitalSwapIO(c);
+        out.push({ label, comps: ref.map((d, j) => (j === i ? { ...d, connect } : d)), answers });
+        return;
+      }
+      if (c.type === "OPAMP" && Array.isArray(c.connect) && c.connect.length >= 2) {
+        // オペアンプの「逆向き」= 反転入力と非反転入力の取り違え（典型的な誤り）
+        const connect = [c.connect[1], c.connect[0], ...c.connect.slice(2)];
+        out.push({ label: `${c.id} の + 入力と − 入力を入れ替えても合格`, comps: ref.map((d, j) => (j === i ? { ...d, connect } : d)), answers });
+        return;
+      }
       if (!POLAR.has(c.type) || !Array.isArray(c.connect) || c.connect.length < 2) return;
       const comps = ref.map((d, j) => (j === i ? { ...d, connect: [...d.connect].reverse() } : d));
       out.push({ label: `${c.id} を逆向きにしても合格`, comps, answers });
