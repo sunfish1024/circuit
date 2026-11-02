@@ -1,0 +1,207 @@
+{
+  "id": "C-13",
+  "category": "C",
+  "title": "MOSFET ソース接地増幅：gm と RD で利得 −15 倍を作る",
+  "difficulty": 3,
+  "prerequisites": [
+    "C-12",
+    "C-08"
+  ],
+  "learningGoal": "MOSFET のソース接地増幅回路の利得が −gm·RD（ソースをバイパスしたとき）になることを使って RD を決め、飽和領域にとどまるかを直流電圧で確かめられる。ソースをバイパスしないと −gm·RD/(1 + gm·RS) に下がることを理解する。",
+  "judge": [
+    "dc",
+    "ac"
+  ],
+  "statement": "### 状況\nC-12 で設計したバイアスの MOSFET 回路に、信号源 VSIG を結合コンデンサ CIN でゲートにつなぎました。ゲートは RG1・RG2 の分圧で 4 V、ソース抵抗 RS = 2 kΩ、ドレイン電流 $I_D$ = 0.5 mA の動作点です。\n\nこれを **ソース接地増幅回路** に仕上げます。信号をゲートに入れ、ドレインから取り出す回路で、ソースが交流的に接地（グランドと同じ電位）されるのでこう呼びます。BJT のエミッタ接地増幅回路（C-06）に当たります。\n\nドレイン抵抗と、ソースのバイパスコンデンサはまだありません。\n\n### やること\n1. 抵抗 RD を `vdd`–`drain` に置く。`vdd` には RG1 の上側のピンか VDD の + ピンからワイヤを引けます。\n2. コンデンサ CS（**バイパスコンデンサ**）を `src`–`gnd` に置く（RS と並列）。\n3. 10 kHz で、`vin` → `drain` の電圧利得が **−15 倍**（23.5 dB、位相 180°）になるように RD を決める。CS は、10 kHz で RS を十分に短絡できる値にする。\n\n### 条件\n- VDD = 12 V、RG1 = 1 MΩ、RG2 = 500 kΩ、RS = 2 kΩ。CIN = 0.1 µF（10 kHz で約 160 Ω。ゲート側の 333 kΩ に比べて無視できる）。\n- MOSFET M（固定）: $V_{th} = 2$ V、$K = 1$ mA/V²。飽和領域で $I_D = \\frac12 K (V_{GS} - V_{th})^2$、$g_m = K(V_{GS} - V_{th}) = \\sqrt{2 K I_D}$。チャネル長変調なし（ドレインの内部抵抗は無限大）、ゲート電流 0、接合容量なし。\n- 位相 180° は −180° と同じ意味です（ボード線図では (−180°, 180°] に直して表示します）。\n- 判定（10 kHz）: `vin` → `drain` の利得 23.52 dB（±0.3 dB）、位相 180°（±3°）、M が飽和領域で動作していること。",
+  "hints": [
+    "ソースが交流的に接地されていれば $v_{gs} = v_{in}$ で、ドレイン電流の変化 $g_m v_{in}$ が RD に流れて出力になります。まず C-12 の動作点から $g_m$ を求めます。RS を交流的に接地しないと、ソースの電圧も信号といっしょに動いて $v_{gs}$ が小さくなります（C-08 と同じ）。",
+    "$A_v = -g_m R_D$（CS あり）、$A_v = -\\dfrac{g_m R_D}{1 + g_m R_S}$（CS なし）。CS のリアクタンス $1/(2\\pi f C_S)$ は、ソースから見た MOSFET 側の抵抗 $1/g_m$ より十分小さくします。最後に $V_D = V_{DD} - I_D R_D \\ge V_G - V_{th}$（飽和領域）を確かめます。",
+    "$g_m = \\sqrt{2 \\times 1\\,\\mathrm{mA/V^2} \\times 0.5\\,\\mathrm{mA}} = 1$ mS なので $R_D = 15/g_m = 15$ kΩ。$V_D = 12 - 0.5\\,\\mathrm{mA} \\times 15\\,\\mathrm{k\\Omega} = 4.5$ V ≥ 2 V で飽和領域。CS = 10 µF なら 10 kHz で約 1.6 Ω で、$1/g_m$ = 1 kΩ に比べて十分小さい。"
+  ],
+  "availableComponents": [
+    "R",
+    "C"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VDD",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vdd",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 40,
+        "y": 60
+      }
+    },
+    {
+      "id": "VSIG",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 0.01,
+        "freqHz": 10000,
+        "phaseDeg": 0
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 40,
+        "y": 330
+      }
+    },
+    {
+      "id": "CIN",
+      "type": "C",
+      "params": {
+        "C": 1e-07
+      },
+      "connect": [
+        "vin",
+        "gate"
+      ],
+      "locked": true,
+      "position": {
+        "x": 150,
+        "y": 230
+      }
+    },
+    {
+      "id": "RG1",
+      "type": "R",
+      "params": {
+        "R": 1000000
+      },
+      "connect": [
+        "vdd",
+        "gate"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 290,
+        "y": 80
+      }
+    },
+    {
+      "id": "RG2",
+      "type": "R",
+      "params": {
+        "R": 500000
+      },
+      "connect": [
+        "gate",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 290,
+        "y": 340
+      }
+    },
+    {
+      "id": "M",
+      "type": "M_N",
+      "params": {},
+      "connect": [
+        "drain",
+        "gate",
+        "src"
+      ],
+      "locked": true,
+      "position": {
+        "x": 450,
+        "y": 230
+      }
+    },
+    {
+      "id": "RS",
+      "type": "R",
+      "params": {
+        "R": 2000
+      },
+      "connect": [
+        "src",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 470,
+        "y": 380
+      }
+    },
+    {
+      "id": "TPD",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "drain"
+      ],
+      "locked": true,
+      "position": {
+        "x": 640,
+        "y": 120
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "bodePoint",
+      "input": "vin",
+      "output": "drain",
+      "frequencyHz": 10000,
+      "gainDB": 23.52,
+      "phaseDeg": 180,
+      "gainToleranceDB": 0.3,
+      "phaseToleranceDeg": 3
+    },
+    {
+      "type": "operatingRegion",
+      "element": "M",
+      "region": "saturation"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 15000
+      },
+      "connect": [
+        "vdd",
+        "drain"
+      ]
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-05
+      },
+      "connect": [
+        "src",
+        "gnd"
+      ]
+    }
+  ],
+  "verifyNote": "--mutate で CS（C1）を 2 倍にした回路が合格するのは正しい動作です。バイパスコンデンサは 10 kHz でのリアクタンスが 1/gm（1 kΩ）より十分小さければよく、値を大きくしても利得はほぼ変わりません。CS が小さすぎる（0.1 µF 以下）と位相が 171° 以下にずれて不合格になり、CS を付け忘れると利得が 14.0 dB に下がって不合格になります（--drop で検出）。",
+  "explanation": {
+    "solution": "**1. 動作点から $g_m$ を求める**（C-12 と同じ動作点）\n\n$$\ng_m = \\sqrt{2 K I_D} = \\sqrt{2 \\times 0.001 \\times 0.0005} = 1\\,\\mathrm{mS}\n\\qquad\\left(= K V_{ov} = 1\\,\\mathrm{mA/V^2} \\times 1\\,\\mathrm{V}\\right)\n$$\n\n**2. 利得の式から RD を決める**\n\nソースがバイパスされていれば、ゲートの信号 $v_{in}$ がそのまま $v_{gs}$ になります。ドレイン電流の変化 $i_d = g_m v_{in}$ が RD を流れ、ドレインの電圧は $i_d R_D$ だけ **下がる** ので\n\n$$\nA_v = \\frac{v_d}{v_{in}} = -g_m R_D = -15 \\;\\Rightarrow\\; R_D = \\frac{15}{1\\,\\mathrm{mS}} = 15\\,\\mathrm{k\\Omega},\n\\qquad 20\\log_{10} 15 \\approx 23.52\\,\\mathrm{dB}\n$$\n\n**3. 飽和領域にとどまるか確かめる**\n\n$$\nV_D = V_{DD} - I_D R_D = 12 - 0.5\\,\\mathrm{mA} \\times 15\\,\\mathrm{k\\Omega} = 4.5\\,\\mathrm{V} \\;\\ge\\; V_G - V_{th} = 2\\,\\mathrm{V}\n$$\n\n下側にはまだ 2.5 V の余裕があります。\n\n**4. バイパスコンデンサ CS を決める**\n\nソースから MOSFET 側を見た抵抗は $1/g_m$ = 1 kΩ です。CS のリアクタンスがこれより十分小さければ、ソースは交流的に接地されます。CS = 10 µF なら\n\n$$\nX_{CS} = \\frac{1}{2\\pi \\times 10\\,\\mathrm{kHz} \\times 10\\,\\mu\\mathrm{F}} \\approx 1.6\\,\\Omega \\ll 1\\,\\mathrm{k\\Omega}\n$$\n\nシミュレーションでは、利得 23.52 dB、位相 −179.9°（= 180°）、`drain` の直流電圧 4.51 V になります。CS を付けないと利得は $-15/(1 + 1\\,\\mathrm{mS} \\times 2\\,\\mathrm{k\\Omega}) = -5$ 倍（14.0 dB）です。",
+    "why": "- **反転する理由**: ゲートの電圧が上がる → ドレイン電流が増える → RD での電圧降下が増える → ドレインの電圧が下がる。入力と出力が逆向きに動くので、位相が 180° ずれます（C-06 の BJT と同じ）。\n- **ソースをバイパスしないと利得が下がる理由（電流帰還）**: RS に信号電流が流れると、ソースの電圧が $i_d R_S$ だけ動き、$v_{gs} = v_{in} - i_d R_S$ が小さくなります。これを解くと $A_v = -g_m R_D/(1 + g_m R_S)$ です。直流のバイアスは RS で安定させつつ、交流では CS で RS を消すのが、バイパスコンデンサの役割です。\n- **利得の上限は電圧で決まる**: $g_m = 2I_D/V_{ov}$ を代入すると\n\n$$\n|A_v| = g_m R_D = \\frac{2 I_D R_D}{V_{ov}} = \\frac{2 V_{RD}}{V_{ov}}\n$$\n\nRD にかかる直流電圧 $V_{RD}$ = 7.5 V、$V_{ov}$ = 1 V で 15 倍です。RD を大きくしても、$V_D$ が下限の 2 V に達する $V_{RD}$ = 10 V（20 倍）が限界です。BJT では同じ式が $|A_v| = I_C R_C / V_T = V_{RC}/26\\,\\mathrm{mV}$ になり、7.5 V で約 290 倍です。MOSFET の1段で得られる利得が小さいのは、$V_{ov}/2$（0.5 V）が $V_T$（26 mV）よりずっと大きいからです。\n- **CS の目安が $1/g_m$ になる理由**: ソースの交流のインピーダンス $Z_S$（RS と CS の並列）が入ると、利得は $1/(1 + g_m Z_S)$ 倍になります。$g_m |Z_S| \\ll 1$、つまり $|Z_S| \\ll 1/g_m$ なら影響が消えます。BJT では同じ目安が $r_e$（数 Ω〜数十 Ω）なので大きな容量が必要でしたが、MOSFET では $1/g_m$ が 1 kΩ と大きいので、ずっと小さな容量で済みます。",
+    "mistakes": "- **CS を付け忘れる**: 利得は −5 倍（14.0 dB）で不合格です。\n- **CS なしで RD を3倍（45 kΩ）にして 15 倍を狙う**: 直流で $0.5\\,\\mathrm{mA} \\times 45\\,\\mathrm{k\\Omega} = 22.5$ V の電圧降下が必要になり、電源 12 V では足りません。MOSFET は線形領域に入り（`drain` ≈ 0.67 V）、ほとんど増幅しなくなります。\n- **BJT の式 $g_m = I/V_T$ を使う**: $g_m = 0.5\\,\\mathrm{mA}/26\\,\\mathrm{mV} \\approx 19$ mS として RD ≈ 780 Ω にすると、実際の利得は 0.78 倍（−2.2 dB）しかありません。\n- **CS が小さすぎる**: CS = 0.1 µF（10 kHz で 159 Ω）では、利得は 23.3 dB とほぼ足りていますが、位相が −171° にずれて不合格です。$g_m Z_S$ ≈ −j0.16 が残るためです。0.01 µF ではさらに利得も 17.4 dB に下がります。\n- **RD を `drain`–`gnd` につなぐ**: ドレインに電源からの電流の通り道がなくなり、MOSFET に電流が流れません。",
+    "practice": "- **用途**: MOSFET や JFET のソース接地増幅回路は、コンデンサマイクやセンサなど出力インピーダンスの高い信号源の初段によく使われます。ゲート電流が流れないので、入力インピーダンスを RG1 ∥ RG2（ここでは 333 kΩ）と高くできます。\n- **ひずみ**: 2乗則のため、ドレイン電流の変化は $K V_{ov} v_{gs} + \\frac12 K v_{gs}^2$ になり、2倍の周波数の成分（2次ひずみ）が出ます。基本波に対する割合は約 $v_{gs\\,(peak)}/(4V_{ov})$ で、10 mV の入力なら 0.25 % です。大きな信号を入れるとひずみが増えます。\n- **ばらつき**: $g_m$ は $\\sqrt{K I_D}$ に比例するので、$V_{th}$ のばらつきで $I_D$ が変わると利得も変わります。正確な利得が必要なときは、RS の一部をバイパスせずに残したり（$A_v \\approx -R_D/R_S$）、オペアンプの負帰還回路（C-14 以降）を使ったりします。\n- **電解コンデンサの向き**: 10 µF は電解コンデンサになることが多く、+ 側を直流電圧の高い `src`（1 V）側にします。",
+    "next": "- **C-14〜C-15**: オペアンプを使うと、利得が $g_m$ や $V_{th}$ によらず、抵抗の比だけで正確に決まる増幅回路が作れます。\n- **C-19**: MOSFET や BJT を2つ組み合わせた差動増幅回路は、オペアンプの入力段そのものです。\n- **C-20**: 1段の利得が足りないときは、増幅段を2段つないで掛け算します。"
+  }
+}

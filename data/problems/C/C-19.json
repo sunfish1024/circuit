@@ -1,0 +1,278 @@
+{
+  "id": "C-19",
+  "category": "C",
+  "title": "BJT 差動対：差動利得・同相利得と CMRR",
+  "difficulty": 4,
+  "prerequisites": [
+    "C-08",
+    "C-18"
+  ],
+  "learningGoal": "エミッタを共通にしたトランジスタ2個（差動対）をテール抵抗でバイアスし、差動入力には gm·RC/2（片側出力）の利得、同相入力にはテール抵抗による負帰還で小さな利得 ≈ −RC/(2RT) しか持たないことを、回路を組んで確かめる。",
+  "judge": [
+    "dc",
+    "ac"
+  ],
+  "statement": "### 状況\nオペアンプの入力段の中身は、トランジスタ2個のエミッタを共通にした**差動対**（差動増幅回路）です。C-18 ではオペアンプの外の抵抗で差を取りましたが、ここではトランジスタそのもので差を取ります。\n\n置いてあるもの:\n- 電源 VCC = +12 V（`vcc`）と VEE = −12 V（`vee`）\n- コレクタ抵抗 RC1・RC2（各 10 kΩ。`vcc`–`c1`、`vcc`–`out`）\n- 入力信号源 VA（`va`）と VB（`vb`）\n- テストポイント TP1（`out`）と TP2（`tail`：2個のエミッタをつなぐ点）\n\n### やること\n1. NPN トランジスタを2個置き、次のようにつなぐ。\n   - 1個目: B を `va`、C を `c1`（RC1 の下側）、E を `tail`（TP2）\n   - 2個目: B を `vb`、C を `out`（RC2 の下側）、E を `tail`\n2. `tail` と `vee` の間に抵抗（**テール抵抗** $R_T$）を1本置き、テール抵抗に流れる電流（2個のエミッタ電流の合計）を **1.0 mA** にする。\n3. 差動利得と同相利得が、計算どおりになっているか確かめる。\n\n### 条件\n- トランジスタ（パレットの既定値）: β = 100、$V_{BE} = 0.7$ V。小信号は熱電圧 $V_T = 26$ mV として $g_m = I_C/V_T$、$r_\\pi = \\beta/g_m$、$r_e = V_T/I_E$。アーリー効果なし、接合容量なし。DC ではベースに 10 Ω の内部抵抗がある（影響は無視できる）。\n- VA・VB は直流 0 V（gnd）を中心にした 1 kHz の小信号: VA = 5 mV ピーク・0°、VB = 5 mV ピーク・180°（差動入力 $v_a - v_b$ は 10 mV ピーク）。\n- 判定:\n  - DC: テール抵抗の電流 1.0 mA（±2 %）、2個とも活性領域\n  - 差動利得（片側出力）: `out` ÷（`va` − `vb`）が 39.6 dB（±0.3 dB）、位相 0°（±3°）\n  - 差動利得（差動出力）:（`out` − `c1`）÷（`va` − `vb`）が 45.6 dB（±0.3 dB）、位相 0°（±3°）\n  - 同相利得: VB の位相を 0° に置き換えて VA と同じ信号（同相入力）にしたとき、`out` ÷ `va` が −7.2 dB（±0.3 dB）、位相 180°（±3°）",
+  "hints": [
+    "まず DC。ベースは信号源を通して 0 V なので、`tail` は $0 - V_{BE} = -0.7$ V。テール抵抗の両端の電圧が分かれば、オームの法則で $R_T$ が決まります。電流は2個のトランジスタに半分ずつ分かれます。",
+    "$R_T = (V_{tail} - V_{EE})/I_T$。差動入力では `tail` が交流的に動かないので、片側出力は $\\dfrac{g_m R_C}{2}(v_a - v_b)$。同相入力では、各トランジスタのエミッタに $2R_T$ がついたのと同じ（C-08）で、利得は $-\\dfrac{\\alpha R_C}{r_e + 2R_T} \\approx -\\dfrac{R_C}{2R_T}$。",
+    "$R_T = (-0.7 + 12)/1\\,\\mathrm{mA} = 11.3\\,\\mathrm{k\\Omega}$。$I_C = \\frac{100}{101} \\times 0.5\\,\\mathrm{mA} = 0.495$ mA、$g_m = 19.0$ mS → 差動利得 $19.0\\,\\mathrm{mS} \\times 10\\,\\mathrm{k\\Omega}/2 = 95$ 倍（39.6 dB）、同相利得 $\\approx -0.437$ 倍（−7.2 dB）。"
+  ],
+  "availableComponents": [
+    "Q_NPN",
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VCC",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 40,
+        "y": 60
+      }
+    },
+    {
+      "id": "RC1",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "vcc",
+        "c1"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 300,
+        "y": 60
+      }
+    },
+    {
+      "id": "RC2",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "vcc",
+        "out"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 620,
+        "y": 60
+      }
+    },
+    {
+      "id": "TP1",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "out"
+      ],
+      "locked": true,
+      "position": {
+        "x": 720,
+        "y": 150
+      }
+    },
+    {
+      "id": "VA",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 0.005,
+        "freqHz": 1000,
+        "phaseDeg": 0
+      },
+      "connect": [
+        "va",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 140,
+        "y": 290
+      }
+    },
+    {
+      "id": "VB",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 0.005,
+        "freqHz": 1000,
+        "phaseDeg": 180
+      },
+      "connect": [
+        "vb",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 440,
+        "y": 290
+      }
+    },
+    {
+      "id": "TP2",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "tail"
+      ],
+      "locked": true,
+      "position": {
+        "x": 360,
+        "y": 380
+      }
+    },
+    {
+      "id": "VEE",
+      "type": "V_DC",
+      "params": {
+        "V": -12
+      },
+      "connect": [
+        "vee",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 540,
+        "y": 440
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "match": {
+        "type": "R",
+        "nets": [
+          "tail",
+          "vee"
+        ]
+      },
+      "expected": 0.001,
+      "tolerancePct": 2,
+      "unit": "A"
+    },
+    {
+      "type": "operatingRegion",
+      "match": {
+        "type": "Q_NPN",
+        "pins": {
+          "B": "va"
+        }
+      },
+      "region": "active"
+    },
+    {
+      "type": "operatingRegion",
+      "match": {
+        "type": "Q_NPN",
+        "pins": {
+          "B": "vb"
+        }
+      },
+      "region": "active"
+    },
+    {
+      "type": "bodePoint",
+      "input": "va",
+      "inputRef": "vb",
+      "output": "out",
+      "frequencyHz": 1000,
+      "gainDB": 39.57,
+      "phaseDeg": 0,
+      "gainToleranceDB": 0.3,
+      "phaseToleranceDeg": 3
+    },
+    {
+      "type": "bodePoint",
+      "input": "va",
+      "inputRef": "vb",
+      "output": "out",
+      "outputRef": "c1",
+      "frequencyHz": 1000,
+      "gainDB": 45.59,
+      "phaseDeg": 0,
+      "gainToleranceDB": 0.3,
+      "phaseToleranceDeg": 3
+    },
+    {
+      "type": "bodePoint",
+      "input": "va",
+      "output": "out",
+      "sources": {
+        "VB": {
+          "phaseDeg": 0
+        }
+      },
+      "frequencyHz": 1000,
+      "gainDB": -7.19,
+      "phaseDeg": 180,
+      "gainToleranceDB": 0.3,
+      "phaseToleranceDeg": 3
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "c1",
+        "va",
+        "tail"
+      ]
+    },
+    {
+      "id": "Q2",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "out",
+        "vb",
+        "tail"
+      ]
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 11300
+      },
+      "connect": [
+        "tail",
+        "vee"
+      ]
+    }
+  ],
+  "explanation": {
+    "solution": "**1. DC: テール抵抗を決める**\n\nベースは信号源を通して gnd（0 V）なので、`tail` $= 0 - 0.7 = -0.7$ V。テール抵抗の両端の電圧は $-0.7 - (-12) = 11.3$ V なので\n\n$$\nR_T = \\frac{V_{tail} - V_{EE}}{I_T} = \\frac{11.3\\ \\mathrm{V}}{1.0\\ \\mathrm{mA}} = 11.3\\ \\mathrm{k\\Omega}\n$$\n\n回路は左右対称なので、各トランジスタのエミッタ電流は $I_E = 0.5$ mA。コレクタ電流は\n\n$$\nI_C = \\frac{\\beta}{\\beta + 1} I_E = \\frac{100}{101} \\times 0.5\\ \\mathrm{mA} = 0.495\\ \\mathrm{mA}\n$$\n\nコレクタ電圧 $V_C = 12 - 0.495\\,\\mathrm{mA} \\times 10\\,\\mathrm{k\\Omega} = 7.05$ V、$V_{CE} = 7.05 - (-0.7) = 7.75$ V で、活性領域です。\n\n**2. 小信号パラメータ**（C-05）\n\n$$\ng_m = \\frac{I_C}{V_T} = \\frac{0.495\\ \\mathrm{mA}}{26\\ \\mathrm{mV}} = 19.04\\ \\mathrm{mS}, \\qquad\nr_e = \\frac{V_T}{I_E} = \\frac{26\\ \\mathrm{mV}}{0.5\\ \\mathrm{mA}} = 52\\ \\Omega\n$$\n\n**3. 差動利得**（$v_a = +v_d/2$、$v_b = -v_d/2$）\n\n左右に逆向きの信号が入ると、片方のエミッタ電流が増えた分だけもう片方が減るので、`tail` の電圧は動きません（交流的に接地とみなせる）。そこで片側だけを考えます（**半回路**）。Q2 のベース-エミッタ間には $-v_d/2$ がかかるので\n\n$$\ni_{c2} = -g_m \\frac{v_d}{2}, \\qquad v_{out} = -R_C\\, i_{c2} = \\frac{g_m R_C}{2}\\, v_d\n$$\n\n$$\nA_d = \\frac{19.04\\ \\mathrm{mS} \\times 10\\ \\mathrm{k\\Omega}}{2} = 95.2 \\;\\Rightarrow\\; 20\\log_{10} 95.2 = 39.57\\ \\mathrm{dB}\\ （位相\\ 0°）\n$$\n\n差動出力（`out` − `c1`）では `c1` が逆向きに同じだけ動くので2倍、$g_m R_C = 190.4$（45.59 dB）です。\n\n**4. 同相利得**（$v_a = v_b = v_c$）\n\n2個の電流が同じだけ増えるので、$R_T$ には片側の2倍の交流電流が流れます。片側から見ると、エミッタに $2R_T$ がつながっているのと同じ（C-08 のエミッタ抵抗つき増幅）です。\n\n$$\nA_c = -\\frac{\\alpha R_C}{r_e + 2R_T} = -\\frac{0.990 \\times 10\\ \\mathrm{k\\Omega}}{52 + 22600\\ \\Omega} = -0.437 \\;\\Rightarrow\\; -7.19\\ \\mathrm{dB}\\ （位相\\ 180°）\n$$\n\n**5. CMRR**（片側出力）\n\n$$\n\\mathrm{CMRR} = \\left|\\frac{A_d}{A_c}\\right| = \\frac{95.2}{0.437} = 218 \\;\\;(46.8\\ \\mathrm{dB})\n$$\n\nシミュレーションでは、テール電流 1.000 mA、$I_C$ = 0.495 mA、$V_{CE}$ = 7.75 V、差動利得 39.57 dB・0°、差動出力 45.59 dB・0°、同相利得 −7.19 dB・180° になります。",
+    "why": "- **電流の取り合い**: テール抵抗の電流（約 1 mA）は、ほぼ一定のまま2個のトランジスタで分け合います。$v_a$ が上がると Q1 の電流が増え、その分 Q2 の電流が減ります。差動対は「入力の差に応じて、決まった電流を左右に振り分ける」回路です。\n- **出力の向き**: Q2 の電流が減ると RC2 の電圧降下が減り、`out` は上がります。だから `out` は $v_a - v_b$ と同位相、`c1` は逆位相です。\n- **同相信号に鈍い理由**: 両方のベースが同じだけ上がると、`tail` も同じだけ上がり、$R_T$ の電流が $v_c/R_T$ だけ増えるだけです。$R_T$ が大きいほどこの変化が小さく、同相利得 $\\approx -R_C/(2R_T)$ が小さくなります。理想的な定電流源（$R_T \\to \\infty$）なら同相利得は 0 です。\n- **差動出力なら同相利得は 0**: 左右対称なら、同相入力で `c1` と `out` はまったく同じに動くので、差 `out` − `c1` は 0 になります（シミュレーションでも 0）。片側だけを取り出すと、$R_T$ が有限な分の同相利得が残ります。\n- **β にほとんどよらない**: 電流はテール抵抗で決まり、利得は $g_m = I_C/V_T$ で決まるので、β が変わっても $\\alpha = \\beta/(\\beta+1)$ が少し変わるだけです（C-04 と同じ考え方）。",
+    "mistakes": "- **テール電流を1個分の電流と取り違える**: 各トランジスタに 1 mA 流そうとして $R_T = 5.65\\,\\mathrm{k\\Omega}$ にすると、テール電流 2 mA で不合格。$g_m$ も2倍になり、差動利得は 45.6 dB になります。\n- **$V_{BE}$ を忘れる**: $R_T = 12\\,\\mathrm{V}/1\\,\\mathrm{mA} = 12\\,\\mathrm{k\\Omega}$ にすると、テール電流は $11.3/12 = 0.94$ mA（−6 %）で不合格です。\n- **ベースを入れ替える**（1個目のベースを `vb`、2個目を `va`）: 差動利得の位相が 180° になり不合格。どちらの入力が出力と同位相（非反転入力）になるかは、出力をどちらのコレクタから取るかで決まります。\n- **エミッタを gnd に直接つなぐ**（テール抵抗なし）: エミッタもベースも 0 V なので $V_{BE} = 0$ で2個とも遮断し、`out` は 12 V のまま。増幅しません。\n- **片側出力の同相利得を 0 と思い込む**: 差動出力では 0 でも、`out` だけを見ると 0.437 倍（−7.2 dB）残ります。1 V の同相雑音があれば `out` に 0.44 V が出ます。",
+    "practice": "- **定電流源のテール**: CMRR を上げようと $R_T$ を大きくすると、同じ電流を流すのに大きな負電源が必要になります。実際の IC では $R_T$ の代わりにトランジスタの定電流源（カレントミラーなど）を使い、数 MΩ 相当の大きな交流抵抗を得て、CMRR を 80〜120 dB にします。\n- **オペアンプの入力段**: 汎用オペアンプの入力は差動対です。**入力バイアス電流**はこの差動対のベース電流、**入力オフセット電圧**は2個の $V_{BE}$ のわずかな違いから生じます。\n- **ペアのそろえ方**: 2個の $V_{BE}$ や β がずれると、オフセットや同相除去の悪化につながります。同じチップ上に作ったペアトランジスタを使ったり、2個を熱的に結合して温度をそろえたりします。\n- **線形に動く範囲**: 差動対がほぼ直線的に動くのは、差動入力が数十 mV（$V_T$ の数倍）程度まで。それ以上では電流が片側に寄り切り、リミッタのように動きます。この性質はコンパレータや、通信の乗算器（ミキサ）に利用されます。\n- **消費電力**: VCC から約 1 mA、VEE へ 1 mA で、約 $12 \\times 0.99 + 12 \\times 1.0 \\approx 24$ mW。",
+    "next": "- **C-20**: オペアンプを使った総合設計。オペアンプの内部（差動対と、その後の利得段・位相補償）が作る周波数特性（利得帯域幅積）を扱います。\n- 分野 E（変調・復調）: 差動対のテール電流を別の信号で変えると、2つの信号の掛け算（ギルバートセル乗算器）になり、変調・周波数変換に使われます。\n- 分野 D（発振）: 差動対は LC 発振回路やエミッタ結合形のマルチバイブレータにも使われます。"
+  }
+}

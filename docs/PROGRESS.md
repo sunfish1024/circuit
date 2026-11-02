@@ -33,6 +33,10 @@
 
 - G（20問、2026-11-02）: verify --strict 20/20、--reverse・--drop 甘い判定0、check_layout 問題0。--mutate の甘い判定5問（G-14, G-15, G-16, G-17, G-20）は「OR と XOR が同じ論理になる」ため verifyNote あり。マウス操作での確認: G-01, G-08, G-13, G-16。componentCount で「指定外のゲートは0個」を併用して穴を塞いだ
 
+- C（20問、2026-11-02）: verify --strict 20/20、--mutate 甘い判定1問（C-13、verifyNote あり: バイパスC は 1/gm より十分小さければ何でも正しい）、--reverse 対象4問で甘い判定0、--drop 甘い判定0、check_layout 問題0。マウス操作での確認: C-02, C-10, C-14, C-18
+  - 既知の穴: C-04（左右の分圧が別でも合格）、C-05（ベース電流無視の答えも ±5% を通る）。解説には書いてある
+  - C-14〜C-16 ではオペアンプの + 入力を GND 記号と重ならないよう固定抵抗経由で接地している（layout 上の理由）
+
 ## エンジン拡張（2026-11-02 C・G・H向け）
 - デジタル（sim-engineer）: digital.js を全面書き直し（旧コードは type でなく simulation.model で部品を見分けていて、ゲート回路を一度も評価できていなかった）。0/1/X の3値、未接続入力はX、出力衝突は不合格。新部品 LOGIC_IN / U_XNOR / U_AND3 / U_OR3 / DFF_R。新判定 truthTable（inputs/outputs/expect）、sequence（クロックごとの系列）、componentCount。verify に ゲート差し替え・DFF の Q/Q_NOT 取り違えの誤答を追加
 - アナログ（sim-engineer）: AC解析がBJT/MOSFET/OPAMPに対応（DC動作点で線形化）、OPAMP の DC/過渡/飽和、正帰還の不安定平衡点の修正。新判定 acImpedance / operatingRegion / transientMeasure（max/min/pp/average/rms/acRms。F分野の平均値・リップルにも使える）、nodeRef/inputRef/outputRef・sources による差動・同相の判定、simulation.initialCondition: dc
