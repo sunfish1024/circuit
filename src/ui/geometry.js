@@ -1067,3 +1067,36 @@ export function computeFixedLayout(fixedComponents, options = {}) {
   const guides = computeGuides(comps, { pinNamesOf, layout, labelRects, board });
   return { components: comps, labelsById, labelRects, guides, hiddenPinsById };
 }
+
+/**
+ * 固定部品の描画範囲（部品・ラベル・GND 記号・ガイド線を含む外接矩形の右端と下端）。
+ * 画面はこの範囲がスクロールなしで見えるように表示倍率を決める（app.js の applyBoardFit）。
+ * 固定部品が無いときは null。
+ *
+ * @param {ReturnType<typeof computeFixedLayout>} fixedLayout
+ * @returns {{right:number, bottom:number} | null}
+ */
+export function getFixedContentExtent(fixedLayout) {
+  if (!fixedLayout?.components?.length) return null;
+
+  let right = 0;
+  let bottom = 0;
+  const addRect = (r) => {
+    right = Math.max(right, r.x + r.w);
+    bottom = Math.max(bottom, r.y + r.h);
+  };
+
+  for (const c of fixedLayout.components) addRect(getComponentRect(c));
+  for (const item of fixedLayout.labelRects ?? []) addRect(item.rect);
+  for (const mark of fixedLayout.guides?.groundMarks ?? []) if (mark.rect) addRect(mark.rect);
+  for (const net of fixedLayout.guides?.nets ?? []) {
+    for (const pl of net.polylines ?? []) {
+      for (const p of pl) {
+        right = Math.max(right, p.x);
+        bottom = Math.max(bottom, p.y);
+      }
+    }
+  }
+
+  return { right, bottom };
+}

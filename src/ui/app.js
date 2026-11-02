@@ -35,6 +35,7 @@ import {
   computeFixedLayout,
   computeLabelLayout,
   getComponentRect,
+  getFixedContentExtent,
   getInnerRotationTransform,
   getLabelRects,
   getPinPoint as geoGetPinPoint,
@@ -225,14 +226,63 @@ function unitOfParam(type, key) {
 /**
  * ワイヤのパス d 属性を生成します（マンハッタン配線）。
  */
-function wirePathD(a, b) {
+function wirePathD(a, b, avoid = []) {
   if (Math.abs(a.x - b.x) < 1 || Math.abs(a.y - b.y) < 1) {
     return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
   }
 
-  const mx = Math.round((a.x + b.x) / 2);
+  const mx = pickWireBendX(a, b, avoid);
 
   return `M ${a.x} ${a.y} L ${mx} ${a.y} L ${mx} ${b.y} L ${b.x} ${b.y}`;
+}
+
+/**
+ * ワイヤの縦線の x を決めます。既存の縦線（ガイド線・引き出し線・ほかのワイヤ）と
+ * 同じ x で重なって「つながって見える」ことを避けるため、重なるときは 6px ずつずらします。
+ *
+ * @param {{x:number,y:number}} a
+ * @param {{x:number,y:number}} b
+ * @param {Array<{x:number, y1:number, y2:number}>} avoid 避ける縦線
+ */
+function pickWireBendX(a, b, avoid) {
+  const mid = Math.round((a.x + b.x) / 2);
+  const lo = Math.min(a.y, b.y);
+  const hi = Math.max(a.y, b.y);
+  const clash = (x) =>
+    avoid.some((seg) => Math.abs(seg.x - x) < 4 && seg.y1 < hi + 1 && seg.y2 > lo - 1);
+
+  if (!clash(mid)) return mid;
+
+  const limit = Math.abs(a.x - b.x) / 2;
+  for (let offset = 6; offset <= limit; offset += 6) {
+    for (const x of [mid + offset, mid - offset]) {
+      if (!clash(x)) return x;
+    }
+  }
+  return mid;
+}
+
+/** 固定配線のガイド線・GND 記号にある縦線を集めます。 */
+function collectVerticalSegments(fixedLayout) {
+  const segments = [];
+  const add = (x1, y1, x2, y2) => {
+    if (Math.abs(x1 - x2) < 0.5 && Math.abs(y1 - y2) > 0.5) {
+      segments.push({ x: x1, y1: Math.min(y1, y2), y2: Math.max(y1, y2) });
+    }
+  };
+
+  for (const net of fixedLayout?.guides?.nets ?? []) {
+    for (const pl of net.polylines ?? []) {
+      for (let i = 1; i < pl.length; i += 1) {
+        add(pl[i - 1].x, pl[i - 1].y, pl[i].x, pl[i].y);
+      }
+    }
+  }
+  for (const mark of fixedLayout?.guides?.groundMarks ?? []) {
+    for (const [x1, y1, x2, y2] of mark.lines ?? []) add(x1, y1, x2, y2);
+  }
+
+  return segments;
 }
 
 function snapValue(value) {
@@ -253,6 +303,91 @@ function getBoardSize() {
   const height = canvas?.clientHeight ?? 700;
 
   return { width, height };
+}
+
+/* ==========================================================================
+   ボードの表示倍率（フィット / 手動ズーム）と座標変換
+   ========================================================================== */
+
+/** ボードの基準サイズ（layout_spec.md と同じ）。 */
+const BOARD_BASE_W = 960;
+const BOARD_BASE_H = 560;
+/** これ以下には縮小しない（文字が読めなくなるため。これ以下はスクロール）。 */
+const BOARD_MIN_SCALE = 0.6;
+const BOARD_MAX_SCALE = 1.5;
+/** フィットの基準にする最小の範囲（固定部品がごく小さくまとまっていても、これ以上は拡大しない）。 */
+const BOARD_FIT_MIN_W = 640;
+const BOARD_FIT_MIN_H = 400;
+
+/** null = 自動フィット。数値 = 手動で指定した倍率。 */
+let boardZoom = null;
+let boardResizeObserver = null;
+/** 固定部品の描画範囲（右端・下端）。自動フィットはこれがスクロールなしで見える倍率にする。 */
+let boardContentExtent = null;
+
+function clampScale(value) {
+  return Math.min(BOARD_MAX_SCALE, Math.max(BOARD_MIN_SCALE, value));
+}
+
+/** 現在の表示倍率（画面 px / ボード px）。canvas の実寸から求めるので、変換は常にこれと一致する。 */
+function getBoardScale() {
+  const canvas = document.getElementById("board-canvas");
+  if (!canvas || !canvas.offsetWidth) return 1;
+  const rect = canvas.getBoundingClientRect();
+  return rect.width / canvas.offsetWidth || 1;
+}
+
+/**
+ * 画面座標（clientX / clientY）をボード座標へ変換します（座標変換はここ 1 か所）。
+ * @returns {{x:number, y:number}}
+ */
+function clientToBoard(clientX, clientY) {
+  const canvas = document.getElementById("board-canvas");
+  if (!canvas) return { x: clientX, y: clientY };
+  const rect = canvas.getBoundingClientRect();
+  const scale = getBoardScale();
+  return { x: (clientX - rect.left) / scale, y: (clientY - rect.top) / scale };
+}
+
+/**
+ * 表示領域に合わせて倍率を決め、canvas / stage のサイズを更新します。
+ * 自動フィットは「拡大しない・最小 0.6」。0.6 でも収まらないときはコンテナがスクロールします。
+ */
+function applyBoardFit(root = document) {
+  const container = root.querySelector(".board-container");
+  const stage = root.querySelector("#board-stage");
+  const canvas = root.querySelector("#board-canvas");
+  if (!container || !stage || !canvas) return;
+
+  const cw = container.clientWidth;
+  const ch = container.clientHeight;
+  if (!cw || !ch) return;
+
+  // 固定部品が基準サイズより小さくまとまっているときはそれに合わせる（右端・下端に 20px の余白）
+  const needW = Math.min(BOARD_BASE_W, Math.max(BOARD_FIT_MIN_W, (boardContentExtent?.right ?? BOARD_BASE_W) + 20));
+  const needH = Math.min(BOARD_BASE_H, Math.max(BOARD_FIT_MIN_H, (boardContentExtent?.bottom ?? BOARD_BASE_H) + 20));
+  const fit = Math.min(1, cw / needW, ch / needH);
+  const scale = boardZoom === null ? clampScale(fit) : clampScale(boardZoom);
+
+  // 論理サイズ: 表示領域いっぱいに広がり、固定部品の範囲より小さくはならない（足りなければスクロール）
+  const logicalW = Math.max(needW, Math.floor(cw / scale));
+  const logicalH = Math.max(needH, Math.floor(ch / scale));
+
+  canvas.style.width = `${logicalW}px`;
+  canvas.style.height = `${logicalH}px`;
+  canvas.style.transform = `scale(${scale})`;
+  stage.style.width = `${Math.floor(logicalW * scale)}px`;
+  stage.style.height = `${Math.floor(logicalH * scale)}px`;
+
+  const label = root.querySelector("#zoom-label");
+  if (label) {
+    label.textContent = `${Math.round(scale * 100)}%${boardZoom === null ? "（自動）" : ""}`;
+  }
+}
+
+function setBoardZoom(next, root = document) {
+  boardZoom = next === null ? null : clampScale(next);
+  applyBoardFit(root);
 }
 
 /**
@@ -899,9 +1034,10 @@ function bindPaletteDrag(button, type) {
         return;
       }
 
+      const dropPoint = clientToBoard(upEvent.clientX, upEvent.clientY);
       const position = clampPositionToBoard({
-        x: snapValue(upEvent.clientX - rect.left - (COMP_W * COMP_SCALE) / 2),
-        y: snapValue(upEvent.clientY - rect.top - (COMP_H * COMP_SCALE) / 2),
+        x: snapValue(dropPoint.x - (COMP_W * COMP_SCALE) / 2),
+        y: snapValue(dropPoint.y - (COMP_H * COMP_SCALE) / 2),
       });
 
       addComponentFromPalette(type, position);
@@ -1075,6 +1211,12 @@ function renderBoard(root, state) {
         </span>
       </div>
       <div class="board-toolbar-right">
+        <span class="board-zoom" role="group" aria-label="表示倍率">
+          <button type="button" id="zoom-out" title="縮小（最小 60%）">−</button>
+          <span id="zoom-label" class="zoom-label"></span>
+          <button type="button" id="zoom-in" title="拡大">＋</button>
+          <button type="button" id="zoom-fit" title="表示領域に合わせる">フィット</button>
+        </span>
         <span class="board-stats">部品 ${components.length} / ワイヤ ${wires.length}</span>
       </div>
     </div>
@@ -1089,8 +1231,9 @@ function renderBoard(root, state) {
 
   // --- SVG（ガイド線 + ワイヤ + 部品） ---
   const fixedLayout = getFixedLayout(state);
+  boardContentExtent = getFixedContentExtent(fixedLayout);
   const guidesSvg = buildGuidesSvg(fixedLayout);
-  const wiresSvg = buildWiresSvg(state);
+  const wiresSvg = buildWiresSvg(state, fixedLayout);
   const componentsSvg = buildComponentsSvg(state, fixedLayout);
   const draftSvg = buildDraftSvg(state);
 
@@ -1115,6 +1258,7 @@ function renderBoard(root, state) {
         : ""
     }
     <div class="board-container">
+     <div class="board-stage" id="board-stage">
       <div class="board-canvas ${wireMode ? "wire-mode" : ""}" id="board-canvas">
         <svg class="board-svg" id="board-svg">
           <g id="guide-layer">${guidesSvg}</g>
@@ -1124,12 +1268,35 @@ function renderBoard(root, state) {
         </svg>
         ${emptyHtml}
       </div>
+     </div>
     </div>
     </div>
   `;
 
   bindBoardEvents(root, state);
   setupProblemPanelResize(root);
+  setupBoardFit(root);
+}
+
+/** 初回の倍率を決め、表示領域の大きさが変わったら（パネルの開閉・リサイズ・ウィンドウ）倍率を更新する。 */
+function setupBoardFit(root) {
+  applyBoardFit(root);
+
+  if (boardResizeObserver) {
+    boardResizeObserver.disconnect();
+    boardResizeObserver = null;
+  }
+
+  const container = root.querySelector(".board-container");
+  if (container && typeof ResizeObserver === "function") {
+    boardResizeObserver = new ResizeObserver(() => applyBoardFit(root));
+    boardResizeObserver.observe(container);
+  }
+
+  const zoomBy = (factor) => setBoardZoom(getBoardScale() * factor, root);
+  root.querySelector("#zoom-out")?.addEventListener("click", () => zoomBy(1 / 1.25));
+  root.querySelector("#zoom-in")?.addEventListener("click", () => zoomBy(1.25));
+  root.querySelector("#zoom-fit")?.addEventListener("click", () => setBoardZoom(null, root));
 }
 
 /* ==========================================================================
@@ -1363,7 +1530,8 @@ function buildGuidesSvg(fixedLayout) {
 /**
  * ワイヤのSVGを生成します。
  */
-function buildWiresSvg(state) {
+function buildWiresSvg(state, fixedLayout) {
+  const avoid = collectVerticalSegments(fixedLayout);
   const compsById = new Map(
     state.board.components.map((component) => [component.id, component])
   );
@@ -1379,7 +1547,13 @@ function buildWiresSvg(state) {
 
       const a = getPinPoint(from, wire.from.pin);
       const b = getPinPoint(to, wire.to.pin);
-      const d = wirePathD(a, b);
+      const d = wirePathD(a, b, avoid);
+
+      // 次のワイヤが、このワイヤの縦線とも重ならないようにする
+      if (Math.abs(a.x - b.x) >= 1 && Math.abs(a.y - b.y) >= 1) {
+        const bendX = pickWireBendX(a, b, avoid);
+        avoid.push({ x: bendX, y1: Math.min(a.y, b.y), y2: Math.max(a.y, b.y) });
+      }
 
       const isSelected =
         state.selection.kind === "wire" && state.selection.id === wire.id;
@@ -1396,6 +1570,8 @@ function buildWiresSvg(state) {
 
       return `
         <path class="board-wire ${isSelected ? "is-selected" : ""}" d="${d}" pointer-events="none"></path>
+        <circle class="board-wire-end" cx="${a.x}" cy="${a.y}" r="3.6" pointer-events="none"></circle>
+        <circle class="board-wire-end" cx="${b.x}" cy="${b.y}" r="3.6" pointer-events="none"></circle>
         <path class="board-wire-hit" data-wire-hit="${escapeHtml(wire.id)}" d="${d}"><title>ワイヤ ${escapeHtml(wire.id)}</title></path>
         ${deleteButton}
       `;
@@ -1562,12 +1738,8 @@ function bindBoardEvents(root, state) {
 
     if (!from) return;
 
-    const rect = canvas.getBoundingClientRect();
     const a = getPinPoint(from, wireDraft.pin);
-    const b = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
+    const b = clientToBoard(event.clientX, event.clientY);
 
     draftLine.setAttribute("d", wirePathD(a, b));
   });
@@ -1612,11 +1784,13 @@ function bindBoardEvents(root, state) {
       const origY = component.position?.y ?? 40;
       let moved = false;
 
-      const onMove = (moveEvent) => {
-        const dx = moveEvent.clientX - startX;
-        const dy = moveEvent.clientY - startY;
+      const dragScale = getBoardScale();
 
-        if (!moved && Math.hypot(dx, dy) > 3) {
+      const onMove = (moveEvent) => {
+        const dx = (moveEvent.clientX - startX) / dragScale;
+        const dy = (moveEvent.clientY - startY) / dragScale;
+
+        if (!moved && Math.hypot(dx, dy) * dragScale > 3) {
           moved = true;
           group.classList.add("is-dragging");
         }
@@ -1636,8 +1810,8 @@ function bindBoardEvents(root, state) {
         group.classList.remove("is-dragging");
 
         if (moved) {
-          const dx = upEvent.clientX - startX;
-          const dy = upEvent.clientY - startY;
+          const dx = (upEvent.clientX - startX) / dragScale;
+          const dy = (upEvent.clientY - startY) / dragScale;
 
           updateComponent(componentId, {
             position: clampPositionToBoard(
