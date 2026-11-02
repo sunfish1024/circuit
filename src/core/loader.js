@@ -280,6 +280,34 @@ export function normalizeCheckTypeCatalog(raw) {
 }
 
 /**
+ * 直近に読み込んだカタログ（問題検証でピン名・必須フィールドを見るため）。
+ */
+const catalogCache = {
+  componentDefs: null,
+  checkTypeDefs: null,
+};
+
+/**
+ * 部品カタログから type → 定義 の Map を作ります（validateProblem の componentDefs 用）。
+ *
+ * @param {Array<object>} components
+ * @returns {Map<string, object>}
+ */
+export function buildComponentDefMap(components) {
+  return new Map((components ?? []).map((c) => [c.type, c]));
+}
+
+/**
+ * 判定種別カタログから type → 定義 の Map を作ります（validateProblem の checkTypeDefs 用）。
+ *
+ * @param {Array<object>} checkTypes
+ * @returns {Map<string, object>}
+ */
+export function buildCheckTypeDefMap(checkTypes) {
+  return new Map((checkTypes ?? []).map((c) => [c.type, c]));
+}
+
+/**
  * 部品カタログを読み込みます。
  *
  * @param {object} [options]
@@ -294,7 +322,9 @@ export async function loadComponentCatalog(options = {}) {
     assertValid(result, "components.json");
   }
 
-  return normalizeComponentCatalog(raw);
+  const normalized = normalizeComponentCatalog(raw);
+  catalogCache.componentDefs = buildComponentDefMap(normalized.components);
+  return normalized;
 }
 
 /**
@@ -330,7 +360,9 @@ export async function loadCheckTypeCatalog(options = {}) {
     assertValid(result, "checkTypes.json");
   }
 
-  return normalizeCheckTypeCatalog(raw);
+  const normalized = normalizeCheckTypeCatalog(raw);
+  catalogCache.checkTypeDefs = buildCheckTypeDefMap(normalized.checkTypes);
+  return normalized;
 }
 
 /**
@@ -385,7 +417,15 @@ export async function loadGameData(options = {}) {
  * @returns {object}
  */
 export function normalizeProblem(raw) {
-  const prerequisite = raw?.prerequisite ?? [];
+  // prerequisites（新）と prerequisite（旧）の両方を受け付ける
+  const prerequisite = raw?.prerequisites ?? raw?.prerequisite ?? [];
+
+  // hints（新: 3段階の配列）と hint（旧: 文字列）の両方を受け付ける
+  const hints = Array.isArray(raw?.hints)
+    ? raw.hints.filter((h) => isNonEmptyString(h))
+    : isNonEmptyString(raw?.hint)
+      ? [raw.hint]
+      : [];
 
   return {
     ...raw,
@@ -402,6 +442,16 @@ export function normalizeProblem(raw) {
       : isNonEmptyString(prerequisite)
         ? [prerequisite]
         : [],
+
+    hints,
+
+    explanation: isPlainObject(raw?.explanation) ? raw.explanation : null,
+
+    questions: Array.isArray(raw?.questions) ? raw.questions : [],
+
+    referenceAnswers: isPlainObject(raw?.referenceAnswers)
+      ? raw.referenceAnswers
+      : {},
 
     availableComponents: Array.isArray(raw?.availableComponents)
       ? raw.availableComponents
@@ -440,7 +490,14 @@ export async function loadProblem(categoryId, problemId, options = {}) {
     const result = validateProblem(raw, {
       knownComponentTypes: options.knownComponentTypes,
       knownCheckTypes: options.knownCheckTypes,
+      componentDefs: options.componentDefs ?? catalogCache.componentDefs ?? undefined,
+      checkTypeDefs: options.checkTypeDefs ?? catalogCache.checkTypeDefs ?? undefined,
     });
+
+    if (Array.isArray(result.warnings) && result.warnings.length > 0 &&
+        typeof console !== "undefined") {
+      console.warn(`問題 ${problemId} の検証警告:\n- ${result.warnings.join("\n- ")}`);
+    }
 
     assertValid(result, `問題 ${problemId}`);
   }

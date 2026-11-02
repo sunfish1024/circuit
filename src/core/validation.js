@@ -27,7 +27,19 @@ export function createValidationResult() {
   return {
     ok: true,
     errors: [],
+    warnings: [],
   };
+}
+
+/**
+ * 検証警告を追加します（ok は変えない）。
+ *
+ * @param {{ok: boolean, errors: string[], warnings?: string[]}} result
+ * @param {string} message
+ */
+export function addValidationWarning(result, message) {
+  if (!Array.isArray(result.warnings)) result.warnings = [];
+  result.warnings.push(message);
 }
 
 /**
@@ -60,6 +72,7 @@ export function mergeValidationResults(...results) {
     }
 
     merged.errors.push(...result.errors);
+    if (Array.isArray(result.warnings)) merged.warnings.push(...result.warnings);
   }
 
   return merged;
@@ -508,6 +521,10 @@ function validateCheckTypeDefinition(checkType, index, result, seenTypes) {
     });
   }
 
+  if (checkType.required !== undefined && !isStringArray(checkType.required)) {
+    addValidationError(result, `${path}.required は文字列配列である必要があります（"a|b" はどちらか一方）。`);
+  }
+
   if (checkType.description !== undefined && !isNonEmptyString(checkType.description)) {
     addValidationError(result, `${path}.description は文字列である必要があります。`);
   }
@@ -556,30 +573,35 @@ export function validateProblem(problem, options = {}) {
     }
   }
 
-  if (problem.prerequisite !== undefined) {
-    if (
-      problem.prerequisite !== null &&
-      !isNonEmptyString(problem.prerequisite) &&
-      !isStringArray(problem.prerequisite)
-    ) {
+  for (const key of ["prerequisite", "prerequisites"]) {
+    const value = problem[key];
+    if (value === undefined || value === null) continue;
+    if (!isNonEmptyString(value) && !isStringArray(value)) {
       addValidationError(
         result,
-        "problem.prerequisite は文字列、文字列配列、null のいずれかである必要があります。"
+        `problem.${key} は文字列、文字列配列、null のいずれかである必要があります。`
       );
     }
   }
 
-  if (problem.judge !== undefined && !isNonEmptyString(problem.judge)) {
-    addValidationError(result, "problem.judge は文字列である必要があります。");
+  validateJudge(problem.judge, result);
+
+  if (problem.simulation !== undefined) {
+    validateSimulationSettings(problem.simulation, result);
   }
 
   if (problem.learningGoal !== undefined && !isNonEmptyString(problem.learningGoal)) {
     addValidationError(result, "problem.learningGoal は文字列である必要があります。");
   }
 
-  if (problem.hint !== undefined && !isNonEmptyString(problem.hint)) {
-    addValidationError(result, "problem.hint は文字列である必要があります。");
+  if (problem.verifyNote !== undefined && !isNonEmptyString(problem.verifyNote)) {
+    addValidationError(result, "problem.verifyNote は空でない文字列である必要があります。");
   }
+
+  validateHints(problem, result);
+  validateExplanation(problem.explanation, result);
+  const questionMap = validateQuestions(problem.questions, result);
+  validateReferenceAnswers(problem, questionMap, result);
 
   if (problem.availableComponents !== undefined) {
     validateAvailableComponents(problem.availableComponents, result, options);
@@ -599,8 +621,26 @@ export function validateProblem(problem, options = {}) {
   } else if (problem.checks.length === 0) {
     addValidationError(result, "problem.checks には少なくとも1つの判定が必要です。");
   } else {
+    const componentTypeById = new Map();
+    for (const list of [problem.fixedComponents, problem.referenceSolution]) {
+      if (!Array.isArray(list)) continue;
+      for (const c of list) {
+        if (isPlainObject(c) && isNonEmptyString(c.id)) componentTypeById.set(c.id, c.type);
+      }
+    }
+    const fixedNets = new Set();
+    for (const c of Array.isArray(problem.fixedComponents) ? problem.fixedComponents : []) {
+      for (const net of Array.isArray(c?.connect) ? c.connect : []) {
+        if (isNonEmptyString(net)) fixedNets.add(net);
+      }
+    }
     problem.checks.forEach((check, index) => {
-      validateProblemCheck(check, index, result, options);
+      validateProblemCheck(check, index, result, {
+        ...options,
+        questionMap,
+        componentTypeById,
+        fixedNets,
+      });
     });
   }
 
@@ -710,6 +750,14 @@ function validateProblemComponentList(components, label, result, options = {}) {
 
     if (component.connect !== undefined) {
       if (Array.isArray(component.connect)) {
+        const def = getComponentDef(options, component.type);
+        if (def && Array.isArray(def.pinNames) && def.pinNames.length > 0 &&
+            component.connect.length !== def.pinNames.length) {
+          addValidationError(
+            result,
+            `${path}.connect の要素数 ${component.connect.length} が ${component.type} のピン数 ${def.pinNames.length}（${def.pinNames.join(", ")} の順）と一致しません。`
+          );
+        }
         component.connect.forEach((net, netIndex) => {
           if (!isNonEmptyString(net)) {
             addValidationError(
@@ -780,8 +828,358 @@ function validateProblemCheck(check, index, result, options = {}) {
     addValidationError(result, `${path}.expected は数値である必要があります。`);
   }
 
-  if (check.tolerancePct !== undefined && !isFiniteNumber(check.tolerancePct)) {
-    addValidationError(result, `${path}.tolerancePct は数値である必要があります。`);
+  for (const key of [
+    "tolerancePct", "toleranceAbs", "gainToleranceDB", "phaseToleranceDeg",
+    "timeSec", "fromSec", "toSec", "frequencyHz", "expectedRMS", "gainDB", "phaseDeg",
+  ]) {
+    if (check[key] !== undefined && !isFiniteNumber(check[key])) {
+      addValidationError(result, `${path}.${key} は数値である必要があります。`);
+    }
+  }
+
+  // checkTypes.json の required（"a|b" はどちらか一方）
+  const def = options.checkTypeDefs instanceof Map ? options.checkTypeDefs.get(check.type) : null;
+  if (def && Array.isArray(def.required)) {
+    for (const req of def.required) {
+      const alternatives = String(req).split("|");
+      if (!alternatives.some((k) => check[k] !== undefined && check[k] !== null)) {
+        addValidationError(
+          result,
+          `${path}（${check.type}）には ${alternatives.join(" または ")} が必要です。`
+        );
+      }
+    }
+  }
+
+  if (check.match !== undefined) {
+    const m = check.match;
+    if (!isPlainObject(m) || (m.type === undefined && m.nets === undefined && m.pins === undefined)) {
+      addValidationError(result, `${path}.match は { type, nets, pins } のいずれかを持つオブジェクトである必要があります。`);
+    } else {
+      const types = m.type === undefined ? [] : Array.isArray(m.type) ? m.type : [m.type];
+      for (const t of types) {
+        if (!isNonEmptyString(t)) {
+          addValidationError(result, `${path}.match.type は部品種別（文字列または配列）である必要があります。`);
+        } else {
+          validateKnownComponentType(t, `${path}.match`, result, options);
+        }
+      }
+      if (m.nets !== undefined && (!isStringArray(m.nets) || m.nets.length === 0)) {
+        addValidationError(result, `${path}.match.nets は空でない文字列配列である必要があります。`);
+      }
+      if (m.pins !== undefined) {
+        if (!isPlainObject(m.pins) || Object.keys(m.pins).length === 0) {
+          addValidationError(result, `${path}.match.pins は { ピン名: ネット名 } である必要があります。`);
+        } else if (types.length === 1) {
+          const compDef = getComponentDef(options, types[0]);
+          for (const pin of Object.keys(m.pins)) {
+            if (compDef && Array.isArray(compDef.pinNames) && resolvePinName(compDef.pinNames, pin) < 0) {
+              addValidationError(result, `${path}.match.pins のピン名 "${pin}" は ${types[0]} にありません（${compDef.pinNames.join(", ")}）。`);
+            }
+          }
+        }
+      }
+      if (check.element !== undefined) {
+        addValidationWarning(result, `${path}: element と match の両方があります（element が優先され、match は使われません）。`);
+      }
+    }
+  }
+
+  const qmap = options.questionMap instanceof Map ? options.questionMap : new Map();
+
+  if (check.type === "numericAnswer" || check.type === "multipleChoice") {
+    const key = check.key ?? check.id;
+    if (!isNonEmptyString(key)) {
+      addValidationError(result, `${path}.key は空でない文字列である必要があります。`);
+    } else if (!qmap.has(key)) {
+      addValidationError(
+        result,
+        `${path}.key "${key}" に対応する questions の項目がありません。`
+      );
+    } else {
+      const q = qmap.get(key);
+      const wantKind = check.type === "numericAnswer" ? "numeric" : "choice";
+      if (q.kind !== wantKind) {
+        addValidationError(
+          result,
+          `${path}（${check.type}）の key "${key}" は questions では kind="${q.kind}" です（"${wantKind}" が必要）。`
+        );
+      }
+      if (check.type === "multipleChoice") {
+        const ans = check.answerIndex ?? check.expected ?? check.answer;
+        if (!isInteger(ans) || ans < 0 || (Array.isArray(q.options) && ans >= q.options.length)) {
+          addValidationError(
+            result,
+            `${path}.answerIndex は 0〜${Array.isArray(q.options) ? q.options.length - 1 : "?"} の整数である必要があります。`
+          );
+        }
+      }
+    }
+    if (check.type === "numericAnswer" && !isFiniteNumber(check.expected)) {
+      addValidationError(result, `${path}.expected（数値）が必要です。`);
+    }
+  }
+
+  if (check.type === "connection") {
+    if (check.pins !== undefined) {
+      if (!isPlainObject(check.pins) || Object.keys(check.pins).length === 0) {
+        addValidationError(result, `${path}.pins は { ピン名: ネット名 } のオブジェクトである必要があります。`);
+      } else {
+        const matchType =
+          isPlainObject(check.match) && isNonEmptyString(check.match.type) ? check.match.type : null;
+        const type = options.componentTypeById?.get(check.element) ?? matchType;
+        const compDef = type ? getComponentDef(options, type) : null;
+        for (const [pin, net] of Object.entries(check.pins)) {
+          if (!isNonEmptyString(net)) {
+            addValidationError(result, `${path}.pins.${pin} はネット名（文字列）である必要があります。`);
+          }
+          if (compDef && Array.isArray(compDef.pinNames) && resolvePinName(compDef.pinNames, pin) < 0) {
+            addValidationError(
+              result,
+              `${path}.pins のピン名 "${pin}" は ${type} にありません（${compDef.pinNames.join(", ")}）。`
+            );
+          }
+        }
+      }
+    } else if (check.nets !== undefined) {
+      if (!isStringArray(check.nets) || check.nets.length === 0) {
+        addValidationError(result, `${path}.nets は空でない文字列配列である必要があります。`);
+      }
+      const type =
+        options.componentTypeById?.get(check.element) ??
+        (isPlainObject(check.match) && isNonEmptyString(check.match.type) ? check.match.type : null);
+      if (type && POLARIZED_TYPES.has(type)) {
+        addValidationWarning(
+          result,
+          `${path}: 極性部品 ${check.element}（${type}）の connection が nets 形式です。向きを判定するには pins 形式にしてください。`
+        );
+      }
+    }
+  }
+
+  // 判定で参照する部品・ノードが問題内に存在するか（警告）
+  if (isNonEmptyString(check.element) && options.componentTypeById instanceof Map &&
+      !options.componentTypeById.has(check.element)) {
+    addValidationWarning(
+      result,
+      `${path}.element "${check.element}" が fixedComponents にも referenceSolution にもありません。`
+    );
+  }
+  if (options.fixedNets instanceof Set) {
+    for (const key of ["node", "input", "output"]) {
+      const net = check[key];
+      if (isNonEmptyString(net) && net !== "gnd" && !options.fixedNets.has(net)) {
+        addValidationWarning(
+          result,
+          `${path}.${key} "${net}" に固定部品がありません（プレイヤーがたどり着けるよう TP などを置いてください）。`
+        );
+      }
+    }
+  }
+}
+
+/** 極性（向き）がある部品種別。connection は pins 形式で判定すべきもの。 */
+export const POLARIZED_TYPES = new Set([
+  "D", "LED", "ZD", "SD", "TVS", "PD", "D_VC",
+  "Q_NPN", "Q_PNP", "M_N", "M_P", "J_N", "PT",
+  "OPAMP", "V_DC", "V_PULSE", "I_DC", "SCR", "TRIAC", "U_OPTO", "XFMR",
+  "U_WILSON", "U_CASCODE", "DFF",
+  "U_NOT", "U_AND", "U_OR", "U_NAND", "U_NOR", "U_XOR",
+]);
+
+/** ピン名の略記（runner.js の PIN_ALIASES と同じ） */
+const PIN_ALIASES = {
+  A: "anode", K: "cathode", C: "collector", B: "base", E: "emitter",
+  D: "drain", G: "gate", S: "source", "+": "p", "-": "n",
+  "IN+": "in_plus", "IN-": "in_minus", "V+": "v_plus", "V-": "v_minus",
+};
+
+/**
+ * ピン名（または略記）を pinNames の添字へ解決します。見つからなければ -1。
+ */
+export function resolvePinName(pinNames, key) {
+  const k = String(key);
+  let i = pinNames.indexOf(k);
+  if (i >= 0) return i;
+  i = pinNames.findIndex((n) => n.toLowerCase() === k.toLowerCase());
+  if (i >= 0) return i;
+  const alias = PIN_ALIASES[k.toUpperCase()];
+  return alias ? pinNames.indexOf(alias) : -1;
+}
+
+function getComponentDef(options, type) {
+  const defs = options?.componentDefs;
+  if (defs instanceof Map) return defs.get(type) ?? null;
+  return null;
+}
+
+const KNOWN_SIM_MODES = new Set(["dc", "ac", "transient", "digital"]);
+
+function validateJudge(judge, result) {
+  if (judge === undefined) return;
+  const list = Array.isArray(judge) ? judge : [judge];
+  if (list.length === 0) {
+    addValidationError(result, "problem.judge の配列が空です。");
+    return;
+  }
+  for (const j of list) {
+    if (!isNonEmptyString(j)) {
+      addValidationError(result, "problem.judge は文字列、または文字列の配列である必要があります。");
+    } else if (!KNOWN_SIM_MODES.has(j.trim().toLowerCase())) {
+      addValidationError(
+        result,
+        `problem.judge "${j}" は未知のシミュレーションです（dc / ac / transient / digital）。`
+      );
+    }
+  }
+}
+
+function validateSimulationSettings(sim, result) {
+  if (!isPlainObject(sim)) {
+    addValidationError(result, "problem.simulation はオブジェクトである必要があります。");
+    return;
+  }
+  for (const key of ["tStop", "dt"]) {
+    if (sim[key] !== undefined && !(isFiniteNumber(sim[key]) && sim[key] > 0)) {
+      addValidationError(result, `problem.simulation.${key} は正の数値である必要があります。`);
+    }
+  }
+  if (sim.frequencies !== undefined) {
+    if (
+      !Array.isArray(sim.frequencies) ||
+      sim.frequencies.length === 0 ||
+      !sim.frequencies.every((f) => isFiniteNumber(f) && f > 0)
+    ) {
+      addValidationError(result, "problem.simulation.frequencies は正の数値の配列である必要があります。");
+    }
+  }
+}
+
+function validateHints(problem, result) {
+  if (problem.hint !== undefined && !isNonEmptyString(problem.hint)) {
+    addValidationError(result, "problem.hint は文字列である必要があります。");
+  }
+  if (problem.hints === undefined) {
+    addValidationWarning(result, "hints（3段階: 方針 → 使う式 → ほぼ答え）がありません。");
+    return;
+  }
+  if (!Array.isArray(problem.hints)) {
+    addValidationError(result, "problem.hints は文字列3つの配列である必要があります。");
+    return;
+  }
+  if (problem.hints.length !== 3) {
+    addValidationError(
+      result,
+      `problem.hints は3要素（方針 → 使う式 → ほぼ答え）である必要があります（現在 ${problem.hints.length} 要素）。`
+    );
+  }
+  problem.hints.forEach((h, i) => {
+    if (!isNonEmptyString(h)) {
+      addValidationError(result, `problem.hints[${i}] は空でない文字列である必要があります。`);
+    }
+  });
+}
+
+export const EXPLANATION_KEYS = ["solution", "why", "mistakes", "practice", "next"];
+
+function validateExplanation(explanation, result) {
+  if (explanation === undefined) {
+    addValidationWarning(
+      result,
+      "explanation（solution / why / mistakes / practice / next）がありません。"
+    );
+    return;
+  }
+  if (!isPlainObject(explanation)) {
+    addValidationError(
+      result,
+      "problem.explanation は { solution, why, mistakes, practice, next } のオブジェクトである必要があります。"
+    );
+    return;
+  }
+  for (const key of EXPLANATION_KEYS) {
+    if (!isNonEmptyString(explanation[key])) {
+      addValidationError(result, `problem.explanation.${key} は空でない文字列である必要があります。`);
+    }
+  }
+  for (const key of Object.keys(explanation)) {
+    if (!EXPLANATION_KEYS.includes(key)) {
+      addValidationWarning(result, `problem.explanation.${key} は未知の項目です（表示されない可能性があります）。`);
+    }
+  }
+}
+
+/**
+ * questions を検証し、key → 定義 の Map を返します。
+ */
+function validateQuestions(questions, result) {
+  const map = new Map();
+  if (questions === undefined) return map;
+  if (!Array.isArray(questions)) {
+    addValidationError(result, "problem.questions は配列である必要があります。");
+    return map;
+  }
+  questions.forEach((q, i) => {
+    const path = `problem.questions[${i}]`;
+    if (!isPlainObject(q)) {
+      addValidationError(result, `${path} はオブジェクトである必要があります。`);
+      return;
+    }
+    if (!isNonEmptyString(q.key)) {
+      addValidationError(result, `${path}.key は空でない文字列である必要があります。`);
+    } else if (map.has(q.key)) {
+      addValidationError(result, `${path}.key "${q.key}" が重複しています。`);
+    } else {
+      map.set(q.key, q);
+    }
+    if (q.kind !== "numeric" && q.kind !== "choice") {
+      addValidationError(result, `${path}.kind は "numeric" または "choice" である必要があります。`);
+    }
+    if (!isNonEmptyString(q.prompt)) {
+      addValidationError(result, `${path}.prompt は空でない文字列である必要があります。`);
+    }
+    if (q.kind === "numeric" && q.unit !== undefined && typeof q.unit !== "string") {
+      addValidationError(result, `${path}.unit は文字列である必要があります。`);
+    }
+    if (q.kind === "choice") {
+      if (!Array.isArray(q.options) || q.options.length < 2 || !q.options.every(isNonEmptyString)) {
+        addValidationError(result, `${path}.options は空でない文字列2つ以上の配列である必要があります。`);
+      }
+    }
+  });
+  return map;
+}
+
+function validateReferenceAnswers(problem, questionMap, result) {
+  const ra = problem.referenceAnswers;
+  if (ra === undefined) {
+    if (questionMap.size > 0) {
+      addValidationError(result, "questions があるのに referenceAnswers がありません。");
+    }
+    return;
+  }
+  if (!isPlainObject(ra)) {
+    addValidationError(result, "problem.referenceAnswers は { key: 値 } のオブジェクトである必要があります。");
+    return;
+  }
+  for (const [key, value] of Object.entries(ra)) {
+    const q = questionMap.get(key);
+    if (!q) {
+      addValidationError(result, `problem.referenceAnswers.${key} に対応する questions の項目がありません。`);
+      continue;
+    }
+    if (q.kind === "numeric" && !isFiniteNumber(value)) {
+      addValidationError(result, `problem.referenceAnswers.${key} は数値である必要があります。`);
+    }
+    if (q.kind === "choice" && (!isInteger(value) || value < 0 ||
+        (Array.isArray(q.options) && value >= q.options.length))) {
+      addValidationError(result, `problem.referenceAnswers.${key} は選択肢番号（0 始まりの整数）である必要があります。`);
+    }
+  }
+  for (const key of questionMap.keys()) {
+    if (!(key in ra)) {
+      addValidationError(result, `problem.referenceAnswers に ${key} の正答がありません。`);
+    }
   }
 }
 
@@ -884,8 +1282,15 @@ function validateBoardComponent(component, index, result, componentIds) {
     addValidationError(result, `${path}.params はオブジェクトである必要があります。`);
   }
 
-  if (component.connect !== undefined && !isStringArray(component.connect)) {
-    addValidationError(result, `${path}.connect は文字列配列である必要があります。`);
+  // 未配線ピンは "" または null（シミュレータ側で「どこにもつながらないネット」として扱う）
+  if (
+    component.connect !== undefined &&
+    !(
+      Array.isArray(component.connect) &&
+      component.connect.every((item) => item === null || typeof item === "string")
+    )
+  ) {
+    addValidationError(result, `${path}.connect は文字列配列である必要があります（未配線ピンは ""）。`);
   }
 
   if (component.position !== undefined) {

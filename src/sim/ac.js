@@ -7,7 +7,11 @@
  *  - L:    admittance 1/(jωL) = -j/(ωL)
  *  - V_AC: 交流電圧源（複素フェーザ Vpk·e^{jφ}）
  *  - I_AC: 交流電流源（複素フェーザ Ipk·e^{jφ}）
- *  - V_DC: AC では短絡（0V 電圧源として扱う）
+ *  - V_DC / V_PULSE: AC では短絡（0V 電圧源として扱う）
+ *  - L_RELAY: L と同じ
+ *  - TP / GND: 電気的には何もしない
+ *  - 解析周波数: 電源の freqHz と options.checks の frequencyHz すべて
+ *    （options.frequencies 指定時はそれだけ）
  *  - I_DC: AC では開放（寄与なし）
  *  - SW:   closed=true で微小抵抗、false で高抵抗
  *
@@ -43,6 +47,7 @@
 
 import { registerSimulationMode } from "./simulator.js";
 import { parseMetricValue } from "../core/units.js";
+import { prepareNetlist, filterNodeResults, GMIN_NODE } from "./netlist.js";
 
 const SQRT2 = Math.SQRT2;
 const DEFAULT_FREQUENCY_HZ = 1000;
@@ -175,35 +180,48 @@ function solveComplexLinearSystem(A, b) {
 
 function extractFrequencies(circuit, options) {
   if (Array.isArray(options?.frequencies) && options.frequencies.length > 0) {
-    return options.frequencies.filter((f) => Number.isFinite(f) && f > 0);
+    const list = options.frequencies.filter((f) => Number.isFinite(f) && f > 0);
+    return { frequencies: list, primary: list[0] ?? null };
   }
 
-  const freqs = new Set();
+  // 電源の周波数（先頭を primaryFrequency とする）
+  const sourceFreqs = [];
   for (const c of circuit.components) {
     if (c.type === "V_AC" || c.type === "I_AC") {
       const f = getNumericParam(c, "freqHz", 0);
+      if (Number.isFinite(f) && f > 0 && !sourceFreqs.includes(f)) sourceFreqs.push(f);
+    }
+  }
+  const primary = sourceFreqs.length > 0 ? sourceFreqs[0] : DEFAULT_FREQUENCY_HZ;
+
+  // checks の frequencyHz も解析する（線形 AC 解析なので、電源振幅のまま
+  // 任意の周波数で解いてよい。1つの電源で複数周波数の利得を判定できる）
+  const freqs = new Set([primary, ...sourceFreqs]);
+  if (Array.isArray(options?.checks)) {
+    for (const chk of options.checks) {
+      const f = chk?.frequencyHz;
       if (Number.isFinite(f) && f > 0) freqs.add(f);
     }
   }
 
-  if (freqs.size === 0) {
-    return [DEFAULT_FREQUENCY_HZ];
-  }
-  return Array.from(freqs).sort((a, b) => a - b);
+  return {
+    frequencies: Array.from(freqs).sort((a, b) => a - b),
+    primary,
+  };
 }
 
 /* ==========================================================================
    単一周波数での複素 MNA
    ========================================================================== */
 
-function solveAtFrequency(circuit, freq, warnings) {
+function solveAtFrequency(circuit, freq, warnings, excludedNets = new Set()) {
   const omega = 2 * Math.PI * freq;
 
-  // --- ノード列挙 ---
+  // --- ノード列挙（TP だけのネットなど未接続ネットは除外） ---
   const nets = new Set();
   for (const c of circuit.components) {
     for (const pin of (c.connect || [])) {
-      if (!isGroundNet(pin)) nets.add(pin);
+      if (!isGroundNet(pin) && !excludedNets.has(pin)) nets.add(pin);
     }
   }
   const nodeList = Array.from(nets);
@@ -235,7 +253,8 @@ function solveAtFrequency(circuit, freq, warnings) {
         branches.push({ id: c.id, p, n, y: { re: 0, im: omega * Cval } });
         break;
       }
-      case "L": {
+      case "L":
+      case "L_RELAY": {
         const L = Math.max(getNumericParam(c, "L", 1e-3), 1e-12);
         branches.push({ id: c.id, p, n, y: { re: 0, im: -1 / (omega * L) } });
         break;
@@ -251,8 +270,9 @@ function solveAtFrequency(circuit, freq, warnings) {
         });
         break;
       }
-      case "V_DC": {
-        // AC では短絡（0V 電圧源）
+      case "V_DC":
+      case "V_PULSE": {
+        // AC では短絡（0V 電圧源）。V_PULSE も小信号的には 0V 源として扱う
         vSources.push({ id: c.id, p, n, value: C.zero() });
         break;
       }
@@ -276,8 +296,11 @@ function solveAtFrequency(circuit, freq, warnings) {
         branches.push({ id: c.id, p, n, y: { re: g, im: 0 } });
         break;
       }
+      case "WIRE":
+        branches.push({ id: c.id, p, n, y: { re: CLOSED_SWITCH_G, im: 0 } });
+        break;
       default:
-        warnings.push(`AC解析では未対応の部品: ${c.id} (${c.type})`);
+        warnings.push(`AC解析では未対応の部品です（無視されます）: ${c.id} (${c.type})`);
     }
   }
 
@@ -295,6 +318,9 @@ function solveAtFrequency(circuit, freq, warnings) {
     Array.from({ length: size }, () => C.zero())
   );
   const b = new Array(size).fill(null).map(() => C.zero());
+
+  // 全ノードに Gmin（浮いたノードがあっても解けるように）
+  for (let i = 0; i < N; i++) A[i][i] = C.add(A[i][i], { re: GMIN_NODE, im: 0 });
 
   // アドミタンススタンプ
   for (const br of branches) {
@@ -401,11 +427,17 @@ function solveAtFrequency(circuit, freq, warnings) {
    公開 API
    ========================================================================== */
 
-export function runAc(circuit, options = {}) {
+export function runAc(circuitIn, options = {}) {
   const errors = [];
   const warnings = [];
 
-  const frequencies = extractFrequencies(circuit, options);
+  // 未配線ピン・TP だけのネット・浮いたネットの前処理（netlist.js）
+  const prep = prepareNetlist(circuitIn.components);
+  const circuit = { ...circuitIn, components: prep.components };
+  warnings.push(...prep.warnings);
+  const excludedNets = new Set(prep.unconnectedNets);
+
+  const { frequencies, primary } = extractFrequencies(circuit, options);
 
   if (frequencies.length === 0) {
     return {
@@ -420,7 +452,7 @@ export function runAc(circuit, options = {}) {
   const allElements = {};
 
   for (const freq of frequencies) {
-    const res = solveAtFrequency(circuit, freq, warnings);
+    const res = solveAtFrequency(circuit, freq, warnings, excludedNets);
     if (!res) {
       errors.push(
         `AC シミュレーションに失敗しました（${freq} Hz）。浮遊ノードや短絡がないか確認してください。`
@@ -441,8 +473,10 @@ export function runAc(circuit, options = {}) {
     ok: errors.length === 0,
     ac: {
       frequencies,
-      primaryFrequency: frequencies[0],
-      nodes: allNodes,
+      primaryFrequency: primary,
+      nodes: filterNodeResults(allNodes, prep),
+      unconnectedNets: prep.unconnectedNets,
+      floatingNets: prep.floatingNets,
       elements: allElements,
     },
     errors,

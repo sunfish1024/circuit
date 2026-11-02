@@ -2,253 +2,103 @@
   "problems": [
     {
       "id": "A-01",
-      "title": "オームの法則で抵抗値を決める",
+      "title": "オームの法則：抵抗で電流を決める",
       "difficulty": 1
     },
     {
       "id": "A-02",
-      "title": "分圧回路で出力電圧を作る",
-      "difficulty": 2
+      "title": "電力と定格：ヒーター抵抗を選ぶ",
+      "difficulty": 1
     },
     {
       "id": "A-03",
-      "title": "並列接続で合計電流を増やす",
+      "title": "直列回路とKVL：ランプの電圧を合わせる",
       "difficulty": 2
     },
     {
       "id": "A-04",
-      "title": "RC時定数を指定値にする",
+      "title": "分圧回路：12 V から 3 V を作る",
       "difficulty": 2
     },
     {
       "id": "A-05",
-      "title": "LC並列共振周波数を合わせる",
-      "difficulty": 3
+      "title": "並列回路とKCL：電流を足し合わせる",
+      "difficulty": 2
     },
     {
       "id": "A-06",
-      "title": "抵抗の消費電力を指定値にする",
+      "title": "負荷をつないだ分圧回路を設計する",
       "difficulty": 2
     },
     {
       "id": "A-07",
-      "title": "RL回路の時定数を指定値にする",
-      "difficulty": 2
-    },
-    {
-      "id": "A-08",
-      "title": "電流源の並列分流で支路電流を決める",
-      "difficulty": 2
-    },
-    {
-      "id": "A-09",
-      "title": "コンデンサの並列合成容量を指定値にする",
-      "difficulty": 1
-    },
-    {
-      "id": "A-10",
-      "title": "誘導性リアクタンスを指定値にする",
-      "difficulty": 3
-    },
-    {
-      "id": "A-11",
-      "title": "コンデンサの直列合成容量を指定値にする",
-      "difficulty": 2
-    },
-    {
-      "id": "A-12",
-      "title": "RCローパスの遮断周波数を合わせる",
-      "difficulty": 3
-    },
-    {
-      "id": "A-13",
       "title": "ホイートストンブリッジを平衡させる",
       "difficulty": 3
     },
     {
+      "id": "A-08",
+      "title": "電流源と分流器 ― 電流計の測定範囲を広げる",
+      "difficulty": 2
+    },
+    {
+      "id": "A-09",
+      "title": "2つの電源がつながった節点の電圧を決める",
+      "difficulty": 3
+    },
+    {
+      "id": "A-10",
+      "title": "テブナン等価と最大電力伝達",
+      "difficulty": 3
+    },
+    {
+      "id": "A-11",
+      "title": "RC充電回路と時定数 τ",
+      "difficulty": 2
+    },
+    {
+      "id": "A-12",
+      "title": "リセット遅延回路 — しきい値に届く時刻を設計する",
+      "difficulty": 3
+    },
+    {
+      "id": "A-13",
+      "title": "コイル電流の立ち上がり — L/R 駆動で応答を速くする",
+      "difficulty": 3
+    },
+    {
       "id": "A-14",
-      "title": "RC充電の指定時刻電圧を合わせる",
+      "title": "RCローパスフィルタの遮断周波数を合わせる",
       "difficulty": 3
     },
     {
       "id": "A-15",
-      "title": "最大電力伝送のための負荷抵抗を決める",
-      "difficulty": 3
+      "title": "結合コンデンサの選定 — 低い音まで通すハイパスフィルタ",
+      "difficulty": 4
     },
     {
       "id": "A-16",
-      "title": "容量性リアクタンスを指定値にする",
+      "title": "インダクタのリアクタンスとインピーダンス",
       "difficulty": 3
     },
     {
       "id": "A-17",
-      "title": "コンデンサの蓄積エネルギーを指定値にする",
-      "difficulty": 2
+      "title": "直列RLC共振 ― 同調コンデンサを選ぶ",
+      "difficulty": 3
     },
     {
       "id": "A-18",
-      "title": "負荷付き分圧回路で出力電圧を合わせる",
-      "difficulty": 3
+      "title": "並列LC共振（タンク回路）と Q ― 帯域幅を設計する",
+      "difficulty": 4
     },
     {
       "id": "A-19",
-      "title": "直流定常状態でのインダクタ電流を指定値にする",
-      "difficulty": 2
+      "title": "LCローパスフィルタ ― D級アンプの出力フィルタ",
+      "difficulty": 4
     },
     {
       "id": "A-20",
-      "title": "容量性分圧回路で出力電圧を合わせる",
-      "difficulty": 3
-    },
-    {
-      "id": "A-21",
-      "title": "直並列合成抵抗で電源電流を合わせる",
-      "difficulty": 2
-    },
-    {
-      "id": "A-22",
-      "title": "交流実効電力から抵抗値を決める",
-      "difficulty": 2
-    },
-    {
-      "id": "A-23",
-      "title": "2電源回路の重ね合わせでノード電圧を合わせる",
-      "difficulty": 3
-    },
-    {
-      "id": "A-24",
-      "title": "RCハイパスの遮断周波数を合わせる",
-      "difficulty": 3
-    },
-    {
-      "id": "A-25",
-      "title": "直列RLC回路のQを指定値にする",
-      "difficulty": 3
-    },
-    {
-      "id": "A-26",
-      "title": "テブナン等価回路の開放電圧と等価抵抗を求める",
-      "difficulty": 2
-    },
-    {
-      "id": "A-27",
-      "title": "テブナン等価回路を用いて負荷電流を決める",
-      "difficulty": 2
-    },
-    {
-      "id": "A-28",
-      "title": "ノートン等価回路（短絡電流と等価コンダクタンス）",
-      "difficulty": 2
-    },
-    {
-      "id": "A-29",
-      "title": "ミリマン定理で多電源ノード電圧を合わせる",
-      "difficulty": 2
-    },
-    {
-      "id": "A-30",
-      "title": "KVL閉路方程式でループ電流を決める",
-      "difficulty": 2
-    },
-    {
-      "id": "A-31",
-      "title": "インダクタの直列合成インダクタンス",
-      "difficulty": 1
-    },
-    {
-      "id": "A-32",
-      "title": "インダクタの並列合成インダクタンス",
-      "difficulty": 1
-    },
-    {
-      "id": "A-33",
-      "title": "インダクタ蓄積エネルギー E=1/2·L·I²",
-      "difficulty": 2
-    },
-    {
-      "id": "A-34",
-      "title": "抵抗の直並列合成抵抗を目標値にする",
-      "difficulty": 2
-    },
-    {
-      "id": "A-35",
-      "title": "直列コンデンサのDC電圧分担（初期電荷0）",
-      "difficulty": 2
-    },
-    {
-      "id": "A-36",
-      "title": "初期電荷あり直列コンデンサの電圧分担",
-      "difficulty": 2
-    },
-    {
-      "id": "A-37",
-      "title": "RC放電波形の指定時刻電圧",
-      "difficulty": 2
-    },
-    {
-      "id": "A-38",
-      "title": "RL電流時間波形の指定時刻電流",
-      "difficulty": 2
-    },
-    {
-      "id": "A-39",
-      "title": "スイッチ切替を含むRC回路の最終値と時定数",
-      "difficulty": 2
-    },
-    {
-      "id": "A-40",
-      "title": "RLC減衰振動の減衰比ζ",
-      "difficulty": 3
-    },
-    {
-      "id": "A-41",
-      "title": "RLCリンギング周波数",
-      "difficulty": 3
-    },
-    {
-      "id": "A-42",
-      "title": "定電流によるコンデンサ充電のランプ電圧",
-      "difficulty": 1
-    },
-    {
-      "id": "A-43",
-      "title": "直列RL回路の合成インピーダンス |Z|",
-      "difficulty": 2
-    },
-    {
-      "id": "A-44",
-      "title": "直列RC回路のインピーダンスと位相角",
-      "difficulty": 2
-    },
-    {
-      "id": "A-45",
-      "title": "交流回路の電圧・電流位相差",
-      "difficulty": 2
-    },
-    {
-      "id": "A-46",
-      "title": "実効値と最大値の関係（波高率）",
-      "difficulty": 2
-    },
-    {
-      "id": "A-47",
-      "title": "電圧比からデシベルへの変換",
-      "difficulty": 2
-    },
-    {
-      "id": "A-48",
-      "title": "デシベルから電力比への変換",
-      "difficulty": 2
-    },
-    {
-      "id": "A-49",
-      "title": "RCフィルタの指定周波数での減衰量",
-      "difficulty": 3
-    },
-    {
-      "id": "A-50",
-      "title": "時定数から遮断周波数への換算",
-      "difficulty": 2
+      "title": "総合問題：センサ信号を ADC 用に分圧・フィルタする",
+      "difficulty": 5
     }
   ]
 }

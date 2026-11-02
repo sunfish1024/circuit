@@ -1,51 +1,245 @@
 {
-  "version": 1,
+  "version": 2,
   "checkTypes": [
     {
       "type": "dcVoltage",
       "requiredSim": "dc",
-      "description": "DCノード電圧、または部品両端電圧を期待値と比較します。check.node または check.element のいずれかが必要です。",
-      "fields": ["node", "element", "expected", "tolerancePct", "unit"]
+      "description": "DCノード電圧（gnd基準）、または部品の端子1−端子2電圧を期待値と比較します。 element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
+      "required": [
+        "node|element|match",
+        "expected"
+      ],
+      "fields": [
+        "node",
+        "element",
+        "match",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit"
+      ]
     },
     {
       "type": "dcCurrent",
       "requiredSim": "dc",
-      "description": "部品を流れるDC電流を期待値と比較します。check.signed が true でない場合は絶対値で比較します。",
-      "fields": ["element", "expected", "tolerancePct", "unit", "signed"]
+      "description": "部品を流れるDC電流を期待値と比較します。signed が true でなければ絶対値で比較します。 element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
+      "required": [
+        "element|match",
+        "expected"
+      ],
+      "fields": [
+        "element",
+        "match",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit",
+        "signed"
+      ]
     },
     {
       "type": "dcPower",
       "requiredSim": "dc",
-      "description": "部品で消費または供給されるDC電力を期待値と比較します。check.signed が true でない場合は絶対値で比較します。",
-      "fields": ["element", "expected", "tolerancePct", "unit", "signed"]
+      "description": "部品で消費または供給されるDC電力を期待値と比較します。signed が true でなければ絶対値で比較します。 element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
+      "required": [
+        "element|match",
+        "expected"
+      ],
+      "fields": [
+        "element",
+        "match",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit",
+        "signed"
+      ]
     },
     {
       "type": "componentValue",
-      "description": "ボード上の部品パラメータ値を期待値と比較します。シミュレーション不要です。check.param を省略した場合は部品種別から代表パラメータを推定します。",
-      "fields": ["element", "param", "expected", "tolerancePct", "unit"]
+      "description": "ボード上の部品パラメータ値を期待値と比較します。シミュレーション不要。param 省略時は部品種別の代表パラメータ。 element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
+      "required": [
+        "element|match",
+        "expected"
+      ],
+      "fields": [
+        "element",
+        "match",
+        "param",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit"
+      ]
     },
     {
       "type": "connection",
-      "description": "部品の接続ネットが指定されたネットをすべて含むかどうかを判定します。シミュレーション不要です。",
-      "fields": ["element", "nets"]
+      "description": "部品の接続を判定します。pins（ピン名→ネット名、向きを判定）または nets（ネット集合、向きを見ない）。componentType で部品種別も要求できます。シミュレーション不要。 element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
+      "required": [
+        "element|match",
+        "pins|nets"
+      ],
+      "fields": [
+        "element",
+        "match",
+        "pins",
+        "nets",
+        "componentType",
+        "unordered"
+      ]
     },
     {
       "type": "truthTable",
       "requiredSim": "digital",
       "description": "デジタルシミュレーションで得られた真理値表が期待テーブルと一致するかどうかを判定します。",
-      "fields": ["table"]
+      "required": [
+        "table"
+      ],
+      "fields": [
+        "table"
+      ]
     },
     {
       "type": "multipleChoice",
-      "description": "選択式問題の解答が期待値と一致するかどうかを判定します。シミュレーション不要です。check.key または check.id で解答キーを指定します。",
-      "fields": ["key", "id", "answerIndex", "expected", "answer"]
+      "description": "選択式の回答（context.answers[key]、0始まりの選択肢番号）が answerIndex と一致するか判定します。key は questions（kind: choice）に存在すること。",
+      "required": [
+        "key|id",
+        "answerIndex|expected|answer"
+      ],
+      "fields": [
+        "key",
+        "id",
+        "answerIndex",
+        "expected",
+        "answer"
+      ]
     },
-    { "type": "timeConstant",         "requiredSim": "transient", "fields": ["expected","tolerancePct"] },
-{ "type": "transientPoint",       "requiredSim": "transient", "fields": ["node","timeSec","expected","tolerancePct","unit"] },
-{ "type": "oscillationFrequency", "requiredSim": "transient", "fields": ["node","expected","tolerancePct"] },
-{ "type": "acVoltage",            "requiredSim": "ac",        "fields": ["node","frequencyHz","expectedRMS","tolerancePct","unit"] },
-{ "type": "acGaindB",             "requiredSim": "ac",        "fields": ["input","output","frequencyHz","expected","tolerancePct","unit"] },
-{ "type": "bodePoint",            "requiredSim": "ac",        "fields": ["input","output","frequencyHz","gainDB","phaseDeg","tolerancePct"] }
-  
-]
+    {
+      "type": "numericAnswer",
+      "description": "数値回答（context.answers[key]、SI単位の数値）を期待値と比較します。未回答は不合格。key は questions（kind: numeric）に存在すること。",
+      "required": [
+        "key",
+        "expected"
+      ],
+      "fields": [
+        "key",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit",
+        "label"
+      ]
+    },
+    {
+      "type": "timeConstant",
+      "requiredSim": "transient",
+      "description": "時定数。node 指定時は過渡波形のステップ応答から63.2%法で測定（fromSec〜toSec）。element 指定時はその C/L から見たテブナン抵抗で計算。どちらも無い場合は C/L が1個の回路のみ。 element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
+      "required": [
+        "expected"
+      ],
+      "fields": [
+        "node",
+        "element",
+        "match",
+        "fromSec",
+        "toSec",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit"
+      ]
+    },
+    {
+      "type": "transientPoint",
+      "requiredSim": "transient",
+      "description": "時刻 timeSec のノード電圧、または部品の電圧/電流（quantity: v|i）を線形補間で取り出して比較します。 element の代わりに match（{type, nets, pins}）で部品を種別と接続から特定できます。",
+      "required": [
+        "node|element|match",
+        "timeSec",
+        "expected"
+      ],
+      "fields": [
+        "node",
+        "element",
+        "match",
+        "quantity",
+        "signed",
+        "timeSec",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit"
+      ]
+    },
+    {
+      "type": "oscillationFrequency",
+      "requiredSim": "transient",
+      "description": "過渡波形の零交差間隔から振動周波数（減衰固有周波数）を測定して比較します。node 省略時は振れ幅最大のノード。",
+      "required": [
+        "expected"
+      ],
+      "fields": [
+        "node",
+        "fromSec",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit"
+      ]
+    },
+    {
+      "type": "acVoltage",
+      "requiredSim": "ac",
+      "description": "指定周波数でのノード電圧の実効値（RMS）を比較します。V_AC の Vpk はピーク値。",
+      "required": [
+        "node",
+        "expectedRMS|expected"
+      ],
+      "fields": [
+        "node",
+        "frequencyHz",
+        "expectedRMS",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit"
+      ]
+    },
+    {
+      "type": "acGaindB",
+      "requiredSim": "ac",
+      "description": "20·log10(|V(output)|/|V(input)|) [dB] を比較します。input/output はノード名（既定 vin/out）。dB は toleranceAbs で指定するのが基本。",
+      "required": [
+        "expected"
+      ],
+      "fields": [
+        "input",
+        "output",
+        "frequencyHz",
+        "expected",
+        "tolerancePct",
+        "toleranceAbs",
+        "unit"
+      ]
+    },
+    {
+      "type": "bodePoint",
+      "requiredSim": "ac",
+      "description": "指定周波数の利得 gainDB と位相 phaseDeg（∠V(output)−∠V(input)、度）を比較します。許容は gainToleranceDB / phaseToleranceDeg（絶対値）を推奨。",
+      "required": [
+        "gainDB|phaseDeg"
+      ],
+      "fields": [
+        "input",
+        "output",
+        "frequencyHz",
+        "gainDB",
+        "phaseDeg",
+        "gainToleranceDB",
+        "phaseToleranceDeg",
+        "tolerancePct",
+        "toleranceAbs"
+      ]
+    }
+  ]
 }

@@ -52,6 +52,7 @@
 import { registerSimulationMode } from "./simulator.js";
 import { CONFIG } from "../config.js";
 import { parseMetricValue } from "../core/units.js";
+import { prepareNetlist, filterNodeResults, GMIN_NODE } from "./netlist.js";
 
 /** コンデンサを DC で「ほぼ開放」と見なすときの単位静電容量あたりのコンダクタンス */
 const EPS_CONDUCTANCE_PER_FARAD = 1e-3;
@@ -174,7 +175,7 @@ function solveLinearSystem(A, b) {
 function detectFloatingNodes(circuit) {
   const typesByNet = new Map();
   for (const c of circuit.components) {
-    if (c.type === "GND") continue;
+    if (c.type === "GND" || c.type === "TP") continue;
     for (const pin of (c.connect || [])) {
       if (isGroundNet(pin)) continue;
       if (!typesByNet.has(pin)) typesByNet.set(pin, new Set());
@@ -257,7 +258,8 @@ function classifyComponents(components, warnings) {
         resistors.push({ id: c.id, p: pins[0], n: pins[1], g: EPS_CONDUCTANCE_PER_FARAD * C });
         break;
       }
-      case "L": {
+      case "L":
+      case "L_RELAY": {
         resistors.push({ id: c.id, p: pins[0], n: pins[1], g: 1 / R_INDUCTOR_DC });
         break;
       }
@@ -458,6 +460,9 @@ function assembleSystem(ctx, devices) {
 
   const A = Array.from({ length: size }, () => new Array(size).fill(0));
   const b = new Array(size).fill(0);
+
+  // --- 全ノードに Gmin（浮いたノード・TP だけのノードがあっても解けるように） ---
+  for (let i = 0; i < N; i++) A[i][i] += GMIN_NODE;
 
   // --- 抵抗 / コンダクタンスをスタンプ ---
   for (const r of resistors) {
@@ -1161,15 +1166,22 @@ function extractDeviceElements(devices, ctx, x, branchRows, deviceBranchBase) {
  * @param {object} circuit { components, wires, nodes }
  * @returns {object}
  */
-export function runDc(circuit) {
+export function runDc(circuitIn) {
   const errors = [];
   const warnings = [];
+
+  // 未配線ピンを固有ネットへ、TP だけのネットを除外、浮いたネットを検出（netlist.js）
+  const prep = prepareNetlist(circuitIn.components);
+  const circuit = { ...circuitIn, components: prep.components };
+  warnings.push(...prep.warnings);
+  const excludedNets = new Set(prep.unconnectedNets);
+  const netInfo = { unconnectedNets: prep.unconnectedNets, floatingNets: prep.floatingNets };
 
   // --- ノード列挙 ---
   const nets = new Set();
   for (const c of circuit.components) {
     for (const pin of (c.connect || [])) {
-      if (!isGroundNet(pin)) nets.add(pin);
+      if (!isGroundNet(pin) && !excludedNets.has(pin)) nets.add(pin);
     }
   }
   const nodeList = Array.from(nets);
@@ -1216,7 +1228,7 @@ export function runDc(circuit) {
     const { A, b, size, branchRows } = assembleSystem(ctx, devices);
 
     if (size === 0) {
-      return { ok: true, dc: { nodes: { gnd: 0 }, elements: {} }, errors, warnings };
+      return { ok: true, dc: { nodes: { gnd: 0 }, elements: {}, ...netInfo }, errors, warnings };
     }
 
     const solution = solveLinearSystem(A, b);
@@ -1224,7 +1236,7 @@ export function runDc(circuit) {
       errors.push(
         "DCシミュレーションで連立方程式を解けませんでした。浮遊ノードや短絡がないか確認してください。"
       );
-      return { ok: false, dc: { nodes: {}, elements: {} }, errors, warnings };
+      return { ok: false, dc: { nodes: {}, elements: {}, ...netInfo }, errors, warnings };
     }
 
     x = solution;
@@ -1285,7 +1297,12 @@ export function runDc(circuit) {
   );
   Object.assign(elements, deviceElements);
 
-  return { ok: true, dc: { nodes, elements }, errors, warnings };
+  return {
+    ok: true,
+    dc: { nodes: filterNodeResults(nodes, prep), elements, ...netInfo },
+    errors,
+    warnings,
+  };
 }
 
 /**
