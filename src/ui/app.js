@@ -65,6 +65,7 @@ import {
   addComponent,
   addWire,
   clearBoard,
+  clearSelection,
   getComponentById,
   getState,
   removeComponent,
