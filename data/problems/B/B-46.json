@@ -1,0 +1,95 @@
+{
+  "id": "B-46",
+  "category": "B",
+  "title": "VBE増倍回路のバイアス抵抗設計",
+  "difficulty": 2,
+  "statement": "前提: Q1はNPNトランジスタで、VBE=0.7V、ベース電流は無視できる。電流源I1は理想とする。 固定配置されたQ1、R2=1kΩ、I1=1mAによるVBE増倍回路において、top-gnd間電圧VCEを2.8Vにしたい。Q1のベースはR1とR2の分圧点baseに接続されている。top-base間に配置するR1の値を求めよ。Q1のコレクタはtop、エミッタはgnd、R2はbase-gnd間に固定されている。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "VBE増倍回路の分圧抵抗比を設計し、所望のVCEを得る。",
+  "hint": "VCE = VBE × (1 + R1/R2) の関係を使う。VBE=0.7V、目標VCE=2.8Vである。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VCC",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "VCC",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "I1",
+      "type": "I_DC",
+      "params": {
+        "I": 0.001
+      },
+      "connect": [
+        "top",
+        "VCC"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "top",
+        "base",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "base",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "top",
+      "expected": 2.8,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 3000,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 3000
+      },
+      "connect": [
+        "top",
+        "base"
+      ]
+    }
+  ]
+}

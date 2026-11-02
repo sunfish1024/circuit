@@ -1,0 +1,99 @@
+{
+  "id": "B-32",
+  "category": "B",
+  "title": "ショットキーダイオードによる電源OR",
+  "difficulty": 2,
+  "statement": "前提: ショットキーダイオードの順方向電圧は0.3V、逆方向漏れ電流は無視する。温度特性は無視する。 V1=5V、V2=3.3Vの2つの直流電源がある。負荷抵抗Rload=1kΩはout-gnd間に固定されている。V1とV2からダイオードD1、D2を介してoutへ電力を供給する電源OR回路を作れ。より高い電圧のV1側から負荷へ電流が流れ、V2側のダイオードは逆バイアスとなるように接続せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "順方向電圧の低いショットキーダイオードで電源のバックアップORを構成できる。",
+  "hint": "各ダイオードのアノードを電源側、カソードをout側に向ける。V1側が導通するとoutは 5V - 0.3V となる。V2側は 3.3V - 0.3V = 3.0V よりoutが高いため逆バイアスとなる。",
+  "availableComponents": [
+    "SD"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "v1",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "V2",
+      "type": "V_DC",
+      "params": {
+        "V": 3.3
+      },
+      "connect": [
+        "v2",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rload",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "out",
+      "expected": 4.7,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "dcCurrent",
+      "element": "Rload",
+      "expected": 0.0047,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcCurrent",
+      "element": "D1",
+      "expected": 0.0047,
+      "tolerancePct": 3,
+      "unit": "A"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "D1",
+      "type": "SD",
+      "params": {
+        "Vf": 0.3
+      },
+      "connect": [
+        "v1",
+        "out"
+      ]
+    },
+    {
+      "id": "D2",
+      "type": "SD",
+      "params": {
+        "Vf": 0.3
+      },
+      "connect": [
+        "v2",
+        "out"
+      ]
+    }
+  ]
+}

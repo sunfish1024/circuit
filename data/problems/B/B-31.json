@@ -1,0 +1,81 @@
+{
+  "id": "B-31",
+  "category": "B",
+  "title": "ダイオードクランプによる過電圧制限",
+  "difficulty": 2,
+  "statement": "前提: ダイオードD1の順方向電圧は0.7V、逆方向漏れ電流は無視する。温度特性は無視する。 V1=10Vの直流電源、固定抵抗R1=1kΩがvin-out間に接続されている。outの電圧がVcc+0.7Vを超えないように、ダイオードD1をoutとVcc=5Vの間に配置してクランプせよ。負荷は接続しない。クランプ時のout電圧とD1に流れる電流を判定条件に合わせよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "ダイオードクランプ回路でノード電圧の上限を制限できる。",
+  "hint": "クランプ時はD1が導通し、outはVcc+0.7Vに固定される。D1のアノードをout、カソードをvccに向ける。R1の両端電圧は vin - out である。",
+  "availableComponents": [
+    "D"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 10
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Vcc",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "vin",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "out",
+      "expected": 5.7,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "dcCurrent",
+      "element": "D1",
+      "expected": 0.0043,
+      "tolerancePct": 3,
+      "unit": "A"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "D1",
+      "type": "D",
+      "params": {
+        "Vf": 0.7
+      },
+      "connect": [
+        "out",
+        "vcc"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "id": "B-33",
+  "category": "B",
+  "title": "ツェナーの電力定格を満たす限流抵抗設計",
+  "difficulty": 2,
+  "statement": "前提: ツェナーD1は逆方向降伏電圧Vz=5.1Vで動作し、動抵抗は無視する。許容電力は100mWとする。温度特性は無視する。 V1=15Vの直流電源、抵抗R1、ツェナーD1を接続する。D1はa側をカソード、gnd側をアノードとして固定されている。負荷は接続しない。R1をvin-a間に配置し、ツェナーD1に10mAを流したい。このときツェナーD1の消費電力が許容電力100mW以内であることを確認した上で、R1の値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "ツェナー電流から消費電力を求め、定格内に収まる限流抵抗を設計できる。",
+  "hint": "R1の両端電圧は 15V - 5.1V = 9.9V である。10mAを流す抵抗値を求める。ツェナー消費電力は Vz × Iz = 5.1V × 10mA = 51mW で、100mW以内である。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 15
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "D1",
+      "type": "ZD",
+      "params": {
+        "Vz": 5.1
+      },
+      "connect": [
+        "gnd",
+        "a"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "a",
+      "expected": 5.1,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "dcCurrent",
+      "element": "R1",
+      "expected": 0.01,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcPower",
+      "element": "D1",
+      "expected": 0.051,
+      "tolerancePct": 3,
+      "unit": "W"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 990,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 990
+      },
+      "connect": [
+        "vin",
+        "a"
+      ]
+    }
+  ]
+}

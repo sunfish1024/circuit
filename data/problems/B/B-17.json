@@ -1,0 +1,103 @@
+{
+  "id": "B-17",
+  "category": "B",
+  "title": "フォトカプラのCTRを用いた出力電流設計",
+  "difficulty": 2,
+  "statement": "前提: フォトカプラU1の入力LEDはVf=1.2V、電流伝達率CTR=50%とする。出力フォトトランジスタは活性領域で使用し、コレクタ電流は CTR×LED電流 とする。温度特性は無視する。 Vcc=5V、Vin=5Vの直流電源がある。フォトカプラU1の入力LEDはアノードa、カソードgndに固定されている。出力フォトトランジスタはコレクタc、エミッタgndに固定され、cには固定負荷抵抗Rload=500Ωがvcc-c間に接続されている。入力抵抗R1をvin-a間に配置し、出力コレクタ電流を5mAにしたい。R1の値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "フォトカプラのCTRを用いて、所望の出力電流を得る入力抵抗を設計できる。",
+  "hint": "出力電流5mAを得るには、CTR=50%よりLED電流は10mA必要である。R1の両端電圧は Vin - Vf = 5V - 1.2V である。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "Vcc",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Vin",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "U1",
+      "type": "U_OPTO",
+      "params": {
+        "Vf": 1.2,
+        "CTR": 0.5
+      },
+      "connect": [
+        "a",
+        "gnd",
+        "c",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rload",
+      "type": "R",
+      "params": {
+        "R": 500
+      },
+      "connect": [
+        "vcc",
+        "c"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rload",
+      "expected": 0.005,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "c",
+      "expected": 2.5,
+      "tolerancePct": 3,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 380,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 380
+      },
+      "connect": [
+        "vin",
+        "a"
+      ]
+    }
+  ]
+}

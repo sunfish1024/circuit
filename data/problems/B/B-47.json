@@ -1,0 +1,89 @@
+{
+  "id": "B-47",
+  "category": "B",
+  "title": "フライバックダイオードによる逆起電力保護",
+  "difficulty": 1,
+  "statement": "前提: リレーコイルL1は理想インダクタとし、トランジスタQ1はオフ時にコイル電流を遮断する。ダイオードは理想とする。 VCC=24Vの電源にリレーコイルL1を介してNPNトランジスタQ1のコレクタが接続されている。Q1のベースは0Vでオフである。Q1のコレクタ電圧が過大にならないように、リレーコイルL1と並列にフライバックダイオードD1を配置せよ。D1のカソードはVCC側、アノードはcollector側になるように接続する。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "誘導性負荷の逆起電力からトランジスタを保護するフライバックダイオードの接続を理解する。",
+  "hint": "コイル電流が遮断されるとcollector電位が上昇する。還流経路を作る向きにダイオードを接続する。",
+  "availableComponents": [
+    "D"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VCC",
+      "type": "V_DC",
+      "params": {
+        "V": 24
+      },
+      "connect": [
+        "VCC",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "L1",
+      "type": "L",
+      "params": {
+        "L": 0.1
+      },
+      "connect": [
+        "VCC",
+        "collector"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "collector",
+        "drive",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Vdrive",
+      "type": "V_DC",
+      "params": {
+        "V": 0
+      },
+      "connect": [
+        "drive",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "connection",
+      "element": "D1",
+      "nets": [
+        "VCC",
+        "collector"
+      ]
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "D1",
+      "type": "D",
+      "params": {
+        "Vf": 0.7
+      },
+      "connect": [
+        "collector",
+        "VCC"
+      ]
+    }
+  ]
+}

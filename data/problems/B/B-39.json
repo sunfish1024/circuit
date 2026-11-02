@@ -1,0 +1,72 @@
+{
+  "id": "B-39",
+  "category": "B",
+  "title": "ダイアックによる位相制御トリガ回路",
+  "difficulty": 2,
+  "statement": "前提: 電源は60Vの直流ステップと近似する。C1とR1は理想とする。ダイアックのブレークオーバー電圧Vbo=30V。ダイアック导通後はトリガパルスを発生するものとし、判定はRC時定数で行う。 60Vのステップ電源vinにR1とC1=0.22µFの直列回路を接続する。C1の電圧が4msでダイアックのブレークオーバー電圧30Vに達するようにR1を設計せよ。C1はout-gnd間に固定配置されている。",
+  "prerequisites": [],
+  "judge": "transient",
+  "learningGoal": "RC充電回路の時定数を設計し、所定時間でダイアックを導通させる。",
+  "hint": "30V = 60V × (1 − e^(−t/RC)) を解く。t=4ms、C=0.22µF。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 60
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 2.2e-7
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "D1",
+      "type": "DIAC",
+      "params": {
+        "Vbo": 30
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "timeConstant",
+      "expected": 0.005771,
+      "tolerancePct": 5
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 26200
+      },
+      "connect": [
+        "vin",
+        "out"
+      ]
+    }
+  ]
+}

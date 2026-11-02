@@ -1,0 +1,116 @@
+{
+  "id": "B-19",
+  "category": "B",
+  "title": "ダーリントン接続のベース抵抗設計",
+  "difficulty": 3,
+  "statement": "前提: Q1、Q2はNPNトランジスタで、それぞれVBE=0.7V、β=100とする。ダーリントン接続の総電流増幅率はβ1×β2=10000とする。温度特性は無視する。 Vcc=12V、Vin=5Vの直流電源がある。Q1のコレクタはvcc、ベースはb、エミッタはe1に固定されている。Q2のベースはe1、コレクタはc、エミッタはgndに固定されている。cには固定抵抗Rc=200Ωがvcc-c間に接続されている。ベース抵抗Rbをvin-b間に配置し、Q2のコレクタ電流を50mAにしたい。Rbの値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "ダーリントン接続の高い電流増幅率を利用してベース抵抗を設計できる。",
+  "hint": "総β=10000より、コレクタ電流50mAに対するベース電流は5µAである。Q1とQ2のVBEの合計は1.4Vで、Rbの両端電圧は Vin - 1.4V である。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "Vcc",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Vin",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "vcc",
+        "b",
+        "e1"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q2",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "c",
+        "e1",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rc",
+      "type": "R",
+      "params": {
+        "R": 200
+      },
+      "connect": [
+        "vcc",
+        "c"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rc",
+      "expected": 0.05,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "c",
+      "expected": 2,
+      "tolerancePct": 5,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "Rb",
+      "expected": 720000,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "Rb",
+      "type": "R",
+      "params": {
+        "R": 720000
+      },
+      "connect": [
+        "vin",
+        "b"
+      ]
+    }
+  ]
+}

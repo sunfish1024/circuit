@@ -1,0 +1,76 @@
+{
+  "id": "B-27",
+  "category": "B",
+  "title": "フォトダイオードの負荷抵抗設計",
+  "difficulty": 2,
+  "statement": "前提: フォトダイオードD1は逆バイアスで使用し、光電流Ip=1mAを生成する。暗電流は無視する。温度特性は無視する。 Vbias=5Vの直流電源がある。フォトダイオードD1はカソードをVbiasに接続し、アノードをoutに固定されている。負荷抵抗RLをout-gnd間に配置し、光電流1mAを電圧2Vに変換したい。RLの値を設定せよ。D1は逆バイアス状態を保つものとする。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "フォトダイオードの光電流を電圧に変換する負荷抵抗を設計できる。",
+  "hint": "逆バイアスされたフォトダイオードは光電流源として振る舞う。光電流はVbiasからD1を通り、RLを流れてgndへ向かう。outの電圧は Ip × RL である。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "Vbias",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vbias",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "D1",
+      "type": "PD",
+      "params": {
+        "Ip": 0.001
+      },
+      "connect": [
+        "out",
+        "vbias"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "out",
+      "expected": 2,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "dcCurrent",
+      "element": "RL",
+      "expected": 0.001,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "RL",
+      "expected": 2000,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "RL",
+      "type": "R",
+      "params": {
+        "R": 2000
+      },
+      "connect": [
+        "out",
+        "gnd"
+      ]
+    }
+  ]
+}

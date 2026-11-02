@@ -1,0 +1,106 @@
+{
+  "id": "B-21",
+  "category": "B",
+  "title": "LED並列回路の独立限流抵抗設計",
+  "difficulty": 2,
+  "statement": "前提: LED D1、D2の順方向電圧はそれぞれ2.0V、それ以外は理想とする。温度特性は無視する。 V1=5Vの直流電源がある。LED D1はa1-gnd間にアノードa1、カソードgndで固定され、LED D2はa2-gnd間にアノードa2、カソードgndで固定されている。R1をvin-a1間、R2をvin-a2間に配置し、D1、D2それぞれに10mAを流したい。R1とR2の値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "複数LEDを並列使用するとき、各LEDに独立した限流抵抗を設けて電流を設定できる。",
+  "hint": "各LEDの両端電圧は2.0Vである。各抵抗の両端電圧は 5V - 2.0V = 3.0V で、10mAを流す抵抗値を求める。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "D1",
+      "type": "LED",
+      "params": {
+        "Vf": 2
+      },
+      "connect": [
+        "a1",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "D2",
+      "type": "LED",
+      "params": {
+        "Vf": 2
+      },
+      "connect": [
+        "a2",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "R1",
+      "expected": 0.01,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcCurrent",
+      "element": "R2",
+      "expected": 0.01,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 300,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    },
+    {
+      "type": "componentValue",
+      "element": "R2",
+      "expected": 300,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 300
+      },
+      "connect": [
+        "vin",
+        "a1"
+      ]
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 300
+      },
+      "connect": [
+        "vin",
+        "a2"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "id": "B-18",
+  "category": "B",
+  "title": "固定ベースバイアス時のコレクタ抵抗設計",
+  "difficulty": 2,
+  "statement": "前提: NPNトランジスタQ1はVBE=0.7V、β=100とする。活性領域で動作させ、温度特性は無視する。 Vcc=10V、Vin=5Vの直流電源がある。NPNトランジスタQ1のベースbには固定抵抗Rb=430kΩがvin-b間に接続され、エミッタはgndに固定されている。コレクタcとvccの間にコレクタ抵抗Rcを配置し、VCEを5Vにしたい。Rcの値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "固定ベース電流からコレクタ電流を求め、所望のVCEとなるコレクタ抵抗を設計できる。",
+  "hint": "ベース電流は (5V - 0.7V) / 430kΩ = 10µA である。β=100よりコレクタ電流は1mAとなる。VCE=5VとなるRcの電圧降下は 10V - 5V = 5V である。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "Vcc",
+      "type": "V_DC",
+      "params": {
+        "V": 10
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Vin",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "c",
+        "b",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rb",
+      "type": "R",
+      "params": {
+        "R": 430000
+      },
+      "connect": [
+        "vin",
+        "b"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rc",
+      "expected": 0.001,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "c",
+      "expected": 5,
+      "tolerancePct": 3,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "Rc",
+      "expected": 5000,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "Rc",
+      "type": "R",
+      "params": {
+        "R": 5000
+      },
+      "connect": [
+        "vcc",
+        "c"
+      ]
+    }
+  ]
+}

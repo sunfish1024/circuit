@@ -1,0 +1,97 @@
+{
+  "id": "B-42",
+  "category": "B",
+  "title": "MOSFETカレントミラー",
+  "difficulty": 2,
+  "statement": "前提: M1、M2はマッチングしたNMOSで、Vth=2V、Kn=1mA/V²、チャネル長変調は無視する。M1はダイオード接続されている。 VDD=10Vの電源から、ダイオード接続されたM1のドレイン・ゲート共通ノードAにR1を接続する。M2はM1と同一特性で、ゲートはAに接続され、ドレインはout、ソースはgndである。outには固定負荷抵抗Rload=10kΩがVDD-out間に接続されている。M2のドレイン電流Iout=0.5mAとするために、VDD-A間に配置するR1の値を求めよ。MOSFETは飽和領域で動作するものとする。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "MOSFETカレントミラーの参照電流を設定する抵抗を求める。",
+  "hint": "飽和領域で ID = (1/2)·Kn·(VGS−Vth)² である。Iout=0.5mAよりVGS=3Vとなる。R1=(10V−3V)/0.5mA=14kΩ。このときVout=10V−0.5mA×10kΩ=5V > VGS−Vth=1V なのでM2は飽和領域で動作する。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VDD",
+      "type": "V_DC",
+      "params": {
+        "V": 10
+      },
+      "connect": [
+        "VDD",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "M1",
+      "type": "M_N",
+      "params": {
+        "Vth": 2,
+        "K": 0.001
+      },
+      "connect": [
+        "A",
+        "A",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "M2",
+      "type": "M_N",
+      "params": {
+        "Vth": 2,
+        "K": 0.001
+      },
+      "connect": [
+        "out",
+        "A",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rload",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "VDD",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rload",
+      "expected": 0.0005,
+      "tolerancePct": 10,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 14000,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 14000
+      },
+      "connect": [
+        "VDD",
+        "A"
+      ]
+    }
+  ]
+}

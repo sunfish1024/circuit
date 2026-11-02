@@ -1,0 +1,88 @@
+{
+  "id": "B-45",
+  "category": "B",
+  "title": "エミッタ縮退付き増幅段のバイアス設計",
+  "difficulty": 3,
+  "statement": "前提: Q1はNPNトランジスタで、VBE=0.7V、βは十分大きい。ベース電位は3V固定、コレクタ抵抗Rc=4.7kΩでVCC=12Vに接続されている。トランジスタは能動領域で動作するものとする。 ベース電位3V、VBE=0.7VのNPN増幅段において、エミッタ電流を1mAにする。エミッタとgndの間に配置するエミッタ抵抗Reの値を求めよ。コレクタは固定のRc=4.7kΩを介して12V電源に接続されている。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "エミッタ抵抗を設計して、所望のエミッタ電流を得る。",
+  "hint": "エミッタ電位は3V−0.7V=2.3Vである。Reにはエミッタ電流1mAが流れる。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VCC",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "VCC",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "VB",
+      "type": "V_DC",
+      "params": {
+        "V": 3
+      },
+      "connect": [
+        "base",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 1000,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "collector",
+        "base",
+        "emitter"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rc",
+      "type": "R",
+      "params": {
+        "R": 4700
+      },
+      "connect": [
+        "VCC",
+        "collector"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Re",
+      "expected": 0.001,
+      "tolerancePct": 2,
+      "unit": "A"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "Re",
+      "type": "R",
+      "params": {
+        "R": 2300
+      },
+      "connect": [
+        "emitter",
+        "gnd"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "id": "B-40",
+  "category": "B",
+  "title": "ワイドラーカレントミラー",
+  "difficulty": 2,
+  "statement": "前提: Q1、Q2はマッチングしたNPNトランジスタで、コレクタ電流はIC = IS·exp(VBE/VT)に従う（同一コレクタ電流ではVBEは等しい）。βは十分大きくベース電流は無視できる。熱電圧VT=26mV、温度特性は無視する。 VCC=5Vの直流電源と1mAの定電流源I1がある。Q1はコレクタとベースをノードAに接続したダイオード接続で、エミッタはgndに固定されている。I1はVCC-A間に固定され、基準電流Iref=1mAをAに供給する。Q2はベースがAに接続され、コレクタはout、エミッタはe2に固定されている。outには固定負荷抵抗Rload=5.6kΩがVCC-out間に接続されている。Q2のコレクタ電流Ioutを0.5mAとするために、e2-gnd間に配置するエミッタ抵抗R1の値を求めよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "ワイドラーカレントミラーの抵抗値を設計し、所望の出力電流を得る。",
+  "hint": "Q1とQ2のベースは共通(A)なので、VBE1 − VBE2 = VE2 − VE1 = VE2 = Iout×R1 となる（VE1=0）。マッチングしたトランジスタでは VBE1 − VBE2 = VT×ln(Iref/Iout) が成り立つ。よって R1 = VT×ln(Iref/Iout)/Iout = 26mV×ln(2)/0.5mA ≈ 36Ω である。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VCC",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "VCC",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "I1",
+      "type": "I_DC",
+      "params": {
+        "I": 0.001
+      },
+      "connect": [
+        "A",
+        "VCC"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 1000,
+        "Vbe": 0.7,
+        "Is": 1e-14
+      },
+      "connect": [
+        "A",
+        "A",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q2",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 1000,
+        "Vbe": 0.7,
+        "Is": 1e-14
+      },
+      "connect": [
+        "out",
+        "A",
+        "e2"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rload",
+      "type": "R",
+      "params": {
+        "R": 5600
+      },
+      "connect": [
+        "VCC",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rload",
+      "expected": 0.0005,
+      "tolerancePct": 5,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 36,
+      "tolerancePct": 10,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 36
+      },
+      "connect": [
+        "e2",
+        "gnd"
+      ]
+    }
+  ]
+}

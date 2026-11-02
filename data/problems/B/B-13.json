@@ -1,0 +1,120 @@
+{
+  "id": "B-13",
+  "category": "B",
+  "title": "NPNトランジスタの分圧バイアス設計",
+  "difficulty": 3,
+  "statement": "前提: NPNトランジスタQ1はVBE=0.7V、β=100とする。活性領域で動作させ、温度特性は無視する。ベース分圧回路のR2を流れる電流はベース電流の10倍とする。 Vcc=12V、NPNトランジスタQ1がある。コレクタcは固定抵抗Rc=1kΩを介してVccに接続され、エミッタeは固定抵抗Re=100Ωを介してgndに接続されている。ベースbに、R1をvcc-b間、R2をb-gnd間に配置する分圧バイアス回路を作り、コレクタ電流を5mAにしたい。R2を流れる分圧電流はベース電流の10倍とする。R1とR2の値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "所望のコレクタ電流を得るためのベース分圧抵抗を設計できる。",
+  "hint": "ベース電流は Ic/β = 50µA である。エミッタ電圧は Ie×Re ≒ 5mA×100Ω = 0.5V、ベース電圧は 0.5V + 0.7V = 1.2V である。分圧電流は500µAで、R1には分圧電流とベース電流の合計が流れる。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "Vcc",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "c",
+        "b",
+        "e"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rc",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "vcc",
+        "c"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Re",
+      "type": "R",
+      "params": {
+        "R": 100
+      },
+      "connect": [
+        "e",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rc",
+      "expected": 0.005,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "b",
+      "expected": 1.2,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 19636,
+      "tolerancePct": 1,
+      "unit": "Ω"
+    },
+    {
+      "type": "componentValue",
+      "element": "R2",
+      "expected": 2400,
+      "tolerancePct": 1,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 19636
+      },
+      "connect": [
+        "vcc",
+        "b"
+      ]
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 2400
+      },
+      "connect": [
+        "b",
+        "gnd"
+      ]
+    }
+  ]
+}

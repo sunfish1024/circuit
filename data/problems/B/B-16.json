@@ -1,0 +1,104 @@
+{
+  "id": "B-16",
+  "category": "B",
+  "title": "BJTカレントミラーで負荷電流を設定",
+  "difficulty": 2,
+  "statement": "前提: Q1、Q2はNPNトランジスタで、VBE=0.7V、βは十分大きくベース電流は無視できるものとする。Q1とQ2は特性が一致している。温度特性は無視する。 Vcc=12Vの直流電源がある。Q1はコレクタとベースをrefに接続したダイオード接続、エミッタはgndに固定されている。Q2はベースをrefに接続し、コレクタをout、エミッタをgndに固定されている。outには固定負荷抵抗Rload=5kΩがvcc-out間に接続されている。基準抵抗Rrefをvcc-ref間に配置し、Q2のコレクタ電流を1mAにしたい。Rrefの値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "カレントミラーの基準電流から出力電流を設定できる。",
+  "hint": "カレントミラーでは、Rrefに流れる基準電流とQ2のコレクタ電流がほぼ等しい。Rrefの両端電圧は 12V - 0.7V である。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "Vcc",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 1000,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "ref",
+        "ref",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q2",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 1000,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "out",
+        "ref",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rload",
+      "type": "R",
+      "params": {
+        "R": 5000
+      },
+      "connect": [
+        "vcc",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rref",
+      "expected": 0.001,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcCurrent",
+      "element": "Rload",
+      "expected": 0.001,
+      "tolerancePct": 5,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "Rref",
+      "expected": 11300,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "Rref",
+      "type": "R",
+      "params": {
+        "R": 11300
+      },
+      "connect": [
+        "vcc",
+        "ref"
+      ]
+    }
+  ]
+}

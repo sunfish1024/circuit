@@ -1,0 +1,159 @@
+{
+  "id": "B-44",
+  "category": "B",
+  "title": "BJT差動対のテール電流設定",
+  "difficulty": 2,
+  "statement": "前提: Q1、Q2はマッチングしたNPNトランジスタで、βは十分大きく、VBE=0.7Vとする。ベース電位は0V固定である。コレクタはそれぞれ負荷抵抗を介してVCC=+5Vに接続されている。 差動対Q1、Q2のエミッタ共通ノードtailとVEE=−5Vの間に、テール抵抗Rtailを配置する。Q1、Q2のベースは0V固定で、VBE=0.7Vである。コレクタout1、out2はそれぞれ固定負荷抵抗Rc1、Rc2（各2kΩ）を介してVCC=+5Vに接続されている。テール電流を2mAとするために、tail-VEE間に配置するRtailの値を求めよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "差動対のテール抵抗を設計し、所望のテール電流を得る。",
+  "hint": "ベースが0V、VBE=0.7Vなので、エミッタ共通ノードtailは約−0.7Vである。Rtailの両端電圧は−0.7V−(−5V)=4.3Vとなる。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VCC",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "VCC",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "VEE",
+      "type": "V_DC",
+      "params": {
+        "V": -5
+      },
+      "connect": [
+        "VEE",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "VB1",
+      "type": "V_DC",
+      "params": {
+        "V": 0
+      },
+      "connect": [
+        "inp",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "VB2",
+      "type": "V_DC",
+      "params": {
+        "V": 0
+      },
+      "connect": [
+        "inn",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 1000,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "out1",
+        "inp",
+        "tail"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q2",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 1000,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "out2",
+        "inn",
+        "tail"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rc1",
+      "type": "R",
+      "params": {
+        "R": 2000
+      },
+      "connect": [
+        "VCC",
+        "out1"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rc2",
+      "type": "R",
+      "params": {
+        "R": 2000
+      },
+      "connect": [
+        "VCC",
+        "out2"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rtail",
+      "expected": 0.002,
+      "tolerancePct": 2,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "out1",
+      "expected": 3,
+      "tolerancePct": 5,
+      "unit": "V"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "out2",
+      "expected": 3,
+      "tolerancePct": 5,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "Rtail",
+      "expected": 2150,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "Rtail",
+      "type": "R",
+      "params": {
+        "R": 2150
+      },
+      "connect": [
+        "tail",
+        "VEE"
+      ]
+    }
+  ]
+}

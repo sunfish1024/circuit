@@ -1,0 +1,82 @@
+{
+  "id": "B-06",
+  "category": "B",
+  "title": "ダイオードOR回路",
+  "difficulty": 2,
+  "statement": "前提: ダイオードの順方向電圧は0.7Vとする。入力A、Bは外部から0Vまたは5Vを与える。論理は正論理とし、出力YのHighは約4.3V、Lowは0Vとする。抵抗は理想とする。 入力A、Bのどちらか一方でも5Vのとき出力YがHigh、両方0VのときLowとなるダイオードOR回路を作れ。出力Yには固定のプルダウン抵抗R1=10kΩがY-gnd間に接続されている。ダイオードD1、D2を配置し、AとBからYへ正論理ORとなるように接続せよ。",
+  "prerequisites": [],
+  "judge": "digital",
+  "learningGoal": "ダイオードの一方向性を利用してOR論理を構成できる。",
+  "hint": "各入力からダイオードのアノードを入力側、カソードを出力Y側に向けて接続する。入力がHighのときダイオードを通してYをHighにする。",
+  "availableComponents": [
+    "D"
+  ],
+  "fixedComponents": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "Y",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "truthTable",
+      "inputs": [
+        "A",
+        "B"
+      ],
+      "outputs": [
+        "Y"
+      ],
+      "table": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          1
+        ],
+        [
+          1,
+          0,
+          1
+        ],
+        [
+          1,
+          1,
+          1
+        ]
+      ]
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "D1",
+      "type": "D",
+      "params": {},
+      "connect": [
+        "A",
+        "Y"
+      ]
+    },
+    {
+      "id": "D2",
+      "type": "D",
+      "params": {},
+      "connect": [
+        "B",
+        "Y"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "id": "B-43",
+  "category": "B",
+  "title": "カスコードカレントミラー",
+  "difficulty": 2,
+  "statement": "前提: 固定配置されたU1はカスコードカレントミラーで、参照端子電圧は1.4V、出力電流は参照電流にほぼ等しい（Iout≈Iref）ものとする。電源は理想とする。 VCC=5Vの電源から、U1の参照端子AにR1を接続して参照電流Irefを流す。U1の参照端子電圧は1.4V、Iout≈Irefである。Iout=0.2mAとするために、VCC-A間に配置するR1の値を求めよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "カスコードカレントミラーの参照電流を設定する抵抗を求める。",
+  "hint": "R1の両端電圧は5V−1.4V=3.6Vである。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VCC",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "VCC",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "U1",
+      "type": "U_CASCODE",
+      "params": {
+        "Vref": 1.4
+      },
+      "connect": [
+        "A",
+        "out",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "R1",
+      "expected": 0.0002,
+      "tolerancePct": 2,
+      "unit": "A"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 18000
+      },
+      "connect": [
+        "VCC",
+        "A"
+      ]
+    }
+  ]
+}

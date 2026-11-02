@@ -1,0 +1,91 @@
+{
+  "id": "B-10",
+  "category": "B",
+  "title": "NMOS低サイドスイッチの負荷抵抗設計",
+  "difficulty": 2,
+  "statement": "前提: NMOSトランジスタQ1はVth=2V、ON時はRds_on=0.5Ωの抵抗として扱う。ゲートには5Vが固定入力され、Q1は十分にONしている。温度特性は無視する。 Vcc=5V、ゲート入力Vin=5Vがある。NMOSトランジスタQ1のドレインdとVccの間に負荷抵抗Rloadを配置し、ソースはgndに接続する。Q1のON抵抗Rds_on=0.5Ωを含めた直列回路で、負荷電流0.5Aを得たい。Rloadの値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "MOSFETのON抵抗を考慮して、所望の負荷電流を得る負荷抵抗を設計できる。",
+  "hint": "直列抵抗の合計は Rload + Rds_on である。5Vで0.5Aを流す合計抵抗を求め、Rds_on=0.5Ωを差し引く。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "Vcc",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Vin",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "M_N",
+      "params": {
+        "Vth": 2,
+        "K": 0,
+        "RdsOn": 0.5
+      },
+      "connect": [
+        "d",
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rload",
+      "expected": 0.5,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "d",
+      "expected": 0.25,
+      "tolerancePct": 5,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "Rload",
+      "expected": 9.5,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "Rload",
+      "type": "R",
+      "params": {
+        "R": 9.5
+      },
+      "connect": [
+        "vcc",
+        "d"
+      ]
+    }
+  ]
+}

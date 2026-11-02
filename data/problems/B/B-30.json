@@ -1,0 +1,134 @@
+{
+  "id": "B-30",
+  "category": "B",
+  "title": "エミッタ抵抗付きカレントミラーの電流比設計",
+  "difficulty": 3,
+  "statement": "前提: Q1、Q2はNPNトランジスタで、VBE=0.7V、βは十分大きくベース電流は無視できる。Q1とQ2は特性が一致している。温度特性は無視する。基準電流Irefは約1mAとする。 VCC=12Vの直流電源がある。Q1はコレクタとベースをrefに接続したダイオード接続で、エミッタはe1に固定されている。Q2はベースをrefに接続し、コレクタをout、エミッタをe2に固定されている。Rref=11.1kΩはvcc-ref間に、負荷抵抗Rload=4.7kΩはvcc-out間に固定されている。RE1をe1-gnd間、RE2をe2-gnd間に配置し、Q2のコレクタ電流を2mAにしたい。ベース電流を無視できるとき、RE1とRE2の値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "エミッタ抵抗比によりカレントミラーの出力電流を設定できる。",
+  "hint": "ベース電圧が共通なので、VBE1 + Iref×RE1 = VBE2 + Iout×RE2 が成り立つ。VBE1≒VBE2とすると Iref×RE1 = Iout×RE2 である。Iref≈1mA、Iout=2mAより RE1/RE2 = 2 となる。RE2=100ΩとすればRE1=200Ωである（このときVref=0.7V+1mA×200Ω=0.9V、Iref=(12V−0.9V)/11.1kΩ=1mAとなり、Iref=1mAの仮定と自己整合する）。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VCC",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 1000,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "ref",
+        "ref",
+        "e1"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q2",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 1000,
+        "Vbe": 0.7
+      },
+      "connect": [
+        "out",
+        "ref",
+        "e2"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rref",
+      "type": "R",
+      "params": {
+        "R": 11100
+      },
+      "connect": [
+        "vcc",
+        "ref"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rload",
+      "type": "R",
+      "params": {
+        "R": 4700
+      },
+      "connect": [
+        "vcc",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "RE2",
+      "expected": 0.002,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcCurrent",
+      "element": "Rload",
+      "expected": 0.002,
+      "tolerancePct": 5,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "RE1",
+      "expected": 200,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    },
+    {
+      "type": "componentValue",
+      "element": "RE2",
+      "expected": 100,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "RE1",
+      "type": "R",
+      "params": {
+        "R": 200
+      },
+      "connect": [
+        "e1",
+        "gnd"
+      ]
+    },
+    {
+      "id": "RE2",
+      "type": "R",
+      "params": {
+        "R": 100
+      },
+      "connect": [
+        "e2",
+        "gnd"
+      ]
+    }
+  ]
+}

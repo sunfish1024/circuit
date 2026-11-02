@@ -1,0 +1,95 @@
+{
+  "id": "B-14",
+  "category": "B",
+  "title": "LED直列回路の電流制限抵抗設計",
+  "difficulty": 2,
+  "statement": "前提: LED D1、D2の順方向電圧はそれぞれ2.0V、それ以外は理想とする。温度特性は無視する。 V1=9Vの直流電源、抵抗R1、LED D1、D2を直列に接続する。D1はa側をアノード、b側をカソード、D2はb側をアノード、gnd側をカソードとして固定されている。R1をvin-a間に配置し、LEDに10mAを流したい。R1の値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "複数LEDの直列順方向電圧を合計して電流制限抵抗を設計できる。",
+  "hint": "2個のLEDの順方向電圧の合計は4.0Vである。R1の両端電圧は 9V - 4.0V = 5.0V である。10mAを流す抵抗値を求める。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 9
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "D1",
+      "type": "LED",
+      "params": {
+        "Vf": 2
+      },
+      "connect": [
+        "a",
+        "b"
+      ],
+      "locked": true
+    },
+    {
+      "id": "D2",
+      "type": "LED",
+      "params": {
+        "Vf": 2
+      },
+      "connect": [
+        "b",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "R1",
+      "expected": 0.01,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "a",
+      "expected": 4,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "b",
+      "expected": 2,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 500,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 500
+      },
+      "connect": [
+        "vin",
+        "a"
+      ]
+    }
+  ]
+}

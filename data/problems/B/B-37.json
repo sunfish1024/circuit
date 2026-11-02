@@ -1,0 +1,63 @@
+{
+  "id": "B-37",
+  "category": "B",
+  "title": "サイリスタのゲートトリガ抵抗設計",
+  "difficulty": 1,
+  "statement": "前提: SCRのゲート-カソード間電圧Vgk=0.8V（ゲートトリガ時）。ゲート電流はDCで与える。 5Vのトリガ電源からSCRのゲートにゲート電流20mAを流したい。ゲート-カソード間電圧を0.8Vとするとき、ゲート直列抵抗Rgの値を求めよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "SCRのゲート電流を規定値にする抵抗を求める。",
+  "hint": "Rgの両端電圧は5V−0.8V=4.2Vである。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 5
+      },
+      "connect": [
+        "trig",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "SCR",
+      "params": {
+        "Vgk": 0.8
+      },
+      "connect": [
+        "out",
+        "g",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rg",
+      "expected": 0.02,
+      "tolerancePct": 2,
+      "unit": "A"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "Rg",
+      "type": "R",
+      "params": {
+        "R": 210
+      },
+      "connect": [
+        "trig",
+        "g"
+      ]
+    }
+  ]
+}

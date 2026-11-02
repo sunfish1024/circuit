@@ -1,0 +1,90 @@
+{
+  "id": "B-35",
+  "category": "B",
+  "title": "JFETの自己バイアス抵抗設計",
+  "difficulty": 3,
+  "statement": "前提: NチャネルJFET Q1はIDSS=10mA、VGS(off)=-2Vとし、飽和領域で ID = IDSS × (1 - VGS/VGS(off))² に従う。ゲート電流は0とする。温度特性は無視する。 VDD=12Vの直流電源がある。JFET Q1のゲートgはgndに固定され、ドレインdは固定抵抗Rd=1kΩを介してVDDに接続されている。ソース抵抗Rsをs-gnd間に配置し、自己バイアスによりドレイン電流を4mAにしたい。Rsの値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "JFETの自己バイアス回路で所望のドレイン電流を得るソース抵抗を設計できる。",
+  "hint": "ゲートはgnd固定なので VGS = -Vs = -ID×Rs である。ID=4mAを JFETの式 ID = 10mA × (1 - VGS/(-2V))² に代入してVGSを求め、Rs = -VGS/ID を計算する。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VDD",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vdd",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Q1",
+      "type": "J_N",
+      "params": {
+        "Idss": 0.01,
+        "VgsOff": -2
+      },
+      "connect": [
+        "d",
+        "gnd",
+        "s"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rd",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "vdd",
+        "d"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "Rs",
+      "expected": 0.004,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "s",
+      "expected": 0.735,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "componentValue",
+      "element": "Rs",
+      "expected": 184,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "Rs",
+      "type": "R",
+      "params": {
+        "R": 184
+      },
+      "connect": [
+        "s",
+        "gnd"
+      ]
+    }
+  ]
+}

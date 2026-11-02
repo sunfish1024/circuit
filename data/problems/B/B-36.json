@@ -1,0 +1,62 @@
+{
+  "id": "B-36",
+  "category": "B",
+  "title": "TVS/ESDクランプ回路",
+  "difficulty": 1,
+  "statement": "前提: TVSダイオードは理想クランプ特性を持ち、Vclamp=6.2Vでクランプする。負荷は高インピーダンスとする。 12Vの異常電圧が入力vinに印加されている。TVSダイオードD1はout-gnd間に接続され、out電圧を6.2Vにクランプする。TVSに流れる電流を0.1Aに制限するために、vin-out間に配置するR1の値を求めよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "TVSクランプ時の直列抵抗値を求める。",
+  "hint": "R1の両端電圧は12V−6.2V=5.8Vである。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "D1",
+      "type": "TVS",
+      "params": {
+        "Vclamp": 6.2
+      },
+      "connect": [
+        "gnd",
+        "out"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "element": "R1",
+      "expected": 0.1,
+      "tolerancePct": 2,
+      "unit": "A"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 58
+      },
+      "connect": [
+        "vin",
+        "out"
+      ]
+    }
+  ]
+}

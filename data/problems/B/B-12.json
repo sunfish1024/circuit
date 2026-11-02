@@ -1,0 +1,88 @@
+{
+  "id": "B-12",
+  "category": "B",
+  "title": "ツェナー定電圧回路の限流抵抗設計（負荷あり）",
+  "difficulty": 2,
+  "statement": "前提: ツェナーD1は逆方向降伏電圧Vz=5.1Vで動作し、動抵抗は無視する。温度特性は無視する。負荷抵抗Rloadは固定である。 V1=12Vの直流電源、抵抗R1、ツェナーD1、負荷抵抗Rloadを接続する。D1はa側をカソード、gnd側をアノードとして固定されている。Rload=510Ωはa-gnd間に固定されている。R1をvin-a間に配置し、ツェナーD1に5mAを流したい。R1の値を設定せよ。",
+  "prerequisites": [],
+  "judge": "dc",
+  "learningGoal": "負荷電流とツェナー電流を合わせた電流から限流抵抗を設計できる。",
+  "hint": "負荷電流は 5.1V / 510Ω = 10mA である。R1には負荷電流とツェナー電流の合計15mAが流れる。R1の両端電圧は 12V - 5.1V である。",
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true
+    },
+    {
+      "id": "D1",
+      "type": "ZD",
+      "params": {
+        "Vz": 5.1
+      },
+      "connect": [
+        "gnd",
+        "a"
+      ],
+      "locked": true
+    },
+    {
+      "id": "Rload",
+      "type": "R",
+      "params": {
+        "R": 510
+      },
+      "connect": [
+        "a",
+        "gnd"
+      ],
+      "locked": true
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcVoltage",
+      "node": "a",
+      "expected": 5.1,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "dcCurrent",
+      "element": "R1",
+      "expected": 0.015,
+      "tolerancePct": 3,
+      "unit": "A"
+    },
+    {
+      "type": "componentValue",
+      "element": "R1",
+      "expected": 460,
+      "tolerancePct": 2,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 460
+      },
+      "connect": [
+        "vin",
+        "a"
+      ]
+    }
+  ]
+}
