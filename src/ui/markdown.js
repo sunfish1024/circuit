@@ -83,7 +83,8 @@ function renderList(lines) {
     if (!top || item.indent > top.indent) {
       const tag = item.ordered ? "ol" : "ul";
       stack.push({ indent: item.indent, tag });
-      html += `<${tag}><li>${renderInline(item.text)}`;
+      const start = item.ordered && item.number > 1 ? ` start="${item.number}"` : "";
+      html += `<${tag}${start}><li>${renderInline(item.text)}`;
     } else {
       html += `</li><li>${renderInline(item.text)}`;
     }
@@ -206,6 +207,7 @@ export function renderMarkdown(source) {
           items.push({
             indent: m[1].replace(/\t/g, "  ").length,
             ordered: /\d/.test(m[2]),
+            number: parseInt(m[2], 10) || 1,
             text: m[3],
           });
           i += 1;

@@ -1484,8 +1484,9 @@ label {
 .board-container {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
   padding: 0;
+  position: relative;
 }
 
 /* グリッド背景はスクロールに追従させるためキャンバス側に置く */
@@ -2249,4 +2250,10 @@ label {
   .clear-banner {
     animation: none;
   }
+}
+
+/* 問題文が長くてもボードの作業領域を確保し、はみ出す分はスクロールで見る */
+.board-container .board-canvas {
+  min-width: 960px;
+  min-height: 560px;
 }
