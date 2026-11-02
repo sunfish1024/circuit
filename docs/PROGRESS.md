@@ -31,6 +31,8 @@
 - B（20問、2026-11-02）: verify --strict 20/20、--reverse 18問対象で甘い判定0（B-01, B-15 は極性部品をプレイヤーが置かないので対象外）、--drop 甘い判定0、check_layout 問題0。--mutate の甘い判定3問（B-02, B-06, B-07）は逆バイアスの D2 の Vf が結果に効かない物理的な理由で verifyNote あり。マウス操作での確認: B-03, B-08, B-13, B-16
   - B の判定は DC のみ（ダイオード・トランジスタの過渡は未対応。F 分野で追加予定）
 
+- G（20問、2026-11-02）: verify --strict 20/20、--reverse・--drop 甘い判定0、check_layout 問題0。--mutate の甘い判定5問（G-14, G-15, G-16, G-17, G-20）は「OR と XOR が同じ論理になる」ため verifyNote あり。マウス操作での確認: G-01, G-08, G-13, G-16。componentCount で「指定外のゲートは0個」を併用して穴を塞いだ
+
 ## エンジン拡張（2026-11-02 C・G・H向け）
 - デジタル（sim-engineer）: digital.js を全面書き直し（旧コードは type でなく simulation.model で部品を見分けていて、ゲート回路を一度も評価できていなかった）。0/1/X の3値、未接続入力はX、出力衝突は不合格。新部品 LOGIC_IN / U_XNOR / U_AND3 / U_OR3 / DFF_R。新判定 truthTable（inputs/outputs/expect）、sequence（クロックごとの系列）、componentCount。verify に ゲート差し替え・DFF の Q/Q_NOT 取り違えの誤答を追加
 - アナログ（sim-engineer）: AC解析がBJT/MOSFET/OPAMPに対応（DC動作点で線形化）、OPAMP の DC/過渡/飽和、正帰還の不安定平衡点の修正。新判定 acImpedance / operatingRegion / transientMeasure（max/min/pp/average/rms/acRms。F分野の平均値・リップルにも使える）、nodeRef/inputRef/outputRef・sources による差動・同相の判定、simulation.initialCondition: dc
@@ -44,5 +46,7 @@
 - UI: パレットのクリックで追加した部品はボード中央右寄りに出て固定部品のすぐ脇に重なることがある（追加位置を空き場所にしたい）
 - B-04 は部品IDで判定（match は「どれか1つが合格」のため全LEDを確認できない）。B-17〜B-19 のFETはマウス手配線を未確認（参照解の配置のみ）
 - B の mutate は代表パラメータ1つしか2倍にしない（β, K などは手元確認のみ）
+- UI/layout: 1440px 幅の画面でボードの表示幅が約796pxしかなく、layout_spec の基準幅960の右側が横スクロールしないと見えない（G分野は固定部品を x≤680 に収めて回避。B-15 は x=780 で一部はみ出す）。ボードを表示幅に合わせて自動縮小する対応を検討
+- UI: 配線した線が既存の縦線と同じ x で重なると、つながって見える
 - UI: シミュレーション結果の真理値表に期待値（「正 0」）が出るため、シミュレーションを押すだけで正解が分かる（チェック結果の「正しくは…」と情報量は同じなので当面そのまま）
 - UI: 回転した固定部品のピン名ラベルと部品IDラベルが重なることがある。シミュレーション警告（未接続ネット等）の見せ方は要改善

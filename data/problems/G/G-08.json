@@ -1,0 +1,151 @@
+{
+  "id": "G-08",
+  "category": "G",
+  "title": "NAND 4 個で XOR を作る",
+  "difficulty": 3,
+  "prerequisites": [
+    "G-03",
+    "G-06"
+  ],
+  "learningGoal": "XOR を NAND だけで、途中の信号 NAND(A, B) を共有した最小構成（4 個）で作る。ブール代数で「NOT の代わりに使える信号」を見つける。",
+  "judge": "digital",
+  "statement": "### 状況\n**XOR**（排他的論理和）は、2 つの入力が**違うとき** 1 になるゲートです（G-03）。加算器・比較器・誤り検出（パリティ）など、デジタル回路のあちこちで使われます。\n\n手元に XOR の IC がなく、**74HC00**（2 入力 NAND が 4 個入った IC）が **1 個だけ**あります。この 4 個の NAND だけで XOR を作ってください。\n\nG-06 のやり方をそのまま使って $A \\oplus B = A\\overline{B} + \\overline{A}B$ を NAND で組むと、NOT に 2 個、残りに 3 個で**合計 5 個**必要になり、1 個足りません。どこかで信号を共有して 1 個減らす必要があります。\n\n### やること\nボードには、入力 **A**（ネット `a`）と **B**（ネット `b`）、出力のテストポイント **Y**（ネット `y`）が置いてあります。\n\n1. NAND だけで、`y` = A XOR B になる回路を作る。\n2. 使う NAND は**合計 4 個以内**にする。\n\n| A | B | y |\n|---|---|---|\n| 0 | 0 | 0 |\n| 0 | 1 | 1 |\n| 1 | 0 | 1 |\n| 1 | 1 | 0 |\n\n### 条件\n- 使える部品は 2 入力 NAND ゲートだけ。\n- 論理値は 0 と 1 だけを考える理想的な論理素子として扱う（電圧・電流・伝搬遅延は考えない）。判定は、入力を変えて回路が落ち着いた後の出力で行う。\n- 入力（論理入力 **LOGIC_IN**）の値は、判定が全部の組み合わせに自動で切り替える。プレイヤーが値を操作する必要はない。\n- ゲートのピンは、入力が `A`・`B`（3 入力ゲートは `A`・`B`・`C`）、出力が `Y`。\n- ゲートの入力ピンを未接続のまま残すと値が不定（X）になり不合格。1 つのネットにゲートの出力を 2 つつなぐと「衝突」で不合格。\n- 判定:\n  - `y` の真理値表が上の表と一致する（入力 00, 01, 10, 11 の全 4 通り）\n  - NAND が 4 個以内で、NAND 以外のゲートを使っていない",
+  "hints": [
+    "5 個の作り方では、$\\overline{B}$ と $\\overline{A}$ を作るのに NAND を 1 個ずつ使います。NOT の代わりに、両方の項で共通に使える信号はないでしょうか。候補は最初に NAND(a, b) を作ることです。",
+    "$A \\cdot \\overline{A \\cdot B} = A(\\overline{A} + \\overline{B}) = A\\overline{B}$。つまり $\\overline{A \\cdot B}$（= NAND(a, b)）は、A と組み合わせると $\\overline{B}$ の代わりに、B と組み合わせると $\\overline{A}$ の代わりになります。",
+    "NAND(a, b) → `n1`、NAND(a, n1) → `n2`、NAND(b, n1) → `n3`、NAND(n2, n3) → `y` の 4 個です。"
+  ],
+  "availableComponents": [
+    "U_NAND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "A",
+      "type": "LOGIC_IN",
+      "params": {
+        "value": 0
+      },
+      "connect": [
+        "a"
+      ],
+      "locked": true,
+      "position": {
+        "x": 60,
+        "y": 150
+      }
+    },
+    {
+      "id": "B",
+      "type": "LOGIC_IN",
+      "params": {
+        "value": 0
+      },
+      "connect": [
+        "b"
+      ],
+      "locked": true,
+      "position": {
+        "x": 60,
+        "y": 330
+      }
+    },
+    {
+      "id": "Y",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "y"
+      ],
+      "locked": true,
+      "position": {
+        "x": 680,
+        "y": 210
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "truthTable",
+      "inputs": [
+        "a",
+        "b"
+      ],
+      "outputs": [
+        "y"
+      ],
+      "expect": {
+        "y": "0110"
+      }
+    },
+    {
+      "type": "componentCount",
+      "types": [
+        "U_NAND"
+      ],
+      "max": 4
+    },
+    {
+      "type": "componentCount",
+      "types": [
+        "U_NOT",
+        "U_AND",
+        "U_OR",
+        "U_NOR",
+        "U_XOR",
+        "U_XNOR",
+        "U_AND3",
+        "U_OR3"
+      ],
+      "max": 0
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "U1",
+      "type": "U_NAND",
+      "params": {},
+      "connect": [
+        "a",
+        "b",
+        "n1"
+      ]
+    },
+    {
+      "id": "U2",
+      "type": "U_NAND",
+      "params": {},
+      "connect": [
+        "a",
+        "n1",
+        "n2"
+      ]
+    },
+    {
+      "id": "U3",
+      "type": "U_NAND",
+      "params": {},
+      "connect": [
+        "b",
+        "n1",
+        "n3"
+      ]
+    },
+    {
+      "id": "U4",
+      "type": "U_NAND",
+      "params": {},
+      "connect": [
+        "n2",
+        "n3",
+        "y"
+      ]
+    }
+  ],
+  "explanation": {
+    "solution": "**1. 5 個の作り方（出発点）**\n\n$A \\oplus B = A\\overline{B} + \\overline{A}B$ を、G-06 の OR の作り方（入力を反転して NAND）で NAND だけにすると\n\n$$\nA\\overline{B} + \\overline{A}B = \\overline{\\overline{A\\overline{B}} \\cdot \\overline{\\overline{A}B}} = \\mathrm{NAND}\\big(\\mathrm{NAND}(A, \\overline{B}),\\ \\mathrm{NAND}(\\overline{A}, B)\\big)\n$$\n\n$\\overline{A}$ と $\\overline{B}$ に NAND を 1 個ずつ使うので合計 5 個です。\n\n**2. NOT の代わりに $\\overline{AB}$ を使う**\n\n$$\nA \\cdot \\overline{AB} = A(\\overline{A} + \\overline{B}) = A\\overline{A} + A\\overline{B} = 0 + A\\overline{B} = A\\overline{B}\n$$\n\n（ド・モルガンで $\\overline{AB} = \\overline{A} + \\overline{B}$、さらに $A\\overline{A} = 0$）。同じように $B \\cdot \\overline{AB} = \\overline{A}B$ です。$\\overline{AB}$ は NAND 1 個で作れて、**2 つの項で共有**できます。\n\n**3. 回路**\n\n- U1: NAND(a, b) → `n1` $= \\overline{AB}$\n- U2: NAND(a, n1) → `n2` $= \\overline{A \\cdot \\overline{AB}} = \\overline{A\\overline{B}}$\n- U3: NAND(b, n1) → `n3` $= \\overline{\\overline{A}B}$\n- U4: NAND(n2, n3) → `y` $= A\\overline{B} + \\overline{A}B = A \\oplus B$\n\n**4. 真理値表で確かめる**\n\n| A | B | n1 | n2 | n3 | y |\n|---|---|---|---|---|---|\n| 0 | 0 | 1 | 1 | 1 | 0 |\n| 0 | 1 | 1 | 1 | 0 | 1 |\n| 1 | 0 | 1 | 0 | 1 | 1 |\n| 1 | 1 | 0 | 1 | 1 | 0 |\n\ny = 0110 で XOR。NAND は 4 個です。",
+    "why": "- **NOT を作らなくてよい理由**: $\\overline{B}$ が必要なのは「A = 1 のとき」だけです（$A\\overline{B}$ の項）。A = 1 なら $\\overline{AB} = \\overline{B}$ なので、そのときだけ見れば $\\overline{AB}$ は $\\overline{B}$ と同じ働きをします。A = 0 のときは $\\overline{AB} = 1$ ですが、どうせ A との NAND で項が消えるので問題になりません。「必要な場面でだけ同じ値になる信号」を見つけると、ゲートを減らせます。\n- **XOR に 4 個が必要な理由**: 2 入力 NAND を 3 個以下にすると XOR は作れないことが知られています（全通りを調べると分かります）。このため「NAND 4 個の XOR」は最小構成として教科書によく出てきます。\n- **n1 の意味**: n1 = $\\overline{AB}$ は「桁上がり（キャリー）の反転」でもあります。半加算器では和 = A XOR B、桁上がり = A AND B なので、この回路に NOT（NAND 1 個）を足すだけで半加算器になります。",
+    "mistakes": "- **NAND を 5 個使う**: 出発点の作り方でも真理値表は合いますが、componentCount（NAND 4 個以内）で「5 個」と表示され不合格。\n- **U2 と U3 の両方に A をつなぐ**: n2 と n3 がどちらも $\\overline{A\\overline{B}}$ になり、y = $A\\overline{B}$ = 0010。判定は「a=0, b=1 のとき y=0（正しくは 1）」で不合格。U2 には A、U3 には B を入れます。\n- **最後の U4 を AND にしてしまう**: 出力が反転した y = 1001（一致回路 XNOR）になり、「a=0, b=0 のとき y=1（正しくは 0）」で不合格。\n- **U2・U3 に n1 を使わず a・b を直接入れる**: U1〜U3 がすべて NAND(a, b) になり、y = NAND($\\overline{AB}$, $\\overline{AB}$) = $AB$（AND）= 0001。「a=0, b=1 のとき y=0（正しくは 1）」で不合格。",
+    "practice": "- **実務では専用の XOR IC を使う**: 74HC86 のような XOR の IC があるので、普通はそれを使います。ただし基板に NAND が余っている、XOR が 1 個だけ必要、という場面では NAND 4 個の XOR が役に立ちます。\n- **段数と遅延**: この回路は入力から出力までゲート 3 段（U1 → U2 → U4）を通ります。A だけが変わるとき、直接 U2 に入る経路（2 段）と U1 を通る経路（3 段）で到着時刻がずれるため、実物では出力に一瞬のひげ（ハザード、グリッチ）が出ることがあります。このゲームでは落ち着いた後の値で判定するので現れません。\n- **IC の中の XOR**: CMOS の IC の中では、NAND を 4 個並べる（トランジスタ 16 個）のではなく、トランスミッションゲートなどを使って 6〜12 個程度のトランジスタで XOR を作ります。「NAND だけで作れる」ことと「実際に最も小さく作る方法」は別の話です。",
+    "next": "- **G-12**: パリティ（1 の個数が偶数か奇数か）は XOR を直列につないで作ります。\n- **G-13**: 半加算器。今回の n1 = $\\overline{AB}$ を NOT すれば桁上がりになり、NAND 5 個で半加算器が作れます。\n- **G-10**: 「ゲートの数を減らす」ことを、カルノー図という道具で系統的に行います。"
+  }
+}
