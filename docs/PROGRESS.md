@@ -41,6 +41,11 @@
   - I-10 はワイヤードAND を論理シミュレータで扱えないため、固定 M_N + V_PULSE の過渡解析で判定
   - 範囲判定（「〜以下」）は中央値±半幅で表現しており、不合格時に中央値が「期待値」として表示される
 
+- H（20問、2026-11-02）: verify --strict 20/20、--mutate 甘い判定3問（H-12, H-13 ほか。いずれも到達しない状態でのみ差が出る理由が verifyNote にある）、--reverse・--drop 甘い判定0、check_layout 問題0。マウス操作での確認: H-10, H-14
+  - リプルカウンタ: 立ち上がりエッジDFFでは、アップは Q_NOT、ダウンは Q を次段クロックにする（構成表の記述は逆だったので H-08/H-09 で訂正）
+  - シミュレータは D とクロックが同時に変わるとき変化後の値を取り込む（解説では実回路のホールド時間違反として書いている）
+  - 作成中にセッションの利用制限（429）で一部のエージェントが中断。H-01〜05, H-16〜20 は中断までに書かれた分を verify・ブラウザ確認で再確認済み
+
 ## エンジン拡張（2026-11-02 C・G・H向け）
 - デジタル（sim-engineer）: digital.js を全面書き直し（旧コードは type でなく simulation.model で部品を見分けていて、ゲート回路を一度も評価できていなかった）。0/1/X の3値、未接続入力はX、出力衝突は不合格。新部品 LOGIC_IN / U_XNOR / U_AND3 / U_OR3 / DFF_R。新判定 truthTable（inputs/outputs/expect）、sequence（クロックごとの系列）、componentCount。verify に ゲート差し替え・DFF の Q/Q_NOT 取り違えの誤答を追加
 - アナログ（sim-engineer）: AC解析がBJT/MOSFET/OPAMPに対応（DC動作点で線形化）、OPAMP の DC/過渡/飽和、正帰還の不安定平衡点の修正。新判定 acImpedance / operatingRegion / transientMeasure（max/min/pp/average/rms/acRms。F分野の平均値・リップルにも使える）、nodeRef/inputRef/outputRef・sources による差動・同相の判定、simulation.initialCondition: dc
