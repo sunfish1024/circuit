@@ -1,0 +1,226 @@
+{
+  "id": "D-20",
+  "category": "D",
+  "title": "総合：PLL 周波数シンセサイザ（÷2 分周とループフィルタの設計）",
+  "difficulty": 5,
+  "prerequisites": [
+    "D-19"
+  ],
+  "learningGoal": "PLL の帰還路に分周器（÷N）を入れると VCO が基準の N 倍の周波数にロックすることを、DFF の ÷2 分周器・XOR 位相比較器・RC フィルタで組んで確かめる。ループフィルタの時定数に「リプル（ジッタ）を小さくする下限」と「ロックまでの時間を短くする上限」があることを式で示し、両方を同時に満たす RC を設計する。",
+  "judge": "transient",
+  "simulation": {
+    "tStop": 0.01
+  },
+  "statement": "### 状況\n10 kHz の正確な基準信号から、**20 kHz** のクロックを作る**周波数シンセサイザ**を設計します。\n\n使う VCO U1 は $f = 16\\,\\mathrm{kHz} + 2\\,\\mathrm{kHz/V} \\times v_c$（$v_c$ = 0〜5 V で 16〜26 kHz）です。D-19 のように VCO の出力をそのまま位相比較器に戻すと、VCO は 10 kHz まで下がれないのでロックできません。\n\nそこで、帰還路に **÷2 分周器**を入れます。PLL は「位相比較器に戻ってくる信号の周波数 ＝ 基準」になるように VCO を動かすので、分周前の VCO は **2 × 10 kHz = 20 kHz** にロックします。\n\n### やること（部品は自分で選んで組む）\n1. **÷2 分周器**: D フリップフロップ（DFF）の CLK に `vco`、Q_NOT を D に戻し、Q を `fb`（TPFB）につなぐ。CLK の立ち上がりのたびに Q が反転するので、Q の周波数は CLK の半分になります。\n2. **位相比較器**: XOR の入力に `ref` と `fb`、出力を `pd`（TPPD）につなぐ。\n3. **ループフィルタ**: `pd`–`vc` に R、`vc`–グラウンドに C。次の**設計メモ**の 2 つの条件を両方満たす時定数 RC にする。\n\n### 設計メモ（ループフィルタの時定数 RC の決め方）\n- **リプル（下限）**: ロック後も XOR の出力は 20 kHz の 0/5 V パルス（デューティ 0.4）です。その 20 kHz 成分（振幅 約 3.0 V）が RC フィルタで減衰して $v_c$ に残り、VCO の周波数を揺らします（クロックのジッタ）。$v_c$ に残る振幅はおよそ\n  $$\\frac{3.0\\,\\mathrm{V}}{2\\pi \\times 20\\,\\mathrm{kHz} \\times RC}$$\n  これを **30 mV 以下**にする。\n- **ロック時間（上限）**: このループ（XOR＋RC＋この VCO＋÷2）では、ロックに向かう揺れの大きさがおよそ $e^{-t/(2RC)}$ で小さくなります（RC が大きいほどゆっくり）。**t = 8 ms で 1/20（5 %）以下**になるようにする。\n\n### ボードの配置\n- 左端が基準 VR（上の端子が `ref`）。上段に TPPD（`pd`）と TPVC（`vc`）、右に VCO の U1（左上が制御入力 `vc`、右上が出力 `vco`）と TPVCO、下段右寄りに TPFB（`fb`）があります。\n- VR と TPPD の間に XOR、TPPD と TPVC の間に R、TPVC の下に C、U1 の下（TPFB の右）に DFF を置く場所が空いています。\n\n### 判定の内容（過渡解析 0〜10 ms、判定は 8〜10 ms）\n- `vco` の周波数 **20.00 kHz ± 0.2 %**、`fb` の周波数 **10.00 kHz ± 0.2 %**（8 ms までにロックして落ち着いている）\n- `vc` の平均電圧が、ロックに必要な値 ± 1 %\n- `vc` に含まれる 20 kHz 成分の振幅が **30 mV 以下**\n- `pd` のパルスの繰り返し周波数が 20 kHz ± 1 %（XOR 位相比較器で `ref` と `fb` を比べている）\n\n### 条件\n- XOR・DFF は理想（しきい値 2.5 V、出力 0 V / 5 V、遅延 0、入力電流 0）。DFF は CLK の立ち上がりで D を取り込み、Q = 0 から始まる。\n- 基準 VR: 10 kHz、0 V / 5 V の方形波（デューティ 50 %）。\n- VCO U1: $f_0$ = 16 kHz、$K_v$ = 2 kHz/V、出力 0 V / 5 V の方形波（デューティ 50 %）、制御端子の電流 0。\n- t = 0 で $v_c$ = 0 V（VCO は 16 kHz から始まる）。",
+  "hints": [
+    "**方針**: まずロックしたときの VCO 周波数（基準 × 2）と $v_c$ を求め、$v_c$ が 0〜5 V に入ることを確かめます。次に設計メモの 2 つの式から RC の下限と上限を出し、その間で R と C を選びます。",
+    "**使う式**: $v_c = (2 f_{ref} - f_0)/K_v$。リプル: $\\dfrac{3.0}{2\\pi \\times 20000 \\times RC} \\le 0.03$ → RC の下限。ロック時間: $e^{-8\\,\\mathrm{ms}/(2RC)} \\le 1/20$ → $\\dfrac{8\\,\\mathrm{ms}}{2RC} \\ge \\ln 20 \\approx 3.0$ → RC の上限。",
+    "**ほぼ答え**: $v_c$ = (20 − 16)/2 = 2 V。RC ≥ 0.80 ms かつ RC ≤ 1.33 ms → RC = 1 ms（R = 10 kΩ、C = 100 nF）。DFF: D ← Q_NOT、CLK ← `vco`、Q → `fb`。XOR: `ref` と `fb` → `pd`。"
+  ],
+  "availableComponents": [
+    "U_XOR",
+    "U_AND",
+    "DFF",
+    "R",
+    "C"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VR",
+      "type": "V_PULSE",
+      "params": {
+        "Vlow": 0,
+        "Vhigh": 5,
+        "delaySec": 0,
+        "riseSec": 1e-09,
+        "fallSec": 1e-09,
+        "widthSec": 5e-05,
+        "periodSec": 0.0001
+      },
+      "connect": [
+        "ref",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 60,
+        "y": 200
+      }
+    },
+    {
+      "id": "TPPD",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "pd"
+      ],
+      "locked": true,
+      "position": {
+        "x": 280,
+        "y": 60
+      }
+    },
+    {
+      "id": "TPVC",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "vc"
+      ],
+      "locked": true,
+      "position": {
+        "x": 420,
+        "y": 60
+      }
+    },
+    {
+      "id": "U1",
+      "type": "V_VCO",
+      "params": {
+        "f0Hz": 16000,
+        "KvHzPerV": 2000,
+        "Vpk": 2.5,
+        "Voffset": 2.5,
+        "square": true,
+        "fMaxHz": 40000
+      },
+      "connect": [
+        "vco",
+        "gnd",
+        "vc",
+        "gnd"
+      ],
+      "locked": true,
+      "position": {
+        "x": 500,
+        "y": 220
+      }
+    },
+    {
+      "id": "TPVCO",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "vco"
+      ],
+      "locked": true,
+      "position": {
+        "x": 620,
+        "y": 120
+      }
+    },
+    {
+      "id": "TPFB",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "fb"
+      ],
+      "locked": true,
+      "position": {
+        "x": 300,
+        "y": 400
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "transientMeasure",
+      "node": "vco",
+      "measure": "frequency",
+      "fromSec": 0.008,
+      "toSec": 0.01,
+      "expected": 20000,
+      "tolerancePct": 0.2
+    },
+    {
+      "type": "transientMeasure",
+      "node": "fb",
+      "measure": "frequency",
+      "fromSec": 0.008,
+      "toSec": 0.01,
+      "expected": 10000,
+      "tolerancePct": 0.2
+    },
+    {
+      "type": "transientMeasure",
+      "node": "vc",
+      "measure": "average",
+      "fromSec": 0.008,
+      "toSec": 0.01,
+      "expected": 2,
+      "tolerancePct": 1
+    },
+    {
+      "type": "transientMeasure",
+      "node": "vc",
+      "measure": "tone",
+      "frequencyHz": 20000,
+      "window": "hann",
+      "fromSec": 0.008,
+      "toSec": 0.01,
+      "expectedMax": 0.03
+    },
+    {
+      "type": "transientMeasure",
+      "node": "pd",
+      "measure": "frequency",
+      "fromSec": 0.008,
+      "toSec": 0.01,
+      "expected": 20000,
+      "tolerancePct": 1
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "U2",
+      "type": "U_XOR",
+      "connect": [
+        "ref",
+        "fb",
+        "pd"
+      ]
+    },
+    {
+      "id": "F1",
+      "type": "DFF",
+      "connect": [
+        "fbn",
+        "vco",
+        "fb",
+        "fbn"
+      ]
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "pd",
+        "vc"
+      ]
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-07
+      },
+      "connect": [
+        "vc",
+        "gnd"
+      ]
+    }
+  ],
+  "verifyNote": "--mutate で XOR を XNOR に替えた誤答が合格する。XNOR は XOR の出力を反転しただけの位相比較器で、特性の傾きが逆の区間（位相差 180°〜360°）でロックするので、周波数・制御電圧・リプル・パルスの繰り返し（20 kHz）がすべて XOR と同じになる（物理的に正しい動作）。R・C を 2 倍（RC = 2 ms）にするとロックが間に合わず、半分（0.5 ms）にするとリプルが 48 mV になって不合格。",
+  "explanation": {
+    "solution": "**1. ロックしたときの状態**\n\n÷2 分周器の出力 `fb` が基準 10 kHz に合うので、VCO は $2 \\times 10 = 20$ kHz。必要な制御電圧は\n\n$$v_c = \\frac{20\\,\\mathrm{kHz} - 16\\,\\mathrm{kHz}}{2\\,\\mathrm{kHz/V}} = 2\\,\\mathrm{V}$$\n\n0〜5 V の範囲に入っているのでロックできます。XOR のデューティは $2/5 = 0.4$、`ref` と `fb` の位相差は 72°（D-19 と同じ）。\n\n**2. RC の下限（リプル）**\n\n$$\\frac{3.0}{2\\pi \\times 20000 \\times RC} \\le 0.03 \\quad\\Rightarrow\\quad RC \\ge \\frac{3.0}{2\\pi \\times 20000 \\times 0.03} = 0.80\\,\\mathrm{ms}$$\n\n**3. RC の上限（ロック時間）**\n\n$$e^{-8\\,\\mathrm{ms}/(2RC)} \\le \\frac{1}{20} \\quad\\Rightarrow\\quad \\frac{8\\,\\mathrm{ms}}{2RC} \\ge \\ln 20 = 3.0 \\quad\\Rightarrow\\quad RC \\le \\frac{8\\,\\mathrm{ms}}{2 \\times 3.0} = 1.33\\,\\mathrm{ms}$$\n\n**4. 選ぶ**\n\n0.80 ms ≤ RC ≤ 1.33 ms の中央付近の RC = 1 ms（R = 10 kΩ、C = 100 nF）。リプルは $3.0/(2\\pi \\times 20000 \\times 0.001) = 24$ mV、8 ms での揺れの残りは $e^{-4} \\approx 1.8\\,\\%$。\n\n**5. 回路**\n\nDFF: D ← Q_NOT、CLK ← `vco`、Q → `fb`。XOR: `ref` と `fb` → `pd`。`pd` → 10 kΩ → `vc` → 100 nF → グラウンド。\n\n**6. シミュレーション結果（8〜10 ms）**\n\n`vco` 19.994 kHz（−0.03 %）、`fb` 9.997 kHz、`vc` の平均 1.997 V、`vc` の 20 kHz 成分 24 mV、`pd` の繰り返し 20.00 kHz。",
+    "why": "**分周器で周波数が N 倍になる理由**\n\n位相比較器が比べているのは「基準」と「分周後の信号」です。ループはこの 2 つの周波数を等しくするので $f_{vco}/N = f_{ref}$、つまり $f_{vco} = N f_{ref}$。分周比 N をデジタルで切り替えれば、基準の水晶 1 個から $f_{ref}$ 刻みで多くの周波数を作れます。これが**周波数シンセサイザ**です。\n\n**リプルの式**\n\nデューティ D の 0/5 V パルスの基本波（ここでは 20 kHz）の振幅は、フーリエ級数から $\\dfrac{2 \\times 5}{\\pi}\\sin(\\pi D) = 3.18 \\times \\sin 72° = 3.03$ V。RC ローパスの 20 kHz での利得は、$1/(2\\pi RC) \\ll 20$ kHz なので $\\approx 1/(2\\pi \\times 20\\,\\mathrm{kHz} \\times RC)$ です。\n\n**ロック時間の式**\n\n位相比較器の利得 $K_d = 5/\\pi$ V/rad、VCO の利得 $2\\pi K_v$ rad/s/V、分周 1/N をかけたループの利得は $K = \\dfrac{K_d \\cdot 2\\pi K_v}{N} = \\dfrac{(5/\\pi)(2\\pi \\times 2000)}{2} = 10^4\\,\\mathrm{s^{-1}}$。RC フィルタと合わせた特性方程式は $s^2 + \\dfrac{s}{RC} + \\dfrac{K}{RC} = 0$ で、解の実部が $-\\dfrac{1}{2RC}$。だから揺れの包絡線は $e^{-t/(2RC)}$ になり、RC が大きいほど遅くなります（減衰係数 $\\zeta = 1/(2\\sqrt{K \\cdot RC}) = 0.16$ の振動的な応答）。\n\n**トレードオフ**\n\nRC を大きくするとリプル（ジッタ・スプリアス）は減るがロックが遅くなり、さらに ζ が小さくなって揺れが大きくなる。小さくするとロックは速いがリプルが増える。1 個の RC では両方を自由に決められないので、これが RC フィルタの PLL の基本的な限界です。",
+    "mistakes": "- **分周器を入れずに `vco` を XOR に戻す**: VCO は 10 kHz まで下がれず、$v_c$ が振れ続けて平均約 2.5 V、VCO は約 21 kHz とロックしません。\n- **DFF の Q を D に戻す**（Q_NOT と取り違え）: D = Q なので Q が変化せず、分周しません。`fb` が止まり、ロックしません。\n- **RC = 0.5 ms**（C = 50 nF など）: ロックは速いが、20 kHz 成分が 48 mV になってリプルの判定で不合格です。\n- **RC = 2 ms**（R か C を 2 倍）: 8 ms ではまだ揺れが $e^{-2} \\approx 14\\,\\%$ 残り、`vco` 20.125 kHz・$v_c$ 2.058 V で不合格です。RC = 1.5 ms は設計メモでは上限を超えますが、シミュレーションではぎりぎり合格します（$e^{-8/3} \\approx 7\\,\\%$ の揺れの大部分が 8〜10 ms の平均で打ち消し合うため）。\n- **C を忘れる**: `vc` が 0/5 V のパルスのままになり、20 kHz 成分が約 3 V で不合格。\n- **XOR の入力を `ref` と `vco` にする**（分周器は置いたが帰還に使っていない）: 上の「分周器なし」と同じでロックしません。",
+    "practice": "- **無線機・放送受信機**: チャンネルを切り替えるとき、分周比 N を変えるだけで局部発振器の周波数を正確に切り替えます。基準周波数がチャンネル間隔（例: FM ラジオで 100 kHz）になります。\n- **マイコン・FPGA のクロック**: 8 MHz の水晶から PLL で 72 MHz、168 MHz などを作ります。分周器は「プリスケーラ」と呼ばれる高速カウンタです。\n- **実際のループフィルタ**: 1 個の RC では上のトレードオフから逃げられないので、C と直列に抵抗を入れる**ラグリードフィルタ**（ζ を独立に決められる）や、チャージポンプ＋2 次・3 次のフィルタを使います。設計ツールで「ループ帯域・位相余裕・スプリアス」を同時に決めます。\n- **ロック時間の仕様**: 周波数ホッピング（Bluetooth など）では、数十 µs 以内に新しい周波数でロックすることが求められます。\n- **分数分周（フラクショナル N）**: N を 2 と 3 で切り替えて平均 2.5 のような分周比を作り、基準より細かい刻みで周波数を作る方式もあります。",
+    "next": "- 分野 D のまとめ: 弛張発振（D-03〜D-07）、帰還発振とバルクハウゼン条件（D-08〜D-15）、水晶（D-16・D-17）、VCO と PLL（D-18〜D-20）。PLL は「正確だが周波数が固定の水晶」と「周波数を変えられるが不正確な VCO」の長所を組み合わせた回路です。\n- **分野 E**: PLL による FM 復調、VCO による FSK、スーパーヘテロダインの局部発振器。\n- **分野 H**: 分周器を一般化したカウンタ（÷N）や、プログラマブル分周器の作り方。"
+  }
+}
