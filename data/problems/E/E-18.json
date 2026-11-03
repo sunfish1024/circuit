@@ -1,0 +1,254 @@
+{
+  "id": "E-18",
+  "category": "E",
+  "title": "BPSK：データで搬送波の位相を反転させ、同期検波で取り出す",
+  "difficulty": 4,
+  "prerequisites": [
+    "E-09",
+    "E-17"
+  ],
+  "learningGoal": "0/1 のデータを ±1 V の両極性信号に直してから搬送波に掛けると、搬送波の位相が 0°/180° に切り替わる BPSK になり、搬送波の成分が消えることを確かめる。包絡線が一定なので包絡線検波では復調できず、同じ搬送波を掛けてローパスフィルタを通す同期検波で、データが ± の符号として戻ることを理解する。",
+  "judge": "transient",
+  "simulation": {
+    "tStop": 0.004
+  },
+  "statement": "### 状況\nE-17 の ASK は振幅でデータを送るので、雑音や電波の強さの変化に弱い方式でした。**BPSK（2 相位相偏移変調、Binary Phase Shift Keying）**は、データの 1 と 0 で搬送波の**位相を 0° と 180° に切り替え**ます。振幅は常に一定です。\n\n位相を 180° ずらすことは、波形の符号を反転することと同じです（$-\\sin\\omega t = \\sin(\\omega t + 180°)$）。なので、データを **+1 V / −1 V** の信号にして搬送波に掛ければ BPSK になります。ところが、データ VD はロジック回路の出力で **0 V / 2 V** しか出ません。そこで、**直流電源を直列に入れて 1 V 下げ**、+1 V / −1 V の**両極性信号**（`nrz`）を作ります。\n\n受信側は E-09 の**同期検波**です。受信した波にもう一度同じ搬送波を掛けると\n\n$$\\pm\\sin\\omega t \\times \\sin\\omega t = \\pm\\frac{1}{2}(1 - \\cos 2\\omega t)$$\n\nとなるので、ローパスフィルタで 2ω の成分を除けば、データの符号どおり ±0.5 V が残ります。\n\n### やること\n1. **レベル変換**: 直流電圧源（V_DC）を 1 個置き、+ 端子を `d`、− 端子を `nrz`（TPN）につなぐ。電圧の値を決める。\n2. **変調**: 乗算器（MULT）を置き、x = `nrz`、y = `c`（搬送波 VC）、出力 = `bpsk`（TPB）。\n3. **同期検波**: もう 1 個の MULT を置き、x = `bpsk`、y = `c`、出力 = `mix`（RF の左の端子）。ローパスフィルタ（RF = 1 kΩ、CF = 100 nF）はすでにあり、その出力が `dem`（TPD）です。\n\n### ボードの配置\n- 左上がデータ VD（上の端子が `d`）、左下が搬送波 VC（上の端子が `c`）。上の段に TPN（`nrz`）と TPB（`bpsk`）、右に RF・CF のフィルタと TPD（`dem`）。\n- VD と TPN の間に V_DC、TPN と TPB の間に 1 個目の MULT、TPB と RF の間に 2 個目の MULT を置く場所が空いています。搬送波 `c` は 2 個の MULT の y の両方へつなぎます。\n\n### 判定の内容（過渡解析 0〜4 ms）\n- `nrz`: 最大値 +1 V ± 2 %、最小値 −1 V ± 2 %\n- `bpsk`: 10 kHz（搬送波）の成分が **0.02 V 以下**（0〜4 ms）、最大値 1 V ± 2 %\n- `dem`: 「1」のビットの後半（0.6〜1.0 ms と 2.6〜3.0 ms）の平均が **+0.5 V ± 3 %**、「0」のビットの後半（1.6〜2.0 ms）の平均が **−0.5 V ± 3 %**\n\n### 条件\n- データ VD: 0〜1 ms が「1」（2 V）、1〜2 ms が「0」（0 V）、以後くり返し（1 ビット 1 ms ＝ 1000 bit/s）。\n- 搬送波 VC: 10 kHz、振幅 1 V（ピーク）。受信側も同じ VC を使う（受信機で搬送波の周波数と位相が正しく再生できたと仮定する）。\n- 乗算器の出力は $k \\cdot V(x) \\cdot V(y)$（k = 1/V、gnd 基準）。入力電流 0、出力抵抗 0。\n- V_DC は理想電圧源。グラウンドにつながずに、信号の途中へ直列に入れてよい。\n- ローパスフィルタの遮断周波数は $1/(2\\pi \\times 1\\,\\mathrm{k\\Omega} \\times 100\\,\\mathrm{nF}) = 1.59$ kHz（時定数 0.1 ms）。",
+  "hints": [
+    "**方針**: V_DC を + が `d`、− が `nrz` の向きで直列に入れると、$v_{nrz} = v_d - V$ です。0 V / 2 V が −1 V / +1 V になる V を決めます。次に、1 ビットずつ掛け算の結果を書き、$\\sin^2\\omega t = (1 - \\cos 2\\omega t)/2$ を使ってローパスフィルタの後に残る値を求めます。",
+    "**使う式**: $v_{nrz} = v_d - V_{DC}$、$v_{bpsk} = v_{nrz} \\cdot 1\\,\\mathrm{V} \\cdot \\sin\\omega t$、$v_{mix} = v_{bpsk} \\cdot \\sin\\omega t = \\dfrac{v_{nrz}}{2} - \\dfrac{v_{nrz}}{2}\\cos 2\\omega t$。ローパスフィルタは直流分 $v_{nrz}/2$ を通し、20 kHz を約 1/13 に減らします。",
+    "**ほぼ答え**: V_DC = **1 V**（+ = `d`、− = `nrz`）で nrz = ±1 V。MULT1: x = `nrz`、y = `c`、out = `bpsk`（位相 0°/180° の BPSK、振幅 1 V）。MULT2: x = `bpsk`、y = `c`、out = `mix`。`dem` は ±0.5 V。"
+  ],
+  "availableComponents": [
+    "V_DC",
+    "MULT",
+    "D",
+    "SD",
+    "R",
+    "C"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VD",
+      "type": "V_PULSE",
+      "params": {
+        "Vlow": 0,
+        "Vhigh": 2,
+        "delaySec": 0,
+        "riseSec": 1e-09,
+        "fallSec": 1e-09,
+        "widthSec": 0.001,
+        "periodSec": 0.002
+      },
+      "connect": [
+        "d",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 60,
+        "y": 80
+      }
+    },
+    {
+      "id": "VC",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 1,
+        "freqHz": 10000,
+        "phaseDeg": 0
+      },
+      "connect": [
+        "c",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 60,
+        "y": 320
+      }
+    },
+    {
+      "id": "TPN",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "nrz"
+      ],
+      "locked": true,
+      "position": {
+        "x": 200,
+        "y": 40
+      }
+    },
+    {
+      "id": "TPB",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "bpsk"
+      ],
+      "locked": true,
+      "position": {
+        "x": 380,
+        "y": 40
+      }
+    },
+    {
+      "id": "RF",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "mix",
+        "dem"
+      ],
+      "locked": true,
+      "position": {
+        "x": 500,
+        "y": 200
+      }
+    },
+    {
+      "id": "CF",
+      "type": "C",
+      "params": {
+        "C": 1e-07
+      },
+      "connect": [
+        "dem",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 640,
+        "y": 270
+      }
+    },
+    {
+      "id": "TPD",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "dem"
+      ],
+      "locked": true,
+      "position": {
+        "x": 600,
+        "y": 100
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "transientMeasure",
+      "node": "nrz",
+      "measure": "max",
+      "fromSec": 0,
+      "toSec": 0.004,
+      "expected": 1,
+      "tolerancePct": 2
+    },
+    {
+      "type": "transientMeasure",
+      "node": "nrz",
+      "measure": "min",
+      "fromSec": 0,
+      "toSec": 0.004,
+      "expected": -1,
+      "tolerancePct": 2
+    },
+    {
+      "type": "transientMeasure",
+      "node": "bpsk",
+      "measure": "tone",
+      "frequencyHz": 10000,
+      "fromSec": 0,
+      "toSec": 0.004,
+      "expectedMax": 0.02
+    },
+    {
+      "type": "transientMeasure",
+      "node": "bpsk",
+      "measure": "max",
+      "fromSec": 0,
+      "toSec": 0.002,
+      "expected": 1,
+      "tolerancePct": 2
+    },
+    {
+      "type": "transientMeasure",
+      "node": "dem",
+      "measure": "average",
+      "fromSec": 0.0006,
+      "toSec": 0.001,
+      "expected": 0.5,
+      "tolerancePct": 3
+    },
+    {
+      "type": "transientMeasure",
+      "node": "dem",
+      "measure": "average",
+      "fromSec": 0.0016,
+      "toSec": 0.002,
+      "expected": -0.5,
+      "tolerancePct": 3
+    },
+    {
+      "type": "transientMeasure",
+      "node": "dem",
+      "measure": "average",
+      "fromSec": 0.0026,
+      "toSec": 0.003,
+      "expected": 0.5,
+      "tolerancePct": 3
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 1
+      },
+      "connect": [
+        "d",
+        "nrz"
+      ]
+    },
+    {
+      "id": "MULT1",
+      "type": "MULT",
+      "params": {
+        "k": 1
+      },
+      "connect": [
+        "nrz",
+        "c",
+        "bpsk"
+      ]
+    },
+    {
+      "id": "MULT2",
+      "type": "MULT",
+      "params": {
+        "k": 1
+      },
+      "connect": [
+        "bpsk",
+        "c",
+        "mix"
+      ]
+    }
+  ],
+  "explanation": {
+    "solution": "**1. レベル変換**\n\nV_DC の + を `d`、− を `nrz` にすると $v_d - v_{nrz} = V$、つまり $v_{nrz} = v_d - V$。\n\n- 「1」: $2 - V = +1$ → V = 1 V\n- 「0」: $0 - V = -1$ → V = 1 V（同じ値で両方満たす）\n\n**2. 変調**\n\n$v_{bpsk} = 1 \\times v_{nrz} \\times \\sin\\omega t$。「1」の間は $+\\sin\\omega t$、「0」の間は $-\\sin\\omega t = \\sin(\\omega t + 180°)$。振幅は常に 1 V で、位相だけが 0° と 180° に切り替わります。\n\n**3. 搬送波の成分**\n\n0〜4 ms では「1」と「0」が同じ時間なので、$+\\sin$ と $-\\sin$ が打ち消し合い、10 kHz の成分は **0**。データの平均（直流分）が 0 だからです。\n\n**4. 同期検波**\n\n$$v_{mix} = v_{bpsk} \\cdot \\sin\\omega t = v_{nrz}\\sin^2\\omega t = \\frac{v_{nrz}}{2} - \\frac{v_{nrz}}{2}\\cos(2\\pi \\cdot 20\\,\\mathrm{kHz} \\cdot t)$$\n\nローパスフィルタ（遮断 1.59 kHz）は直流分 $v_{nrz}/2 = \\pm 0.5$ V を通し、20 kHz の成分を $1/\\sqrt{1 + (20/1.59)^2} = 0.079$ 倍（振幅 0.5 × 0.079 = 0.04 V）に減らします。\n\n**5. 応答の速さ**\n\nフィルタの時定数は 0.1 ms。ビットが切り替わってから 0.6 ms（6 時定数）後には、残りの誤差は $e^{-6}$ = 0.25 % なので、0.6〜1.0 ms の平均はほぼ ±0.5 V です。\n\n**6. シミュレーション結果**\n\n| 判定 | 結果 |\n|---|---|\n| `nrz` の最大 / 最小 | +1.000 V / −1.000 V |\n| `bpsk` の 10 kHz 成分 / 最大 | 0.0000 V / 1.000 V |\n| `dem` の平均（0.6〜1.0 / 1.6〜2.0 / 2.6〜3.0 ms） | +0.4997 / −0.4994 / +0.4994 V |\n\n`dem` に残る 20 kHz のリプルは最大 − 最小で 0.08 V です。",
+    "why": "**BPSK は「±1 を掛けた DSB-SC」**\n\nE-05 の DSB-SC（搬送波抑圧）は、平均 0 の信号を搬送波に掛けると搬送波の成分が消える、という方式でした。BPSK はその信号が ±1 の方形波になったものです。ASK（0/1 を掛ける）ではデータの平均 0.5 の分だけ搬送波が残り、送信電力の半分以上が情報を持たない搬送波に使われますが、BPSK では電力がすべて情報（側帯波）に使われます。\n\n**包絡線検波では取り出せない理由**\n\n$|v_{bpsk}|$ の山の高さ（包絡線）は「1」でも「0」でも 1 V です。ダイオードの包絡線検波は振幅しか見ないので、どちらのビットでも約 1 V を出し、0/1 を区別できません。位相の違いを見分けるには「基準になる位相」が必要で、それが受信側で掛ける同じ搬送波です。掛け算は「2 つの波の位相がそろっていれば正、逆なら負」を出す**位相比較**の働きをしています（D-19 の XOR 位相比較器と同じ考え方）。\n\n**雑音に強い理由**\n\n受信機は `dem` が 0 V より上か下かで 0/1 を決めます。2 つの信号点 +0.5 V と −0.5 V の距離は、同じ平均電力の ASK（0 と 1）より √2 倍大きく、同じ雑音でも誤りが起きにくくなります（必要な S/N が 3 dB 小さい）。しきい値が 0 V に固定なので、電波の強さが変わってもしきい値を調整する必要がありません。",
+    "mistakes": "- **V_DC を入れずに `d` を直接 MULT へつなぐ**: 0/2 V を掛けるので ASK になり、`bpsk` の 10 kHz 成分が 1.0 V 残って不合格。`dem` は +1.0 V と 0 V で、符号でデータを表せません。\n- **V_DC を逆向き（+ を `nrz`）にする**: $v_{nrz} = v_d + 1$ = +3 V / +1 V になり、搬送波の成分が 2 V、`dem` は +1.5 V / +0.5 V で不合格。\n- **V_DC を 2 V にする**: `nrz` = 0 V / −2 V。符号が反転した ASK で、搬送波の成分が 1 V 残ります。\n- **V_DC を `nrz`–グラウンド間に入れる**: `nrz` が一定の 1 V になり、データが載りません。\n- **2 個目の MULT を省いて `bpsk` を直接 RF へつなぐ**: 10 kHz の BPSK 波はローパスフィルタでほぼ消え、平均も 0 なので `dem` ≈ 0 V で不合格。\n- **ダイオード検波で受信する**: どのビットでも約 1 V（から Vf を引いた値）が出て、0/1 を区別できません。\n- **受信側の搬送波の位相がずれている場合**（この問題では起きない）: E-10 のとおり `dem` が cos φ 倍になり、90° ずれると 0 V になって全く受信できません。180° ずれるとデータが全部反転します。",
+    "practice": "- **使われている所**: 衛星通信、深宇宙探査機の通信、GPS（衛星ごとの符号を BPSK で搬送波に載せる）、無線 LAN の最も遅い速度（1 Mbit/s）、IEEE 802.15.4（ZigBee）など。雑音に強いので、遠く・弱い電波の通信に向いています。\n- **搬送波の再生が必要**: この問題では送信と同じ VC を受信側で使いましたが、実際の受信機は受信波から搬送波を作り直す必要があります。BPSK には搬送波の成分が無いので、PLL（E-20、D-19）で直接ロックできません。受信波を 2 乗して ±の符号を消し、2fc の成分を作ってから PLL でロックする方法（2 乗ループ）や、コスタスループが使われます。\n- **180° の不確かさ**: 再生した搬送波が 180° ずれているかどうかは受信機に分からないので、データ全体が反転する可能性があります。「前のビットと同じなら 0、変わったら 1」のように変化で情報を送る**差動符号化（DBPSK）**で解決します。\n- **QPSK と QAM**: cos と sin（90° ずれた 2 つの搬送波）に別々の BPSK を載せると、同じ帯域で 2 倍のデータを送れます（QPSK）。さらに振幅も多段にしたのが QAM で、携帯電話や無線 LAN の高速通信の基本です。",
+    "next": "- **E-19 FSK**: 周波数でデータを送る方式。VCO で作ります。\n- **E-20 PLL**: PLL は FM の復調にも、BPSK の搬送波の再生にも使われる、通信回路の中心的な回路です。\n- **E-10 同期検波の位相ずれ**: 搬送波の位相がずれると出力が cos φ 倍になること。BPSK の受信で搬送波の再生が大事な理由です。"
+  }
+}

@@ -1,0 +1,174 @@
+{
+  "id": "E-04",
+  "category": "E",
+  "title": "乗算器で AM 変調器を組む：直流バイアスで変調度を決める",
+  "difficulty": 3,
+  "prerequisites": [
+    "E-01",
+    "E-02"
+  ],
+  "learningGoal": "AM 波は (直流 + 音声) × 搬送波 で作れること、変調度 m = 音声の振幅 / 直流バイアス、搬送波の振幅 = k·(バイアス)·(搬送波の振幅) であることを使い、乗算器と直流電源で指定の変調度と振幅の AM 変調器を設計できる。",
+  "judge": "transient",
+  "simulation": {
+    "tStop": 0.008
+  },
+  "statement": "### 状況\nE-01〜E-03 では AM 信号源（V_AM）を使いました。実際の送信機の中では、AM 波はどうやって作られているのでしょうか。\n\nAM 波の式 $V_c(1 + m\\sin\\omega_m t)\\sin\\omega_c t$ は、「**直流 + 音声**」と「**搬送波**」の**掛け算**です。そこで **乗算器**（2 つの電圧を掛け算する回路。IC では AD633 など）を使って、AM 変調器を組みます。\n\n### ボード上の部品\n| 部品 | 役割 | つながっているネット |\n|---|---|---|\n| VM | 音声の試験信号: 振幅 1.0 V（ピーク）、250 Hz | `aud`（+）、`gnd` |\n| VC | 搬送波: 振幅 2.0 V（ピーク）、10 kHz | `car`（+）、`gnd` |\n| TPX | 測定点（乗算器に入れる「直流 + 音声」） | `x` |\n| TPA | 測定点（AM 波の出力） | `am` |\n\n### やること\n1. **直流電源**（V_DC）を `aud` と `x` の間につなぎ、VM と直列にして `x` の電圧を「音声 + 直流 $V_B$」にする（向きに注意。`x` は常に正）。電圧 $V_B$ を決める。\n2. **乗算器**（MULT）を置き、入力 x を `x`、入力 y を `car`、出力 out を `am` につなぐ。係数 $k$ を決める。\n3. 次の 2 つを**同時に**満たすように $V_B$ と $k$ を計算して入力する。\n   - `am` の変調度 $m$ = **0.5**\n   - `am` の搬送波成分（10 kHz）の振幅 = **2.0 V**\n\n### 条件\n- 乗算器は理想: 出力 $v_{out} = k \\cdot v_x \\cdot v_y$（$v_x$, $v_y$ は gnd 基準の電圧、$k$ の単位は 1/V）。入力に電流は流れず、出力抵抗は 0。\n- `x` の電圧は常に正（1〜3 V の範囲で動く）にする。\n- 電源はすべて理想（内部抵抗 0）。過渡解析 0〜8 ms（変調信号の 2 周期）。\n\n### 判定（0〜8 ms の波形で測る）\n- `am` の変調度が 0.50（±3%）\n- `am` の 10 kHz 成分が 2.0 V（±2%）、10.25 kHz 成分が判定値（±2%）\n- `x` の平均値と最大 − 最小（pp）が判定値（±2%）",
+  "hints": [
+    "`x` の電圧は $V_B + 1.0\\sin\\omega_m t$ です。これに搬送波 $2.0\\sin\\omega_c t$ と $k$ を掛けた式を、$V_c(1 + m\\sin\\omega_m t)\\sin\\omega_c t$ の形に整理してみましょう。",
+    "$v_{out} = k(V_B + A_m\\sin\\omega_m t)A_c\\sin\\omega_c t = kV_BA_c\\left(1 + \\dfrac{A_m}{V_B}\\sin\\omega_m t\\right)\\sin\\omega_c t$。よって $m = A_m/V_B$、搬送波の振幅 $V_c = kV_BA_c$。",
+    "$V_B = A_m/m = 1.0/0.5 = 2.0$ V、$k = V_c/(V_BA_c) = 2.0/(2.0 \\times 2.0) = 0.5$ /V。V_DC（2 V）を − が `aud`、+ が `x` の向きに、MULT を x=`x`、y=`car`、out=`am` に置きます。"
+  ],
+  "explanation": {
+    "solution": "**1. 出力の式を立てる**\n\nVM（振幅 $A_m$ = 1.0 V）と直流電源 $V_B$ を直列にしたので、KVL より $v_x = V_B + A_m\\sin\\omega_m t$。搬送波は $v_y = A_c\\sin\\omega_c t$（$A_c$ = 2.0 V）です。乗算器の出力は\n\n$$v_{am} = k\\,v_x v_y = k(V_B + A_m\\sin\\omega_m t)A_c\\sin\\omega_c t = \\underbrace{kV_BA_c}_{V_c}\\Bigl(1 + \\underbrace{\\frac{A_m}{V_B}}_{m}\\sin\\omega_m t\\Bigr)\\sin\\omega_c t$$\n\n**2. 変調度から $V_B$**\n\n$$m = \\frac{A_m}{V_B} \\ \\Rightarrow\\ V_B = \\frac{A_m}{m} = \\frac{1.0}{0.5} = 2.0\\,\\mathrm{V}$$\n\n**3. 搬送波の振幅から $k$**\n\n$$V_c = kV_BA_c \\ \\Rightarrow\\ k = \\frac{V_c}{V_BA_c} = \\frac{2.0}{2.0 \\times 2.0} = 0.5\\,\\mathrm{V^{-1}}$$\n\n**4. 確かめ**\n\n`x` は 2.0 V を中心に 1.0〜3.0 V で動きます（平均 2.0 V、pp 2.0 V）。側帯波は $mV_c/2 = 0.5 \\times 2.0/2 = 0.5$ V です。\n\n**シミュレーション結果**: 変調度 0.4996、10 kHz 成分 2.000 V、10.25 kHz 成分 0.500 V、`x` の平均 2.000 V・pp 2.000 V。",
+    "why": "- **直流バイアスが搬送波を生む**: $v_x$ の直流分 $V_B$ と搬送波の積 $kV_BA_c\\sin\\omega_c t$ が、出力の搬送波成分になります。音声の分 $A_m\\sin\\omega_m t$ と搬送波の積は、積和の公式で $f_c \\pm f_m$ の側帯波になります（E-02）。つまり「直流 → 搬送波」「音声 → 側帯波」と、掛け算によって周波数が $f_c$ だけ持ち上げられるのです。\n- **変調度はバイアスと音声の比で決まる**: $m = A_m/V_B$ は、$v_x$ の「揺れ幅 ÷ 中心値」です。$k$ や $A_c$ を変えても出力全体の大きさが変わるだけで、$m$ は変わりません。だから $m$ は $V_B$ で、振幅は $k$ で、と**別々に**合わせられます。\n- **$v_x$ を正に保つ理由**: $V_B < A_m$ だと $v_x$ が負になる時間ができ、$m > 1$ の過変調になります（E-03）。「バイアス ≧ 音声の振幅」が過変調しない条件です。",
+    "mistakes": "- **直流電源を逆向き（+ を `aud`）につなぐ**: $v_x = -2 + \\sin\\omega_m t$ となり、`x` の平均が −2.0 V で不合格です。出力は $-k(2 - \\sin\\omega_m t)A_c\\sin\\omega_c t$ で、数学的には搬送波の符号が反転した AM 波（$m$ = 0.5）ですが、「`x` を常に正にする」という条件を満たしません。実際の変調器（トランジスタの電源電圧で振幅を変える方式など）では、バイアスの向きを逆にすると回路が動きません。\n- **直流電源を入れずに `aud` を直接乗算器へ**: 出力は $kA_mA_c\\sin\\omega_m t\\sin\\omega_c t$ で、搬送波の無い波（DSB-SC、E-05）になります。10 kHz 成分 0、変調度 1 で不合格です。\n- **直流を搬送波の側（y）に足す**: $k\\,v_{aud}(V_B + v_{car})$ となり、出力に音声そのもの（250 Hz）と DSB-SC が出るだけで、搬送波は出ません。\n- **$k$ = 1 のまま $V_B$ だけで振幅を合わせる**（$V_B$ = 1 V）: 振幅 2.0 V は合いますが、$m = 1.0/1.0 = 1$ になり不合格です。2 つの条件があるので、変える量も 2 つ必要です。",
+    "practice": "- **アナログ乗算器 IC**（AD633、AD835 など）や、トランジスタの差動対を 2 段重ねた **ギルバートセル**（MC1496 など）は、この問題と同じ「掛け算」で AM・DSB 変調やミキサ（周波数変換）を行います。入力電圧の範囲（AD633 は ±10 V）と、出力に漏れる搬送波・音声（フィードスルー）が実用上の注意点です。\n- **コレクタ変調・プレート変調**: 大電力の AM 送信機では、終段増幅器の電源電圧そのものを「直流 + 音声」で動かします。出力振幅が電源電圧にほぼ比例するので、電源電圧と搬送波の掛け算になります。このとき電源電圧（この問題の $v_x$）は負にできないので、過変調で波形が 0 に張り付きます（E-03）。\n- 変調器の入力でバイアスがずれると $m$ が変わります（$V_B$ が 10% 下がれば $m$ は 10% 上がる）。送信機では基準電圧を安定させ、音声の振幅をリミッタで制限します。",
+    "next": "- **E-05**: この変調器からバイアス $V_B$ を取り除くと、搬送波が消えた DSB-SC になります。\n- **E-09**: 受信側でも乗算器を使い、同じ搬送波を掛けて音声を取り出します（同期検波）。\n- **E-11**: 2 つの交流を掛けると和と差の周波数が出る（ミキサ）。この問題の「直流 → 搬送波、音声 → 側帯波」は、その特別な場合（片方が直流 + 低い周波数）です。"
+  },
+  "availableComponents": [
+    "V_DC",
+    "MULT"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VM",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 1,
+        "freqHz": 250
+      },
+      "connect": [
+        "aud",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 80,
+        "y": 340
+      }
+    },
+    {
+      "id": "TPX",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "x"
+      ],
+      "locked": true,
+      "position": {
+        "x": 180,
+        "y": 100
+      }
+    },
+    {
+      "id": "VC",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 2,
+        "freqHz": 10000
+      },
+      "connect": [
+        "car",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 300,
+        "y": 340
+      }
+    },
+    {
+      "id": "TPA",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "am"
+      ],
+      "locked": true,
+      "position": {
+        "x": 620,
+        "y": 140
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "transientMeasure",
+      "node": "am",
+      "measure": "modulationIndex",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "expected": 0.5,
+      "tolerancePct": 3
+    },
+    {
+      "type": "transientMeasure",
+      "node": "am",
+      "measure": "tone",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "frequencyHz": 10000,
+      "expected": 2.0,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "am",
+      "measure": "tone",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "frequencyHz": 10250,
+      "expected": 0.5,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "x",
+      "measure": "average",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "expected": 2.0,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "x",
+      "measure": "pp",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "expected": 2.0,
+      "tolerancePct": 2,
+      "unit": "V"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 2
+      },
+      "connect": [
+        "x",
+        "aud"
+      ]
+    },
+    {
+      "id": "MULT1",
+      "type": "MULT",
+      "params": {
+        "k": 0.5
+      },
+      "connect": [
+        "x",
+        "car",
+        "am"
+      ]
+    }
+  ]
+}

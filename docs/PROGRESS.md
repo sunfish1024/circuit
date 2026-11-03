@@ -59,6 +59,14 @@
   - D-04・D-05: ゲートが C を介さず自己帰還する誤配線で刻みの二分が毎刻み起きて遅くなる（約5秒）。dtFixed で回避。エンジン側で遅延0のループを検出して打ち切るのが本来の対策
   - D-14・D-15: MOSFET の切り替わり付近で「収束しなかった時刻」の警告が数十ステップ出る（判定には影響しない）
 
+- E（20問、2026-11-03）: verify --strict 20/20、--mutate 甘い判定1問（E-20: XOR を XNOR に替えても位相比較器として同じ結果になるため verifyNote あり）、--reverse（対象11問）・--drop 甘い判定0、check_layout 問題0。マウス操作での確認: E-04, E-07, E-11, E-19
+  - E-14 は構成表の AC 判定でなく過渡の tone 判定（A-18 と内容が重なるため）。E-15 は V_FM でなく V_VCO で FM 波を作る
+  - E-10, E-12: 局発の V_AC を逆向きにしても合格する（位相が 180° 変わるだけで正しく動く）。E-10 は平均値の符号で判定
+
+## 全分野完了（2026-11-03）
+- 200問（A〜J 各20問）すべてで verify --strict 200/200、--drop 甘い判定0、--reverse 120問対象で甘い判定1（verifyNote あり）、--mutate 甘い判定16（すべて verifyNote あり）、check_layout 200問で問題0、test_checks 453/453
+- 各分野1問ずつ（A-07, B-13, C-06, D-03, E-11, F-05, G-08, H-10, I-06, J-06）を実ブラウザで参照解を置いてクリアできることを確認。各分野で数問はマウス操作だけでも解けることを担当が確認
+
 ## エンジン拡張（2026-11-02 C・G・H向け）
 - デジタル（sim-engineer）: digital.js を全面書き直し（旧コードは type でなく simulation.model で部品を見分けていて、ゲート回路を一度も評価できていなかった）。0/1/X の3値、未接続入力はX、出力衝突は不合格。新部品 LOGIC_IN / U_XNOR / U_AND3 / U_OR3 / DFF_R。新判定 truthTable（inputs/outputs/expect）、sequence（クロックごとの系列）、componentCount。verify に ゲート差し替え・DFF の Q/Q_NOT 取り違えの誤答を追加
 - アナログ（sim-engineer）: AC解析がBJT/MOSFET/OPAMPに対応（DC動作点で線形化）、OPAMP の DC/過渡/飽和、正帰還の不安定平衡点の修正。新判定 acImpedance / operatingRegion / transientMeasure（max/min/pp/average/rms/acRms。F分野の平均値・リップルにも使える）、nodeRef/inputRef/outputRef・sources による差動・同相の判定、simulation.initialCondition: dc
