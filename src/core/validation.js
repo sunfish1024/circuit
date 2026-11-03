@@ -590,6 +590,19 @@ export function validateProblem(problem, options = {}) {
     validateSimulationSettings(problem.simulation, result);
   }
 
+  // 分野D/E のビヘイビア信号源は過渡解析専用（DC・AC では 0V の短絡）
+  {
+    const judges = (Array.isArray(problem.judge) ? problem.judge : [problem.judge ?? "dc"]).map((j) => String(j).toLowerCase());
+    const comps = [
+      ...(Array.isArray(problem.fixedComponents) ? problem.fixedComponents : []),
+      ...(Array.isArray(problem.referenceSolution) ? problem.referenceSolution : []),
+    ];
+    const tOnly = comps.filter((c) => isPlainObject(c) && ["V_AM", "V_FM", "V_VCO"].includes(c.type));
+    if (tOnly.length > 0 && !judges.includes("transient")) {
+      addValidationWarning(result, `${tOnly.map((c) => c.id).join(", ")}（${[...new Set(tOnly.map((c) => c.type))].join(" / ")}）は過渡解析専用の信号源です（DC・AC では 0V）。judge に "transient" を入れてください。`);
+    }
+  }
+
   if (problem.learningGoal !== undefined && !isNonEmptyString(problem.learningGoal)) {
     addValidationError(result, "problem.learningGoal は文字列である必要があります。");
   }
@@ -1003,7 +1016,11 @@ function validateProblemCheck(check, index, result, options = {}) {
 
 /* ---- アナログ判定の追加オプション（分野C で追加）の検証 ---- */
 
-const TRANSIENT_MEASURES = new Set(["max", "min", "pp", "average", "rms", "acRms", "duty", "power", "powerFactor"]);
+const TRANSIENT_MEASURES = new Set([
+  "max", "min", "pp", "average", "rms", "acRms", "duty", "power", "powerFactor",
+  // 分野D/E
+  "frequency", "period", "tone", "modulationIndex",
+]);
 const OPERATING_REGIONS = new Set([
   "off", "active", "saturation", "triode", "on", "forward", "breakdown", "linear", "satHigh", "satLow",
 ]);
@@ -1088,6 +1105,54 @@ function validateAnalogCheckOptions(check, path, result, options) {
     }
     if (check.threshold !== undefined && check.measure !== "duty") {
       addValidationWarning(result, `${path}.threshold は measure "duty" でだけ使います。`);
+    }
+    if (check.measure === "tone" && !(isFiniteNumber(check.frequencyHz) && check.frequencyHz >= 0)) {
+      addValidationError(result, `${path}: measure "tone" には frequencyHz（取り出す成分の周波数 Hz）が必要です。`);
+    }
+    if (check.frequencyHz !== undefined && check.measure !== "tone") {
+      addValidationWarning(result, `${path}.frequencyHz は measure "tone" でだけ使います。`);
+    }
+    if (check.window !== undefined && !["rect", "hann"].includes(check.window)) {
+      addValidationError(result, `${path}.window は "rect"（既定）または "hann" です。`);
+    }
+    if (check.window !== undefined && check.measure !== "tone") {
+      addValidationWarning(result, `${path}.window は measure "tone" でだけ使います。`);
+    }
+    if (["frequency", "period", "tone", "modulationIndex"].includes(check.measure) && check.toSec === undefined) {
+      addValidationWarning(result, `${path}: measure "${check.measure}" には toSec も指定してください（発振・変調の定常区間を明示する。tone は区間を全成分の周期の整数倍に）。`);
+    }
+  }
+  if (check.type === "transientMeasure" || check.type === "oscillationFrequency") {
+    for (const key of ["expectedMin", "expectedMax"]) {
+      if (check[key] !== undefined && !isFiniteNumber(check[key])) {
+        addValidationError(result, `${path}.${key} は数値である必要があります。`);
+      }
+    }
+    if (isFiniteNumber(check.expectedMin) && isFiniteNumber(check.expectedMax) && check.expectedMin > check.expectedMax) {
+      addValidationError(result, `${path}: expectedMin が expectedMax より大きくなっています。`);
+    }
+  }
+  if (check.type === "loopGain") {
+    const judges = Array.isArray(options.judge) ? options.judge : [options.judge ?? "dc"];
+    if (!judges.includes("ac")) addValidationError(result, `${path}（loopGain）には judge に "ac" が必要です。`);
+    if (!(isFiniteNumber(check.fMinHz) && check.fMinHz > 0 && isFiniteNumber(check.fMaxHz) && check.fMaxHz > check.fMinHz)) {
+      addValidationError(result, `${path}: fMinHz と fMaxHz（掃引範囲、0 < fMinHz < fMaxHz）が必要です。`);
+    } else if (check.fMaxHz / check.fMinHz > 1e6) {
+      addValidationWarning(result, `${path}: 掃引範囲が 6 ディケードを超えています（計算に時間がかかります）。`);
+    }
+    for (const key of ["expectedFrequencyHz", "gainMin", "gainMax", "gainDB", "gainToleranceDB", "phaseDeg"]) {
+      if (check[key] !== undefined && !isFiniteNumber(check[key])) {
+        addValidationError(result, `${path}.${key} は数値である必要があります。`);
+      }
+    }
+    if (check.expectedFrequencyHz === undefined && check.gainMin === undefined && check.gainMax === undefined && check.gainDB === undefined) {
+      addValidationError(result, `${path}: expectedFrequencyHz（発振周波数）か gainMin / gainMax / gainDB（一巡利得）の少なくとも 1 つが必要です。`);
+    }
+    if (isFiniteNumber(check.gainMin) && isFiniteNumber(check.gainMax) && check.gainMin > check.gainMax) {
+      addValidationError(result, `${path}: gainMin が gainMax より大きくなっています。`);
+    }
+    if (check.frequencyHz !== undefined) {
+      addValidationWarning(result, `${path}.frequencyHz は使いません（発振周波数の期待値は expectedFrequencyHz に書く）。`);
     }
   }
   if (check.type === "efficiency") {
@@ -1278,7 +1343,7 @@ function validateDigitalCheck(check, path, result, options) {
 export const POLARIZED_TYPES = new Set([
   "D", "LED", "ZD", "SD", "TVS", "PD", "D_VC",
   "Q_NPN", "Q_PNP", "M_N", "M_P", "J_N", "PT",
-  "OPAMP", "V_DC", "V_PULSE", "I_DC", "SCR", "TRIAC", "U_OPTO", "XFMR", "SW_V",
+  "OPAMP", "V_DC", "V_PULSE", "I_DC", "SCR", "TRIAC", "U_OPTO", "XFMR", "SW_V", "V_VCO", "MULT",
   "U_WILSON", "U_CASCODE", "DFF", "DFF_R",
   "U_NOT", "U_AND", "U_OR", "U_NAND", "U_NOR", "U_XOR", "U_XNOR", "U_AND3", "U_OR3",
 ]);
@@ -1335,10 +1400,14 @@ function validateSimulationSettings(sim, result) {
     addValidationError(result, "problem.simulation はオブジェクトである必要があります。");
     return;
   }
-  for (const key of ["tStop", "dt", "diodeRs"]) {
+  for (const key of ["tStop", "dt", "diodeRs", "dtFixed"]) {
     if (sim[key] !== undefined && !(isFiniteNumber(sim[key]) && sim[key] > 0)) {
       addValidationError(result, `problem.simulation.${key} は正の数値である必要があります。`);
     }
+  }
+  // dtFixed（分野D: 自動の刻みを使わない固定刻み）。ステップ数 = tStop / dtFixed の目安は 50000 以下
+  if (isFiniteNumber(sim.dtFixed) && sim.dtFixed > 0 && isFiniteNumber(sim.tStop) && sim.tStop / sim.dtFixed > 50000) {
+    addValidationWarning(result, `problem.simulation: tStop / dtFixed = ${Math.round(sim.tStop / sim.dtFixed)} ステップです（50000 以下を目安に。ブラウザで時間がかかります）。`);
   }
   if (sim.frequencies !== undefined) {
     if (

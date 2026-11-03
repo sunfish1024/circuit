@@ -1539,6 +1539,446 @@ const db = (x) => 20 * Math.log10(Math.abs(x));
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+/* ---------------------------------------------------------------- 分野D（発振）: 過渡で発振が立ち上がるか・周波数・振幅、バルクハウゼン条件（AC） */
+// 許容誤差の根拠（分野D）:
+// - LC 発振（無損失）: 刻み T/100 の台形則の位相誤差 (ωh)²/12 ≈ 3.3e-4 → 周波数は 0.1%。台形則は振幅を保存するが、
+//   t=0 直後 2 ステップの後退オイラーで (ωh)²/2 ≈ 0.2% ずつ減衰する → 振幅は 0.6%。
+// - 弛張発振（シュミット・CMOS インバータ・555）: 切り替わりの時刻は刻みを 1/64 まで二分して求める → 1 回の切り替わりの
+//   誤差 ≤ 刻み/64（ここでは周期の 0.03% 程度）。周期は 0.5%、デューティは ±0.01。
+// - 正弦波発振（ウィーン・移相・コルピッツ・ピアース）: 振幅が飽和・ダイオードで制限されるときのひずみで周波数が
+//   1〜3% ずれる（物理的なずれで数値誤差ではない）→ 3〜5%。位相条件の周波数そのものは AC の loopGain で 0.1% 以内。
+// - loopGain（AC）: 複素 MNA を直接解き、位相 0° の周波数を二分法で 1e-12 まで絞る。Aol = 1e5 の有限利得の影響が 1e-4 程度 → 0.1%。
+{
+  // LC タンク（無損失）を L の初期電流で起動: f = 1/(2π√(LC)) = 1591.55Hz、振幅 = I0·√(L/C) = 1V
+  const b = board(comp("L1", "L", ["a", "gnd"], { L: 0.01, initialI: 0.01 }), comp("C1", "C", ["a", "gnd"], { C: 1e-6 }), comp("TP", "TP", ["a"]));
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.02 } } });
+  const run1 = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+  const f = await run1({ type: "oscillationFrequency", node: "a", fromSec: 0.002, toSec: 0.02, expected: 1591.55, tolerancePct: 0.1 });
+  expect("D: LC タンク（L の initialI で起動）の周波数 1/(2π√LC)（oscillationFrequency + toSec）", f.ok, f.message);
+  const pp = await run1({ type: "transientMeasure", node: "a", measure: "pp", fromSec: 0.018, toSec: 0.02, expected: 2, tolerancePct: 0.6 });
+  expect("D: 無損失 LC の振幅が台形則で減衰しない（pp = 2·I0·√(L/C)）", pp.ok, pp.message);
+  const fm = await run1({ type: "transientMeasure", node: "a", measure: "frequency", fromSec: 0.002, toSec: 0.02, expected: 1591.55, tolerancePct: 0.1 });
+  expect("D: transientMeasure frequency（平均値の上向き交差）", fm.ok, fm.message);
+  const per = await run1({ type: "transientMeasure", node: "a", measure: "period", fromSec: 0.002, toSec: 0.02, expected: 1 / 1591.55, tolerancePct: 0.1 });
+  expect("D: transientMeasure period", per.ok, per.message);
+  const rng = await run1({ type: "transientMeasure", node: "a", measure: "pp", fromSec: 0.018, toSec: 0.02, expectedMin: 1.5 });
+  expect("D: expectedMin（範囲判定）: 振幅 1.5V 以上で合格", rng.ok, rng.message);
+  const rng2 = await run1({ type: "transientMeasure", node: "a", measure: "pp", fromSec: 0.018, toSec: 0.02, expectedMin: 2.5 });
+  expect("D: expectedMin（範囲判定）: 2.5V 以上は不合格", !rng2.ok && /範囲外/.test(rng2.message), rng2.message);
+  const none = await runSingleCheck({ type: "transientMeasure", node: "a", measure: "frequency", fromSec: 0.002, toSec: 0.02, expected: 1591.55 },
+    { simulationResult: await simulate(board(comp("V1", "V_DC", ["a", "gnd"], { V: 1 })), { mode: "transient", checks: [] }), circuit: b });
+  expect("D: 振動しない波形の frequency は不合格（理由つき）", !none.ok && /振動していません/.test(none.message), none.message);
+}
+{
+  // ウィーンブリッジ（OPAMP ±12V、R = 10k, C = 10nF → f0 = 1/(2πRC) = 1591.5Hz）。増幅率 1 + 28k/10k = 3.8（小振幅）、
+  // 振幅が大きくなると逆並列ダイオードが 10k を短絡して 1 + 18k/10k = 2.8 → 振幅が電源より小さいところで安定する。
+  // 起動: C2 の initialV = 10mV（理想オペアンプはオフセットが無いので種が無いと発振しない）
+  const wien = (Rb) => board(
+    comp("U1", "OPAMP", ["p", "n", "out", "", ""], { Vpos: 12, Vneg: -12, GBP: 0 }),
+    comp("Ra", "R", ["out", "m"], { R: 18000 }), comp("Rb", "R", ["m", "n"], { R: Rb }),
+    comp("D1", "D", ["m", "n"], { Vf: 0.6 }), comp("D2", "D", ["n", "m"], { Vf: 0.6 }),
+    comp("Rg", "R", ["n", "gnd"], { R: 10000 }),
+    comp("R1", "R", ["out", "x"], { R: 10000 }), comp("C1", "C", ["x", "p"], { C: 1e-8 }),
+    comp("R2", "R", ["p", "gnd"], { R: 10000 }), comp("C2", "C", ["p", "gnd"], { C: 1e-8, initialV: 0.01 }),
+    comp("TP", "TP", ["out"]));
+  const good = wien(10000);
+  const sim = await simulate(good, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.03 } } });
+  const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: good });
+  const f = await r({ type: "oscillationFrequency", node: "out", fromSec: 0.02, toSec: 0.03, expected: 1591.5, tolerancePct: 1 });
+  expect("D: ウィーンブリッジ（ダイオード振幅安定化）が 1/(2πRC) で発振する", f.ok, f.message);
+  const amp = await r({ type: "transientMeasure", node: "out", measure: "max", fromSec: 0.02, toSec: 0.03, expectedMin: 5, expectedMax: 11.9 });
+  expect("D: ウィーンブリッジの振幅がダイオードで電源（12V）より小さく安定する", amp.ok, amp.message);
+  const early = await r({ type: "transientMeasure", node: "out", measure: "pp", fromSec: 0, toSec: 0.0003, expectedMax: 0.5 });
+  expect("D: 発振は種（10mV）から成長する（起動直後は小さい）", early.ok, early.message);
+  // 利得不足（小振幅でも 1 + 18k/10k = 2.8 < 3）: 発振しない
+  const bad = board(
+    comp("U1", "OPAMP", ["p", "n", "out", "", ""], { Vpos: 12, Vneg: -12, GBP: 0 }),
+    comp("Rf", "R", ["out", "n"], { R: 18000 }), comp("Rg", "R", ["n", "gnd"], { R: 10000 }),
+    comp("R1", "R", ["out", "x"], { R: 10000 }), comp("C1", "C", ["x", "p"], { C: 1e-8 }),
+    comp("R2", "R", ["p", "gnd"], { R: 10000 }), comp("C2", "C", ["p", "gnd"], { C: 1e-8, initialV: 0.01 }),
+    comp("TP", "TP", ["out"]));
+  const nb = await check(bad, "transient", { type: "transientMeasure", node: "out", measure: "pp", fromSec: 0.02, toSec: 0.03, expectedMin: 1 }, {}, { simulation: { tStop: 0.03 } });
+  expect("D: 利得 2.8（< 3）のウィーンブリッジは減衰して不合格", !nb.ok, nb.message);
+}
+{
+  // バルクハウゼン条件（AC）: ウィーンブリッジのループを OPAMP の + 入力で切る（入力インピーダンス無限大の点）。
+  // T = (1 + Rf/Rg)·(1/3) at f0 = 1/(2πRC)。Rf = 22k → |T| = 3.2/3 = 1.0667
+  const open = (Rf, C2 = 1e-8) => board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 1, freqHz: 1000 }),
+    comp("U1", "OPAMP", ["vin", "n", "out", "", ""], { GBP: 0 }),
+    comp("Rf", "R", ["out", "n"], { R: Rf }), comp("Rg", "R", ["n", "gnd"], { R: 10000 }),
+    comp("R1", "R", ["out", "x"], { R: 10000 }), comp("C1", "C", ["x", "fb"], { C: 1e-8 }),
+    comp("R2", "R", ["fb", "gnd"], { R: 10000 }), comp("C2", "C", ["fb", "gnd"], { C: C2 }), comp("TP", "TP", ["fb"]));
+  const lg = { type: "loopGain", input: "vin", output: "fb", fMinHz: 100, fMaxHz: 100000, expectedFrequencyHz: 1591.549, tolerancePct: 0.1, gainMin: 1.0, gainMax: 1.2 };
+  const ok = await check(open(22000), "ac", lg);
+  expect("D: loopGain ウィーン: 位相 0° の周波数 = 1/(2πRC)、|T| = 3.2/3", ok.ok && Math.abs(ok.actual.gain - 3.2 / 3) < 1e-3 * 3.2 / 3, ok.message);
+  const low = await check(open(18000), "ac", lg);
+  expect("D: loopGain: |T| = 2.8/3 < 1 は不合格（振幅条件）", !low.ok && Math.abs(low.actual.gain - 2.8 / 3) < 1e-3, low.message);
+  // C2 を 2 倍: f = 1/(2πRC√2)、|T| = 3.2·√2/(1+... ) → 周波数が違うので不合格
+  const wrongC = await check(open(22000, 2e-8), "ac", lg);
+  expect("D: loopGain: C を変えると位相 0° の周波数がずれて不合格", !wrongC.ok && Math.abs(wrongC.actual.frequencyHz / (1591.549 / Math.SQRT2) - 1) < 1e-3, wrongC.message);
+  // 移相発振（C-R 3 段＋反転増幅）: 帰還を OPAMP の出力で切る（出力インピーダンス 0 の点）。
+  // f = 1/(2πRC√6) = 649.75Hz、必要な利得 Rf/R = 29 → |T| = 1
+  const R = 10000;
+  const C = 1e-8;
+  const ps = board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 1, freqHz: 1000 }),
+    comp("C1", "C", ["vin", "a"], { C }), comp("R1", "R", ["a", "gnd"], { R }),
+    comp("C2", "C", ["a", "b"], { C }), comp("R2", "R", ["b", "gnd"], { R }),
+    comp("C3", "C", ["b", "c"], { C }), comp("R3", "R", ["c", "n"], { R }),
+    comp("U1", "OPAMP", ["gnd", "n", "out", "", ""], { GBP: 0 }),
+    comp("Rf", "R", ["out", "n"], { R: 29 * R }), comp("TP", "TP", ["out"]));
+  const f0 = 1 / (2 * Math.PI * R * C * Math.sqrt(6));
+  const p = await check(ps, "ac", { type: "loopGain", input: "vin", output: "out", fMinHz: 10, fMaxHz: 100000, expectedFrequencyHz: f0, tolerancePct: 0.1, gainMin: 0.998, gainMax: 1.002 });
+  expect("D: loopGain 移相発振: f = 1/(2πRC√6)、Rf/R = 29 で |T| = 1", p.ok, p.message);
+  // 閉ループ（過渡）: Rf/R = 29 ちょうどなら振幅が保たれ、周波数は f0（線形のまま）
+  const psc = board(comp("U1", "OPAMP", ["gnd", "n", "out", "", ""], { Vpos: 12, Vneg: -12, GBP: 0 }),
+    comp("C1", "C", ["out", "a"], { C, initialV: 0.1 }), comp("R1", "R", ["a", "gnd"], { R }),
+    comp("C2", "C", ["a", "b"], { C }), comp("R2", "R", ["b", "gnd"], { R }),
+    comp("C3", "C", ["b", "c"], { C }), comp("R3", "R", ["c", "n"], { R }),
+    comp("Rf", "R", ["out", "n"], { R: 29 * R }), comp("TP", "TP", ["out"]));
+  const pc = await check(psc, "transient", { type: "oscillationFrequency", node: "out", fromSec: 0.01, toSec: 0.03, expected: f0, tolerancePct: 0.2 }, {}, { simulation: { tStop: 0.03 } });
+  expect("D: 移相発振（過渡、Rf/R = 29）の周波数 = 1/(2πRC√6)", pc.ok, pc.message);
+  const nofb = await check(ps, "ac", { type: "loopGain", input: "vin", output: "a", fMinHz: 10, fMaxHz: 100000, gainMin: 1 });
+  expect("D: loopGain: 位相 0° にならない（CR 1 段）は「位相条件を満たさない」で不合格", !nofb.ok && /位相条件/.test(nofb.message), nofb.message);
+}
+{
+  // シュミットトリガ型の弛張発振（OPAMP ±12V、正帰還 R1 = R2 → β = 1/2、RC = 1ms）: T = 2RC·ln((1+β)/(1−β)) = 2RC·ln3
+  const b = board(comp("U1", "OPAMP", ["p", "n", "out", "", ""], { Vpos: 12, Vneg: -12 }),
+    comp("R1", "R", ["out", "p"], { R: 10000 }), comp("R2", "R", ["p", "gnd"], { R: 10000 }),
+    comp("R", "R", ["out", "n"], { R: 10000 }), comp("C", "C", ["n", "gnd"], { C: 1e-7 }), comp("TP", "TP", ["out"]));
+  const T = 2e-3 * Math.log(3);
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.02 } } });
+  const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+  near("D: 弛張発振（シュミット）の周期 2RC·ln3", (await r({ type: "transientMeasure", node: "out", measure: "period", fromSec: 0.005, toSec: 0.02, expected: T })).actual, T, 0.005);
+  near("D: 弛張発振のデューティ 0.5", (await r({ type: "transientMeasure", node: "out", measure: "duty", fromSec: 0.005, toSec: 0.005 + 4 * T, expected: 0.5 })).actual, 0.5, 0, 0.01);
+  near("D: 弛張発振のコンデンサ電圧の振れ = 2·β·12V", (await r({ type: "transientMeasure", node: "n", measure: "pp", fromSec: 0.005, toSec: 0.02, expected: 12 })).actual, 12, 0.005);
+}
+{
+  // CMOS インバータ 2 個の無安定マルチ（理想ゲート: VOH = 5V、しきい値 2.5V、入力電流 0、保護ダイオードなし）:
+  // T = 2RC·ln3、C 側の入力 a は 2.5 + 5 = 7.5V まで振れる
+  const R = 10000;
+  const C = 1e-7;
+  const b = board(comp("U1", "U_NOT", ["a", "bq"]), comp("U2", "U_NOT", ["bq", "y"]),
+    comp("R1", "R", ["a", "bq"], { R }), comp("C1", "C", ["y", "a"], { C }), comp("TP", "TP", ["y"]));
+  const T = 2 * R * C * Math.log(3);
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.02 } } });
+  const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+  expect("D: 過渡解析の論理ゲート: 出力が gnd 基準の電圧源なので浮いたネットにならない", !(sim.warnings || []).some((w) => /gnd/.test(w)) && sim.ok, JSON.stringify(sim.warnings));
+  near("D: CMOS インバータ無安定マルチの周期 2RC·ln3", (await r({ type: "transientMeasure", node: "y", measure: "period", fromSec: 0.005, toSec: 0.02, expected: T })).actual, T, 0.005);
+  near("D: インバータ無安定マルチの入力の最大 = 1.5·VDD", (await r({ type: "transientMeasure", node: "a", measure: "max", fromSec: 0.005, toSec: 0.02, expected: 7.5 })).actual, 7.5, 0.01);
+  expect("D: インバータ無安定マルチで反復が収束する（ゲートは 1 刻みに 1 回だけ切り替わる）", !(sim.warnings || []).some((w) => /収束/.test(w)), JSON.stringify(sim.warnings));
+  // シュミット入力のインバータ 1 個（hyst = 1V → VT+ = 3V、VT− = 2V）: T = RC·ln((5−2)/(5−3)) + RC·ln(3/2) = 2RC·ln1.5
+  const s = board(comp("U1", "U_NOT", ["a", "y"], { hyst: 1 }), comp("R1", "R", ["y", "a"], { R }), comp("C1", "C", ["a", "gnd"], { C }), comp("TP", "TP", ["y"]));
+  const Ts = 2 * R * C * Math.log(1.5);
+  const ss = await check(s, "transient", { type: "transientMeasure", node: "y", measure: "period", fromSec: 0.005, toSec: 0.02, expected: Ts, tolerancePct: 0.5 }, {}, { simulation: { tStop: 0.02 } });
+  expect("D: シュミットインバータ 1 個の RC 発振 T = 2RC·ln1.5", ss.ok, ss.message);
+}
+{
+  // 555 相当（部品で組む）: 5k×3 の分圧（2/3·VCC, 1/3·VCC）、コンパレータ 2 個（OPAMP、電源ピン VCC/gnd）、NOR の SR ラッチ、
+  // 放電スイッチ（SW_V、Q が Low で閉）。T = ln2·(RA + 2RB)·C、デューティ = (RA + RB)/(RA + 2RB)
+  const RA = 1000;
+  const RB = 10000;
+  const C = 1e-7;
+  const b = board(comp("V1", "V_DC", ["vcc", "gnd"], { V: 5 }),
+    comp("Rd1", "R", ["vcc", "r2"], { R: 5000 }), comp("Rd2", "R", ["r2", "r1"], { R: 5000 }), comp("Rd3", "R", ["r1", "gnd"], { R: 5000 }),
+    comp("CMP1", "OPAMP", ["cap", "r2", "rr", "vcc", "gnd"]), comp("CMP2", "OPAMP", ["r1", "cap", "ss", "vcc", "gnd"]),
+    comp("N1", "U_NOR", ["rr", "qn", "q"]), comp("N2", "U_NOR", ["ss", "q", "qn"]),
+    comp("SW", "SW_V", ["dis", "gnd", "q", "gnd"], { invert: true }),
+    comp("RA", "R", ["vcc", "dis"], { R: RA }), comp("RB", "R", ["dis", "cap"], { R: RB }), comp("C1", "C", ["cap", "gnd"], { C }),
+    comp("TP", "TP", ["q"]));
+  const T = Math.log(2) * (RA + 2 * RB) * C;
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.03 } } });
+  const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+  near("D: 555 相当（コンパレータ＋NOR ラッチ）の周期 ln2·(RA+2RB)·C", (await r({ type: "transientMeasure", node: "q", measure: "period", fromSec: 0.005, toSec: 0.03, expected: T })).actual, T, 0.005);
+  near("D: 555 相当のデューティ (RA+RB)/(RA+2RB)", (await r({ type: "transientMeasure", node: "q", measure: "duty", fromSec: 0.005, toSec: 0.005 + 10 * T, expected: 0.5 })).actual, (RA + RB) / (RA + 2 * RB), 0, 0.005);
+  near("D: 555 相当のコンデンサ電圧の上限 2/3·VCC", (await r({ type: "transientMeasure", node: "cap", measure: "max", fromSec: 0.005, toSec: 0.03, expected: 1 })).actual, 10 / 3, 0.005);
+  near("D: 555 相当のコンデンサ電圧の下限 1/3·VCC", (await r({ type: "transientMeasure", node: "cap", measure: "min", fromSec: 0.005, toSec: 0.03, expected: 1 })).actual, 5 / 3, 0.005);
+}
+{
+  // コルピッツ（MOSFET ソース接地、L = 1mH、C1 = C2 = 20nF → f = 1/(2π√(L·C1C2/(C1+C2))) = 50.33kHz）。
+  // DC 動作点から始め、L の initialI（明示した初期値は initialCondition: "dc" でも優先）で起動
+  const L = 1e-3;
+  const b = board(comp("V1", "V_DC", ["vcc", "gnd"], { V: 12 }),
+    comp("RG1", "R", ["vcc", "g"], { R: 200000 }), comp("RG2", "R", ["g", "gnd"], { R: 100000 }),
+    comp("RS", "R", ["s", "gnd"], { R: 1000 }), comp("CS", "C", ["s", "gnd"], { C: 1e-5 }),
+    comp("RD", "R", ["vcc", "d"], { R: 2000 }), comp("M1", "M_N", ["d", "g", "s"], { Vth: 2, K: 0.01 }),
+    comp("CC", "C", ["d", "t"], { C: 1e-6 }), comp("L1", "L", ["t", "bb"], { L, initialI: 0.001 }),
+    comp("C1", "C", ["t", "gnd"], { C: 2e-8 }), comp("C2", "C", ["bb", "gnd"], { C: 2e-8 }),
+    comp("CB", "C", ["bb", "g"], { C: 1e-6 }), comp("TP", "TP", ["t"]));
+  const f0 = 1 / (2 * Math.PI * Math.sqrt(L * 1e-8));
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.003, initialCondition: "dc" } } });
+  const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+  const f = await r({ type: "oscillationFrequency", node: "t", fromSec: 0.002, toSec: 0.003, expected: f0, tolerancePct: 3 });
+  expect("D: コルピッツ（MOSFET）が 1/(2π√(L·C1C2/(C1+C2))) 付近で発振する（3%: 飽和によるずれ）", f.ok, f.message);
+  const a = await r({ type: "transientMeasure", node: "t", measure: "pp", fromSec: 0.002, toSec: 0.003, expectedMin: 5 });
+  expect("D: コルピッツの振幅が成長して飽和で安定する", a.ok, a.message);
+}
+{
+  // 水晶振動子 XTAL（既定: Lm = 0.1H, Cm = 25.33pF → fs = 100kHz、Rm = 100Ω、Cp = 1nF → fp = fs·√(1+Cm/Cp)）
+  const Lm = 0.1;
+  const Cm = 2.533029591e-11;
+  const Rm = 100;
+  const Cp = 1e-9;
+  const fs = 1 / (2 * Math.PI * Math.sqrt(Lm * Cm));
+  const fp = fs * Math.sqrt(1 + Cm / Cp);
+  const b = board(comp("V1", "V_AC", ["vin", "gnd"], { Vpk: 1, freqHz: 1e5 }), comp("R1", "R", ["vin", "x"], { R: 1000 }),
+    comp("X1", "XTAL", ["x", "gnd"]), comp("TP", "TP", ["x"]));
+  // fs では Lm と Cm が打ち消し、Z = Rm ∥ (1/jωCp) → |Z| = Rm/√(1+(ωCpRm)²)
+  const zfs = Rm / Math.sqrt(1 + (2 * Math.PI * fs * Cp * Rm) ** 2);
+  const z1 = await check(b, "ac", { type: "acImpedance", node: "x", exclude: ["V1", "R1"], frequencyHz: fs, expected: zfs, tolerancePct: 0.01 });
+  expect("D: XTAL の fs でのインピーダンス = Rm ∥ Cp（最小）", z1.ok, z1.message);
+  const z2 = await check(b, "ac", { type: "acImpedance", node: "x", exclude: ["V1", "R1"], frequencyHz: fp, expected: 1, tolerancePct: 1 });
+  expect("D: XTAL の fp でのインピーダンスは fs の 100 倍以上（反共振）", z2.actual > 100 * zfs, z2.message);
+  // 0.9·fs では直列枝のリアクタンス ωLm − 1/(ωCm) = −(1 − 0.81)/(ωCm) → 容量 Cm/0.19 と Cp の並列（Rm は無視できる）
+  const z3 = await check(b, "ac", { type: "acImpedance", node: "x", exclude: ["V1", "R1"], frequencyHz: 0.9 * fs, expected: 1 / (2 * Math.PI * 0.9 * fs * (Cp + Cm / 0.19)), tolerancePct: 0.5 });
+  expect("D: XTAL の fs より下は容量性（Cp と直列枝の合成）", z3.ok, z3.message);
+  const lg = await check(b, "ac", { type: "loopGain", input: "vin", output: "x", fMinHz: 5e4, fMaxHz: 2e5, gainMax: 10 });
+  const fr = (lg.details?.crossings ?? []).map((c) => c.frequencyHz);
+  expect("D: XTAL のインピーダンスが実数になる周波数が fs と fp の近く（Q が高い共振も掃引で見落とさない）",
+    fr.length === 2 && Math.abs(fr[0] / fs - 1) < 2e-4 && Math.abs(fr[1] / fp - 1) < 2e-3, JSON.stringify(fr));
+  // ピアース発振（MOSFET 自己バイアス、C1 = C2 = 4.7nF）: f ≈ fs·√(1 + Cm/(Cp + CL))、CL = C1C2/(C1+C2)。XTAL の initialI で起動
+  const CL = 4.7e-9 / 2;
+  const fosc = fs * Math.sqrt(1 + Cm / (Cp + CL));
+  const pierce = board(comp("V1", "V_DC", ["vcc", "gnd"], { V: 12 }), comp("RD", "R", ["vcc", "d"], { R: 2000 }),
+    comp("M1", "M_N", ["d", "g", "gnd"], { Vth: 2, K: 0.02 }), comp("RF", "R", ["d", "g"], { R: 1e6 }),
+    comp("X1", "XTAL", ["d", "g"], { initialI: 0.003 }), comp("C1", "C", ["g", "gnd"], { C: 4.7e-9 }), comp("C2", "C", ["d", "gnd"], { C: 4.7e-9 }),
+    comp("TP", "TP", ["d"]));
+  const sim = await simulate(pierce, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.002, initialCondition: "dc" } } });
+  const pf = await runSingleCheck({ type: "oscillationFrequency", node: "d", fromSec: 0.001, toSec: 0.002, expected: fosc, tolerancePct: 0.5 }, { simulationResult: sim, circuit: pierce });
+  expect("D: ピアース発振（XTAL）が fs と fp の間、fs·√(1+Cm/(Cp+CL)) 付近で発振する", pf.ok && pf.actual > fs && pf.actual < fp, pf.message);
+  const pa = await runSingleCheck({ type: "transientMeasure", node: "d", measure: "pp", fromSec: 0.0015, toSec: 0.002, expectedMin: 1 }, { simulationResult: sim, circuit: pierce });
+  expect("D: ピアース発振の振幅が保たれる", pa.ok, pa.message);
+  const xi = sim.transient.elements.X1;
+  expect("D: XTAL の端子電流・電圧の波形（element X1）が取れる", Array.isArray(xi?.i) && xi.i.length === sim.transient.time.length, "");
+}
+{
+  // VCO: f = f0 + Kv·vc（1kHz + 500Hz/V × 2V = 2kHz）。制御端子 +/− の取り違えで 0Hz（負は 0 に丸める）
+  const vco = (cp, cn) => board(comp("VC", "V_DC", ["c", "gnd"], { V: 2 }), comp("U", "V_VCO", ["o", "gnd", cp, cn], { f0Hz: 1000, KvHzPerV: 500, Vpk: 1, fMaxHz: 5000 }),
+    comp("RL", "R", ["o", "gnd"], { R: 1000 }), comp("TP", "TP", ["o"]));
+  const chk = { type: "transientMeasure", node: "o", measure: "frequency", fromSec: 0.001, toSec: 0.01, expected: 2000, tolerancePct: 0.1 };
+  const ok = await check(vco("c", "gnd"), "transient", chk, {}, { simulation: { tStop: 0.01 } });
+  expect("D: V_VCO の周波数 f0 + Kv·vc", ok.ok, ok.message);
+  const rev = await check(vco("gnd", "c"), "transient", chk, {}, { simulation: { tStop: 0.01 } });
+  expect("D: V_VCO の制御端子を逆にすると周波数が違う", !rev.ok, rev.message);
+  const dc = await simulate(vco("c", "gnd"), { mode: "dc" });
+  expect("D: V_VCO は DC では 0V（短絡）", dc.ok && Math.abs(dc.dc.nodes.o) < 1e-9, JSON.stringify(dc.errors));
+}
+{
+  // PLL: 基準 10kHz（V_PULSE 0/5V）、XOR 位相比較、RC ローパス（10k, 100nF）、VCO（方形波 0/5V、f0 = 8kHz, Kv = 1kHz/V）。
+  // ロックすると VCO = 基準、制御電圧 = (10k − 8k)/1k = 2V、XOR のデューティ = 2V/5V = 0.4（位相差 72°）。
+  // ÷2（DFF の Q_NOT を D に戻す）を帰還に入れると VCO = 2 × 基準（f0 = 16kHz, Kv = 2kHz/V で同じ 2V）
+  for (const div of [1, 2]) {
+    const parts = [
+      comp("VR", "V_PULSE", ["ref", "gnd"], { Vlow: 0, Vhigh: 5, riseSec: 1e-9, fallSec: 1e-9, widthSec: 5e-5, periodSec: 1e-4 }),
+      comp("U1", "U_XOR", ["ref", div === 1 ? "vco" : "fb", "pd"]),
+      comp("R1", "R", ["pd", "vc"], { R: 10000 }), comp("C1", "C", ["vc", "gnd"], { C: 1e-7 }),
+      comp("V1", "V_VCO", ["vco", "gnd", "vc", "gnd"], { f0Hz: 8000 * div, KvHzPerV: 1000 * div, Vpk: 2.5, Voffset: 2.5, square: true, fMaxHz: 20000 * div }),
+      comp("TP", "TP", ["vco"]), comp("TP2", "TP", ["vc"])];
+    if (div === 2) parts.push(comp("F1", "DFF", ["fbn", "vco", "fb", "fbn"]));
+    const b = board(...parts);
+    const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.02 } } });
+    const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+    near(`D: PLL（÷${div}）がロックして VCO = ${div} × 基準`, (await r({ type: "transientMeasure", node: "vco", measure: "frequency", fromSec: 0.015, toSec: 0.02, expected: 1 })).actual, 10000 * div, 0.001);
+    near(`D: PLL（÷${div}）の制御電圧 = (f − f0)/Kv`, (await r({ type: "transientMeasure", node: "vc", measure: "average", fromSec: 0.015, toSec: 0.02, expected: 1 })).actual, 2, 0.01);
+    near(`D: PLL（÷${div}）の XOR 位相比較のデューティ = vc/5V`, (await r({ type: "transientMeasure", node: "pd", measure: "duty", fromSec: 0.015, toSec: 0.02, expected: 1 })).actual, 0.4, 0, 0.01);
+    expect(`D: PLL（÷${div}）のステップ数が 10 万以下`, sim.transient.steps < 100000, String(sim.transient.steps));
+  }
+  // DFF（過渡）の分周: 1kHz のクロック → Q = 500Hz
+  const d = board(comp("VR", "V_PULSE", ["clk", "gnd"], { Vlow: 0, Vhigh: 5, riseSec: 1e-9, fallSec: 1e-9, widthSec: 5e-4, periodSec: 1e-3 }),
+    comp("F1", "DFF", ["qn", "clk", "q", "qn"]), comp("TP", "TP", ["q"]));
+  const dq = await check(d, "transient", { type: "transientMeasure", node: "q", measure: "frequency", fromSec: 0.002, toSec: 0.02, expected: 500, tolerancePct: 0.1 }, {}, { simulation: { tStop: 0.02 } });
+  expect("D: 過渡解析の DFF（Q_NOT → D）が 2 分周する", dq.ok, dq.message);
+  const dl = await check(board(comp("A", "LOGIC_IN", ["a"], { value: 1 }), comp("U1", "U_NOT", ["a", "y"]), comp("TP", "TP", ["y"])), "transient",
+    { type: "transientPoint", node: "y", timeSec: 0.001, expected: 0, toleranceAbs: 1e-6 });
+  expect("D: 過渡解析の LOGIC_IN は value·VOH の電圧源（NOT の出力 0V）", dl.ok, dl.message);
+}
+
+/* ---------------------------------------------------------------- 分野E（変調・復調）: AM / FM 信号源、乗算器、包絡線検波、スペクトル線（tone） */
+// 許容誤差の根拠（分野E）:
+// - tone（方形窓 DFT）: 区間を全成分の周期の整数倍にすると漏れは 0。台形則の積分誤差は刻み T/100 で (ωh)²/12 ≈ 3e-4 → 0.5%。
+// - modulationIndex: 包絡線のピークを搬送波の山で拾うので、山の時刻と包絡線の山の時刻が最大 1/(2fc) ずれる →
+//   相対誤差 ≤ (π·fm/fc)²/2（fc/fm = 20 で 1.2%）→ 2%。
+// - FM のスペクトル: 振幅は第1種ベッセル関数 Jn(β)（J0(1) = 0.7652, J1(1) = 0.4401, J2(1) = 0.1149）→ 0.5%。
+{
+  // AM: v = Vc(1 + m sin ωm t) sin ωc t → 搬送波 Vc、側帯波 fc ± fm に m·Vc/2、変調度 m
+  const b = board(comp("V1", "V_AM", ["am", "gnd"], { Vc: 2, fcHz: 10000, fmHz: 500, m: 0.5 }), comp("RL", "R", ["am", "gnd"], { R: 1000 }), comp("TP", "TP", ["am"]));
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.004 } } });
+  const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+  const tone = async (f) => (await r({ type: "transientMeasure", node: "am", measure: "tone", frequencyHz: f, fromSec: 0, toSec: 0.004, expected: 1 })).actual;
+  near("E: AM の搬送波成分 = Vc", await tone(10000), 2, 0.005);
+  near("E: AM の上側帯波 fc + fm = m·Vc/2", await tone(10500), 0.5, 0.005);
+  near("E: AM の下側帯波 fc − fm = m·Vc/2", await tone(9500), 0.5, 0.005);
+  near("E: AM に fc ± 2fm の成分は無い", await tone(11000), 0, 0, 1e-3);
+  near("E: AM の変調度 (Emax−Emin)/(Emax+Emin) = m", (await r({ type: "transientMeasure", node: "am", measure: "modulationIndex", fromSec: 0, toSec: 0.004, expected: 1 })).actual, 0.5, 0.02);
+  // Hann 窓: 区間が整数倍でなくても、2/T 以上離れた成分の漏れは小さい（区間 3.7ms → 2/T = 540Hz。fc から 1kHz 離れた点）
+  near("E: tone の hann 窓（整数倍でない区間）", (await r({ type: "transientMeasure", node: "am", measure: "tone", frequencyHz: 10000, window: "hann", fromSec: 0, toSec: 0.0037, expected: 1 })).actual, 2, 0.02);
+  near("E: tone の hann 窓で離れた周波数の漏れが小さい", (await r({ type: "transientMeasure", node: "am", measure: "tone", frequencyHz: 11000, window: "hann", fromSec: 0, toSec: 0.0037, expected: 1 })).actual, 0, 0, 0.02);
+  const dcr = await simulate(b, { mode: "dc" });
+  expect("E: V_AM は DC では 0V（短絡）", dcr.ok && Math.abs(dcr.dc.nodes.am) < 1e-9);
+}
+{
+  // FM: β = Δf/fm = 1 → 搬送波 J0(1)、第1側帯波 J1(1)、第2側帯波 J2(1)（Vpk = 1）
+  const b = board(comp("V1", "V_FM", ["fm", "gnd"], { Vpk: 1, fcHz: 10000, fmHz: 1000, deviationHz: 1000 }), comp("RL", "R", ["fm", "gnd"], { R: 1000 }), comp("TP", "TP", ["fm"]));
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.002 } } });
+  const tone = async (f) => (await runSingleCheck({ type: "transientMeasure", node: "fm", measure: "tone", frequencyHz: f, fromSec: 0, toSec: 0.002, expected: 1 }, { simulationResult: sim, circuit: b })).actual;
+  near("E: FM（β=1）の搬送波 = J0(1)", await tone(10000), 0.7652, 0.005);
+  near("E: FM（β=1）の第1側帯波 = J1(1)", await tone(11000), 0.4401, 0.005);
+  near("E: FM（β=1）の第2側帯波 = J2(1)", await tone(8000), 0.1149, 0.005);
+}
+{
+  // 乗算器（ミキサ）: k·A·sin ω1t · B·sin ω2t = (kAB/2)[cos(ω1−ω2)t − cos(ω1+ω2)t] → 和・差の周波数に kAB/2
+  const mix = (f2) => board(comp("V1", "V_AC", ["a", "gnd"], { Vpk: 1, freqHz: 10000 }), comp("V2", "V_AC", ["b", "gnd"], { Vpk: 2, freqHz: f2 }),
+    comp("M1", "MULT", ["a", "b", "y"], { k: 0.5 }), comp("TP", "TP", ["y"]));
+  const b = mix(12000);
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.002 } } });
+  const tone = async (s, bb, f) => (await runSingleCheck({ type: "transientMeasure", node: "y", measure: "tone", frequencyHz: f, fromSec: 0, toSec: 0.002, expected: 1 }, { simulationResult: s, circuit: bb })).actual;
+  near("E: ミキサの差の周波数（2kHz）= kAB/2", await tone(sim, b, 2000), 0.5, 0.005);
+  near("E: ミキサの和の周波数（22kHz）= kAB/2", await tone(sim, b, 22000), 0.5, 0.005);
+  near("E: ミキサの出力に入力の周波数は出ない", await tone(sim, b, 10000), 0, 0, 1e-6);
+  // イメージ周波数: 局発 10kHz に対して RF = 8kHz（= 局発 − IF）でも同じ IF = 2kHz が出る
+  const bi = mix(8000);
+  const si = await simulate(bi, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.002 } } });
+  near("E: イメージ周波数（局発 − IF）でも同じ IF が出る", await tone(si, bi, 2000), 0.5, 0.005);
+  // AC 解析では DC 動作点で線形化: x の直流 2V、y の直流 3V、x に 0.1V の交流 → 出力 k·Y0·0.1
+  const lin = board(comp("VX", "V_DC", ["xd", "gnd"], { V: 2 }), comp("VA", "V_AC", ["x", "xd"], { Vpk: 0.1, freqHz: 1000 }), comp("VY", "V_DC", ["y", "gnd"], { V: 3 }),
+    comp("M1", "MULT", ["x", "y", "o"], { k: 0.5 }), comp("RL", "R", ["o", "gnd"], { R: 1000 }), comp("TP", "TP", ["o"]));
+  expect("E: MULT の DC = k·X·Y", (await check(lin, "dc", { type: "dcVoltage", node: "o", expected: 3, tolerancePct: 0.01 })).ok);
+  expect("E: MULT の AC（DC 動作点で線形化）= k·Y0·vx", (await check(lin, "ac", { type: "acVoltage", node: "o", frequencyHz: 1000, expectedRMS: 0.15 / Math.SQRT2, tolerancePct: 0.01 })).ok);
+}
+{
+  // DSB-SC の同期検波: 信号 1V@500Hz × 搬送波 1V@10kHz（DSB）→ さらに同じ搬送波を掛ける → RC ローパス（fc = 1/(2π·1k·1µ) = 159Hz）。
+  // m(t)·sin²ωct = m(t)/2 − m(t)cos2ωct/2 → 500Hz の成分 = 0.5·|H(500)| = 0.5/√(1+(500/159.15)²)
+  const b = board(comp("VM", "V_AC", ["m", "gnd"], { Vpk: 1, freqHz: 500 }), comp("VC", "V_AC", ["c", "gnd"], { Vpk: 1, freqHz: 10000 }),
+    comp("M1", "MULT", ["m", "c", "dsb"], { k: 1 }), comp("M2", "MULT", ["dsb", "c", "dem"], { k: 1 }),
+    comp("R1", "R", ["dem", "o"], { R: 1000 }), comp("C1", "C", ["o", "gnd"], { C: 1e-6 }), comp("TP", "TP", ["o"]), comp("TP2", "TP", ["dsb"]));
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.02 } } });
+  const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+  const H = 1 / Math.sqrt(1 + (500 / (1 / (2 * Math.PI * 1e-3))) ** 2);
+  near("E: DSB-SC の同期検波で信号が戻る（0.5·|H(fm)|）", (await r({ type: "transientMeasure", node: "o", measure: "tone", frequencyHz: 500, fromSec: 0.01, toSec: 0.02, expected: 1 })).actual, 0.5 * H, 0.01);
+  near("E: DSB-SC には搬送波成分が無い", (await r({ type: "transientMeasure", node: "dsb", measure: "tone", frequencyHz: 10000, fromSec: 0.01, toSec: 0.02, expected: 1 })).actual, 0, 0, 1e-6);
+  // BPSK: ±1V のデータ（デューティ 50%）× 搬送波 → 搬送波成分が消える（位相反転）。ASK（0/1V）は搬送波の半分が残る
+  const psk = (lo) => board(comp("VD", "V_PULSE", ["d", "gnd"], { Vlow: lo, Vhigh: 1, riseSec: 1e-9, fallSec: 1e-9, widthSec: 1e-3, periodSec: 2e-3 }),
+    comp("VC", "V_AC", ["c", "gnd"], { Vpk: 1, freqHz: 10000 }), comp("M1", "MULT", ["d", "c", "y"], { k: 1 }), comp("TP", "TP", ["y"]));
+  const t = async (bb) => (await check(bb, "transient", { type: "transientMeasure", node: "y", measure: "tone", frequencyHz: 10000, fromSec: 0, toSec: 0.004, expected: 1 }, {}, { simulation: { tStop: 0.004 } })).actual;
+  near("E: BPSK（±1 のデータ）の搬送波成分 = 0", await t(psk(-1)), 0, 0, 0.005);
+  near("E: ASK（0/1 のデータ、デューティ 50%）の搬送波成分 = 0.5", await t(psk(0)), 0.5, 0.01);
+}
+{
+  // 包絡線検波（D: Vf = 0.3V、C = 25nF ∥ R = 20kΩ → RC = 0.5ms。1/fc = 50µs ≪ RC ≪ √(1−m²)/(m·ωm) = 1.38ms）:
+  // 出力は包絡線 Vc(1 + m sin ωm t) − Vf にほぼ追従 → 平均 ≈ Vc − Vf、fm 成分 ≈ m·Vc（搬送波 1 周期の放電 T/RC ≈ 10% の
+  // リプルと導通角のぶん小さい → 0.8〜1.0 倍で判定）
+  const det = (C) => board(comp("V1", "V_AM", ["am", "gnd"], { Vc: 5, fcHz: 20000, fmHz: 200, m: 0.5 }), comp("D1", "D", ["am", "det"], { Vf: 0.3 }),
+    comp("C1", "C", ["det", "gnd"], { C }), comp("R1", "R", ["det", "gnd"], { R: 20000 }), comp("TP", "TP", ["det"]));
+  const b = det(2.5e-8);
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.006 } } });
+  const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+  const a = (await r({ type: "transientMeasure", node: "det", measure: "tone", frequencyHz: 200, fromSec: 0.001, toSec: 0.006, expected: 1 })).actual;
+  expect("E: 包絡線検波の出力の fm 成分 ≈ m·Vc（0.8〜1.0 倍）", a > 0.8 * 2.5 && a < 2.5, String(a));
+  const avg = (await r({ type: "transientMeasure", node: "det", measure: "average", fromSec: 0.001, toSec: 0.006, expected: 1 })).actual;
+  expect("E: 包絡線検波の出力の平均 ≈ Vc − Vf（0.85〜1.0 倍）", avg > 0.85 * 4.7 && avg < 4.7, String(avg));
+  const dist = (await r({ type: "transientMeasure", node: "det", measure: "tone", frequencyHz: 400, fromSec: 0.001, toSec: 0.006, expected: 1 })).actual;
+  expect("E: 適切な RC ではひずみ（2fm 成分）が fm 成分の 5% 未満", dist < 0.05 * a, `${dist} / ${a}`);
+  expect("E: 包絡線検波（fc = 20kHz、6ms）のステップ数が 5 万以下", sim.transient.steps <= 50000, String(sim.transient.steps));
+  // RC が大きすぎる（C = 1µF → RC = 20ms ≫ 1.38ms）: 包絡線の下がりに追従できない（ダイアゴナルクリッピング）→ fm 成分が大きく減る
+  const big = det(1e-6);
+  const ab = (await check(big, "transient", { type: "transientMeasure", node: "det", measure: "tone", frequencyHz: 200, fromSec: 0.001, toSec: 0.006, expected: 1 }, {}, { simulation: { tStop: 0.006 } })).actual;
+  expect("E: RC が大きすぎると包絡線に追従できず fm 成分が減る", ab < 0.5 * a, `${ab} / ${a}`);
+}
+{
+  // FSK: V_VCO の制御を V_PULSE（0/1V、1 ビット 4ms）で切り替える → 1.5kHz（制御 1V）と 1kHz（0V）（Kv = 500Hz/V）
+  const b = board(comp("VD", "V_PULSE", ["d", "gnd"], { Vlow: 0, Vhigh: 1, riseSec: 1e-9, fallSec: 1e-9, widthSec: 4e-3, periodSec: 8e-3 }),
+    comp("U", "V_VCO", ["o", "gnd", "d", "gnd"], { f0Hz: 1000, KvHzPerV: 500, Vpk: 1, fMaxHz: 2000 }), comp("RL", "R", ["o", "gnd"], { R: 1000 }), comp("TP", "TP", ["o"]));
+  const sim = await simulate(b, { mode: "transient", checks: [], problem: { simulation: { tStop: 0.008 } } });
+  const r = (chk) => runSingleCheck(chk, { simulationResult: sim, circuit: b });
+  near("E: FSK のマーク（制御 1V）= 1.5kHz", (await r({ type: "transientMeasure", node: "o", measure: "frequency", fromSec: 0.0005, toSec: 0.0035, expected: 1 })).actual, 1500, 0.01);
+  near("E: FSK のスペース（制御 0V）= 1kHz", (await r({ type: "transientMeasure", node: "o", measure: "frequency", fromSec: 0.0045, toSec: 0.0075, expected: 1 })).actual, 1000, 0.01);
+}
+{
+  // 検証（validation）: 新しい判定・部品の書式
+  const base = { id: "D-90", category: "D", title: "t", statement: "s", judge: "ac",
+    fixedComponents: [{ id: "V1", type: "V_AC", params: { Vpk: 1, freqHz: 1000 }, connect: ["vin", "gnd"], locked: true }, { id: "TP1", type: "TP", connect: ["fb"], locked: true }],
+    checks: [{ type: "loopGain", input: "vin", output: "fb", fMinHz: 100, fMaxHz: 1e5, expectedFrequencyHz: 1591.5 }] };
+  expect("validation: loopGain の正しい書式はエラーなし", validateProblem(base, vopts).errors.length === 0, JSON.stringify(validateProblem(base, vopts).errors));
+  const noRange = { ...base, checks: [{ type: "loopGain", input: "vin", output: "fb", expectedFrequencyHz: 1591.5 }] };
+  expect("validation: loopGain に fMinHz / fMaxHz が無いとエラー", validateProblem(noRange, vopts).errors.some((e) => /fMinHz/.test(e)));
+  const noJudge = { ...base, judge: "transient" };
+  expect("validation: loopGain は judge に ac が必要", validateProblem(noJudge, vopts).errors.some((e) => /"ac"/.test(e)));
+  const noTarget = { ...base, checks: [{ type: "loopGain", input: "vin", output: "fb", fMinHz: 100, fMaxHz: 1e5 }] };
+  expect("validation: loopGain に expectedFrequencyHz も gainMin/gainMax も無いとエラー", validateProblem(noTarget, vopts).errors.length > 0);
+  const tr = { ...base, judge: "transient", checks: [{ type: "transientMeasure", node: "fb", measure: "tone", fromSec: 0, toSec: 0.01, expected: 1 }] };
+  expect("validation: tone に frequencyHz が無いとエラー", validateProblem(tr, vopts).errors.some((e) => /frequencyHz/.test(e)));
+  const range = { ...base, judge: "transient", checks: [{ type: "transientMeasure", node: "fb", measure: "pp", fromSec: 0, toSec: 0.01, expectedMin: 2, expectedMax: 1 }] };
+  expect("validation: expectedMin > expectedMax はエラー", validateProblem(range, vopts).errors.some((e) => /expectedMin/.test(e)));
+  const onlyMin = { ...base, judge: "transient", checks: [{ type: "transientMeasure", node: "fb", measure: "pp", fromSec: 0, toSec: 0.01, expectedMin: 1 }] };
+  expect("validation: expected の代わりに expectedMin だけでもよい", validateProblem(onlyMin, vopts).errors.length === 0, JSON.stringify(validateProblem(onlyMin, vopts).errors));
+  const am = { ...base, judge: "dc", fixedComponents: [{ id: "V1", type: "V_AM", connect: ["am", "gnd"], locked: true }], checks: [{ type: "componentValue", element: "V1", param: "m", expected: 0.5 }] };
+  expect("validation: V_AM を judge に transient 無しで使うと警告", (validateProblem(am, vopts).warnings || []).some((w) => /過渡解析専用/.test(w)));
+  const win = { ...base, judge: "transient", checks: [{ type: "transientMeasure", node: "fb", measure: "tone", frequencyHz: 1000, window: "flat", fromSec: 0, toSec: 0.01, expected: 1 }] };
+  expect("validation: window は rect / hann だけ", validateProblem(win, vopts).errors.some((e) => /window/.test(e)));
+}
+
+/* ---------------------------------------------------------------- verify.mjs: 分野D/E（ループ利得の回路・ミキサの誤答） */
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "verify-de-"));
+  fs.mkdirSync(path.join(dir, "D"));
+  const common = { title: "t", statement: "s", hints: ["a", "b", "c"], explanation: { solution: "a", why: "b", mistakes: "c", practice: "d", next: "e" } };
+  // D-01: ウィーンブリッジの帰還回路（R・C 各 2 個）をプレイヤーが組む。ループは OPAMP の + 入力で切ってある（AC の loopGain）
+  const wien = { ...common, id: "D-01", category: "D", judge: "ac",
+    fixedComponents: [
+      { id: "V1", type: "V_AC", params: { Vpk: 1, freqHz: 1000 }, connect: ["vin", "gnd"], locked: true },
+      { id: "U1", type: "OPAMP", params: { GBP: 0 }, connect: ["vin", "n", "out", "", ""], locked: true },
+      { id: "Rf", type: "R", params: { R: 22000 }, connect: ["out", "n"], locked: true },
+      { id: "Rg", type: "R", params: { R: 10000 }, connect: ["n", "gnd"], locked: true },
+      { id: "TPO", type: "TP", connect: ["out"], locked: true },
+      { id: "TPF", type: "TP", connect: ["fb"], locked: true },
+    ],
+    referenceSolution: [
+      { id: "R1", type: "R", params: { R: 10000 }, connect: ["out", "x"] },
+      { id: "C1", type: "C", params: { C: 1e-8 }, connect: ["x", "fb"] },
+      { id: "R2", type: "R", params: { R: 10000 }, connect: ["fb", "gnd"] },
+      { id: "C2", type: "C", params: { C: 1e-8 }, connect: ["fb", "gnd"] },
+    ],
+    checks: [{ type: "loopGain", input: "vin", output: "fb", fMinHz: 100, fMaxHz: 100000, expectedFrequencyHz: 1591.5, tolerancePct: 2, gainMin: 1.0, gainMax: 1.2 }] };
+  fs.writeFileSync(path.join(dir, "D", "D-01.json"), JSON.stringify(wien));
+  fs.writeFileSync(path.join(dir, "D", "index.json"), JSON.stringify({ problems: [{ id: "D-01", title: "t" }] }));
+  // E-01: ミキサ＋ RC ローパスで IF（差の周波数 2kHz）を取り出す。プレイヤーが MULT・R・C を置く
+  fs.mkdirSync(path.join(dir, "E"));
+  const fcLp = 5000;
+  const Hif = 1 / Math.sqrt(1 + (2000 / fcLp) ** 2);
+  const mixer = { ...common, id: "E-01", category: "E", judge: "transient", simulation: { tStop: 0.002 },
+    fixedComponents: [
+      { id: "VRF", type: "V_AC", params: { Vpk: 1, freqHz: 12000 }, connect: ["rf", "gnd"], locked: true },
+      { id: "VLO", type: "V_AC", params: { Vpk: 1, freqHz: 10000 }, connect: ["lo", "gnd"], locked: true },
+      { id: "TPI", type: "TP", connect: ["if"], locked: true },
+    ],
+    referenceSolution: [
+      { id: "MULT1", type: "MULT", params: { k: 1 }, connect: ["rf", "lo", "mix"] },
+      { id: "R1", type: "R", params: { R: 1000 }, connect: ["mix", "if"] },
+      { id: "C1", type: "C", params: { C: 1 / (2 * Math.PI * 1000 * fcLp) }, connect: ["if", "gnd"] },
+    ],
+    checks: [
+      { type: "transientMeasure", node: "if", measure: "tone", frequencyHz: 2000, fromSec: 0.001, toSec: 0.002, expected: 0.5 * Hif, tolerancePct: 3 },
+      { type: "transientMeasure", node: "if", measure: "tone", frequencyHz: 22000, fromSec: 0.001, toSec: 0.002, expectedMax: 0.15 },
+    ] };
+  fs.writeFileSync(path.join(dir, "E", "E-01.json"), JSON.stringify(mixer));
+  fs.writeFileSync(path.join(dir, "E", "index.json"), JSON.stringify({ problems: [{ id: "E-01", title: "t" }] }));
+  const run = (...a) => {
+    try {
+      return { code: 0, out: execFileSync("node", [path.join(ROOT, "tools/verify.mjs"), `--problems=${dir}`, ...a], { encoding: "utf8" }) };
+    } catch (e) {
+      return { code: e.status, out: String(e.stdout) };
+    }
+  };
+  const ref = run();
+  expect("verify D/E: ループ利得（AC）とミキサ（過渡）の参照解が合格", ref.code === 0 && /参照解が合格 2 問/.test(ref.out), ref.out);
+  const mut = run("--mutate");
+  expect("verify D/E --mutate: R・C・MULT の k を2倍にした誤答はすべて不合格", mut.code === 0 && /誤答がすべて不合格 2 問/.test(mut.out), mut.out);
+  const rev = run("--reverse");
+  expect("verify D/E --reverse: MULT の入力と出力の取り違えは不合格", rev.code === 0 && /誤答がすべて不合格 1 問/.test(rev.out), rev.out);
+  const drop = run("--drop");
+  expect("verify D/E --drop: 部品を外すとすべて不合格", drop.code === 0 && /誤答がすべて不合格 2 問/.test(drop.out), drop.out);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 /* ---------------------------------------------------------------- check_layout.mjs（レイアウト検査の自己テスト） */
 {
   let out = "";

@@ -42,7 +42,7 @@ problem-writer 向けの資料。sim-engineer が保守する。実装: `src/che
 | `difficulty` | 0〜5 の整数 | | |
 | `prerequisites` | 文字列配列 | | 先に解くべき問題ID。旧 `prerequisite`（文字列）も可 |
 | `judge` | `"dc"` / `"ac"` / `"transient"` / `"digital"`、またはその配列 | | シミュレーションの種類。省略時 `"dc"`。`["dc","transient"]` のように配列にすると両方を実行し、DC 判定と過渡判定を1問に混在できる |
-| `simulation` | オブジェクト | | 解析設定。`tStop`（過渡の終了時刻 s）、`dt`（最大刻み s）、`frequencies`（AC 解析周波数の配列 Hz）、`initialCondition`（過渡の初期状態: `"zero"` 既定 / `"dc"` = DC 動作点から開始）、`diodeRs`（params.Rs を書いていない D/SD/LED/ZD/TVS の直列抵抗 Ω。既定 1Ω。分野F/J の理想ダイオード用、§7）。省略時は自動（§4, §5） |
+| `simulation` | オブジェクト | | 解析設定。`tStop`（過渡の終了時刻 s）、`dt`（最大刻み s）、`frequencies`（AC 解析周波数の配列 Hz）、`initialCondition`（過渡の初期状態: `"zero"` 既定 / `"dc"` = DC 動作点から開始）、`diodeRs`（params.Rs を書いていない D/SD/LED/ZD/TVS の直列抵抗 Ω。既定 1Ω。分野F/J の理想ダイオード用、§7）、`dtFixed`（過渡の刻みを自動ではなくこの値に固定 s。分野D の発振回路用、§8）。省略時は自動（§4, §5） |
 | `hints` | 文字列3つの配列 | 新問題では必須 | 方針 → 使う式 → ほぼ答え。旧 `hint`（文字列1つ）も読めるが警告 |
 | `explanation` | オブジェクト | 新問題では必須 | `solution`, `why`, `mistakes`, `practice`, `next` の5項目すべて空でない文字列 |
 | `questions` | 配列 | 回答入力がある問題 | §3 |
@@ -158,6 +158,8 @@ problem-writer 向けの資料。sim-engineer が保守する。実装: `src/che
 ```
 - 過渡波形の最終値まわりの上向き零交差の間隔から周波数を測る（減衰振動の **減衰固有周波数** f_d = √(ω0² − α²)/2π）。`node` 省略時は最も振れの大きいノード。`fromSec` も指定可。
 - 過減衰（振動しない）なら不合格。解析時間は自動で 5 周期以上になる。
+- **`toSec` を書くと**区間 [`fromSec`, `toSec`] の平均値の上向き交差から測る（`transientMeasure` の `frequency` と同じ。持続発振・分野D はこちら）。`expectedMin` / `expectedMax` で範囲判定もできる（§8）。
+  `{ "type": "oscillationFrequency", "node": "out", "fromSec": 0.02, "toSec": 0.03, "expected": 1591.5, "tolerancePct": 3 }`
 
 ### acVoltage（judge: ac）
 ```json
@@ -186,6 +188,16 @@ problem-writer 向けの資料。sim-engineer が保守する。実装: `src/che
 ```
 - 利得（acGaindB と同じ）と位相 = ∠V(output) − ∠V(input)（度、(−180, 180] に正規化）。`gainDB` / `phaseDeg` の指定した方だけ判定。
 - 許容誤差は `gainToleranceDB`（dB）と `phaseToleranceDeg`（度）を推奨。省略時は `tolerancePct`（相対）と `toleranceAbs` の大きい方。
+
+### loopGain（judge: ac）— バルクハウゼン条件（分野D）
+```json
+{ "type": "loopGain", "input": "vin", "output": "fb", "fMinHz": 100, "fMaxHz": 100000,
+  "expectedFrequencyHz": 1591.5, "tolerancePct": 2, "gainMin": 1.0, "gainMax": 1.2 }
+```
+- 帰還ループを 1 か所で切った回路（切った先に固定の V_AC を `input` ノードに、戻ってきた点に TP を `output` ノードに置く）で、一巡伝達 T = V(output)/V(input) の位相が `phaseDeg`（既定 0°。360° の倍数は同じとみなす）を横切る周波数を、`fMinHz`〜`fMaxHz` の対数掃引（100 点/ディケード＋L と C の組の共振周波数の前後）と二分法で求める。
+- その周波数を `expectedFrequencyHz`（`tolerancePct` / `toleranceAbs`）と、そこでの |T|（線形値）を `gainMin` / `gainMax`、または `gainDB`（`gainToleranceDB`、既定 0.1dB）で判定。どれか 1 つ以上が必要。
+- 位相 0° の点が無ければ「位相条件を満たさないので発振しません」で不合格。複数あれば `expectedFrequencyHz` に最も近いもの（無ければ |T| が最大のもの）。`inputRef` / `outputRef`（差動）も使える。
+- 「発振が持続する」= |T| ≥ 1、「ひずみの少ない発振」= |T| が 1 をわずかに超える（例 1.0〜1.2）。ループの切り方は §8。
 
 ### AC 解析の周波数
 - 電源（V_AC / I_AC）の `freqHz` に加え、**checks に書いた `frequencyHz` すべてで自動的に解析**する（電源振幅のまま、その周波数で解く。SPICE の AC 解析と同じ考え方）。1つの電源で複数周波数の利得を判定できる。
@@ -236,6 +248,15 @@ problem-writer 向けの資料。sim-engineer が保守する。実装: `src/che
   { "type": "transientMeasure", "node": "sw", "measure": "duty", "threshold": 6, "fromSec": 0.004, "toSec": 0.005, "expected": 0.4, "toleranceAbs": 0.01 }
   { "type": "transientMeasure", "element": "D1", "measure": "power", "fromSec": 0.004, "toSec": 0.005, "expected": 0.27, "tolerancePct": 3 }
   { "type": "transientMeasure", "element": "V1", "measure": "powerFactor", "fromSec": 0.06, "toSec": 0.1, "expected": 0.728, "tolerancePct": 2 }
+  ```
+- **追加の measure（分野D/E、§8）**:
+  - `frequency` / `period`: 区間の時間平均を基準にした上向き交差（振幅の 10% のヒステリシスつき）の数と間隔から求めた周波数（Hz）/ 周期（s）。正弦波・方形波・のこぎり波どれでもよく、区間は周期の整数倍でなくてよい。交差が 2 回未満なら「振動していません」で不合格。
+  - `tone`: `frequencyHz` の正弦波成分のピーク振幅（V）。区間の DFT（台形則の積分）。**区間を、波形に含まれるすべての成分の周期の整数倍にする**（例: fc = 10kHz, fm = 500Hz なら 2ms の整数倍）と漏れが 0 になる。整数倍にできないときは `"window": "hann"`（周波数が 2/(区間) 以上離れた成分の漏れ ≤ 1%）。
+  - `modulationIndex`: AM 波の変調度 m = (Emax − Emin)/(Emax + Emin)（区間の平均を引いた波形の正のピークを包絡線とする）。区間は変調周期の整数倍、fc/fm ≥ 20 で誤差 ≤ 1.2%。過変調（m > 1）は 1 と測られる。
+- **範囲判定** `expectedMin` / `expectedMax`（片方だけでも可。`expected` と併用すると両方を満たすときだけ合格）: 「発振している＝振幅が 1V 以上」「22kHz の成分が 0.15V 以下」のような条件。
+  ```json
+  { "type": "transientMeasure", "node": "out", "measure": "pp", "fromSec": 0.02, "toSec": 0.03, "expectedMin": 1 }
+  { "type": "transientMeasure", "node": "if", "measure": "tone", "frequencyHz": 2000, "fromSec": 0.001, "toSec": 0.002, "expected": 0.464, "tolerancePct": 3 }
   ```
 
 ### efficiency（judge: transient）— 効率
@@ -363,8 +384,10 @@ problem-writer 向けの資料。sim-engineer が保守する。実装: `src/che
   - **BJT は過渡でも VBE 一定モデル**なので、小信号の gm = IC/VT（re）が入らない。エミッタ抵抗なしの CE 増幅は過渡では利得が正しく出ない（AC 解析で判定する）。RE ありでも re の分（数%）だけ利得が大きく出る。過渡で使うのは「飽和・遮断によるクリップ」「スイッチ動作」「出力振幅の上限」の判定。
   - MOSFET・JFET は平方則のままなので、過渡の波形振幅と AC の小信号利得が一致する（2乗の歪みも出る）。
   - OPAMP は Aol と頭打ちだけ（GBP は使わない）。積分器・微分器・クリップ・コンパレータ・シュミットトリガ・無安定マルチバイブレータが解ける。
-  - 素子の状態（導通/遮断/飽和）が変わった直後の2ステップは後退オイラー。状態の切り替わる時刻は刻み単位でしか決まらないので、しきい値を測る問題は `simulation.dt` を小さくする。
-- `simulation.initialCondition: "dc"`: t=0 の電源値（V_AC は Vpk·sin(phase)、V_PULSE は t=0 の値）で DC 動作点を求め、C の初期電圧・L の初期電流をその値にしてから始める（SPICE の既定と同じ）。結合・バイパスコンデンサのある増幅回路は、これを使うと最初から定常の波形になる（使わないと C の充電に数秒かかることがある）。
+  - 素子の状態（導通/遮断/飽和）が変わった直後の2ステップは後退オイラー。D 系・サイリスタ系・SW_V・論理ゲート・DFF と、OPAMP の飽和⇔線形の切り替わりは刻みを最大 1/64 まで二分して時刻を求める（弛張発振の周期誤差 0.1% 程度）。それ以外の素子の切り替わりは刻み単位なので、しきい値を測る問題は `simulation.dt` を小さくする。
+  - 分野D/E の部品（V_AM / V_FM / V_VCO / MULT / XTAL、過渡解析の論理ゲート・DFF）の前提は §8。
+- `simulation.dtFixed`: 自動の刻み（最小時定数/100 など）を使わず固定の刻みにする。発振に関係しない速いモード（L に並列の抵抗による L/R など）で刻みが不必要に細かくなる発振回路用。台形則は安定なので発散はしないが、振動周期の 1/100 以下にすること。
+- `simulation.initialCondition: "dc"`: t=0 の電源値（V_AC は Vpk·sin(phase)、V_PULSE は t=0 の値）で DC 動作点を求め、C の初期電圧・L の初期電流をその値にしてから始める（SPICE の既定と同じ）。結合・バイパスコンデンサのある増幅回路は、これを使うと最初から定常の波形になる（使わないと C の充電に数秒かかることがある）。**params に `initialV` / `initialI` を明示した C / L（XTAL も）はその値を優先する**（SPICE の .IC と同じ。発振回路をバイアス点から始め、タンクの L に初期電流を与えて起動する）。
 - SW は過渡中に切り替わらない（`closed` は固定）。「t=0 でスイッチを閉じる」は `closed: true` ＋ t=0 の電源投入で表現する。途中で開閉させたいときは電圧制御スイッチ `SW_V` を V_PULSE で駆動する（§7）。
 
 ### V_PULSE（パルス電圧源）のパラメータ（SPICE の PULSE と同じ意味）
@@ -428,6 +451,8 @@ node tools/verify.mjs [分野/ID接頭辞] [--mutate | --reverse | --drop] [--st
 - 判定・シミュレータ自体の単体テスト: `node tools/test_checks.mjs`（手計算で答えが分かる回路。デジタルは半加算器・全加算器・MUX・デコーダ・NAND だけの XOR・DFF 分周・カウンタ・シフトレジスタ・SR/D ラッチなど。分野F/J は半波整流の平均 Vm/π、ブリッジ＋C のリプル、降圧・昇圧・昇降圧・DCM の出力電圧、フルブリッジ、SCR・TRIAC の位相制御、クローバ、トランス、効率・力率）。
 - `--mutate` はダイオード系の `Rs`、SCR/TRIAC/DIAC の `Vgk`/`Vgt`/`Vt`/`Ih`/`Rs`/`dV`、SW_V の `Ron`/`Roff`/`Vth`、XFMR の `coupling` を2倍にしない（モデル定数）。SW_V の `invert` は反転する。
 - `--reverse` は SW_V の制御端子 ctrl_p と ctrl_n を入れ替えた誤答を作る（制御が反転してスイッチが閉じない）。XFMR の逆向きは一次と二次の入れ替え（巻数比が逆になる）。
+- 分野D/E: `--mutate` は V_VCO の `fMaxHz`、過渡の論理ゲート・DFF の `VOH` / `Vth` / `Rout` を2倍にしない（モデル定数）。XTAL・MULT の `k`・V_AM / V_FM / V_VCO の他のパラメータは2倍にする。`--reverse` は V_VCO の制御端子 ctrl_p と ctrl_n、MULT の入力 x と出力 out を入れ替える。XTAL・V_AM・V_FM は無極性（対象外）。
+- test_checks.mjs の分野D/E: LC タンクの 1/(2π√LC)、ウィーン（ダイオード振幅安定化）、移相 1/(2πRC√6)、シュミット弛張 2RC·ln3、CMOS インバータ無安定 2RC·ln3、シュミットインバータ 2RC·ln1.5、555 相当 ln2·(RA+2RB)C、MOSFET コルピッツ、XTAL の |Z(fs)|・fs/fp・ピアース、loopGain（ウィーン 3.2/3、移相 Rf/R=29）、VCO、PLL（÷1・÷2）、DFF 分周、AM の側帯波と変調度、FM のベッセル係数、ミキサの和差・イメージ、DSB-SC 同期検波、BPSK/ASK、包絡線検波とダイアゴナルクリッピング、FSK、verify D/E の4モード。
 
 ### 判定の甘さを防ぐコツ
 - 値だけでなく **回路の形** を判定する: 「出力電圧」と「どこかの部品の電流」を両方見ると、部品を外した誤答・別の場所に付けた誤答が落ちる。
@@ -641,3 +666,158 @@ node tools/verify.mjs [分野/ID接頭辞] [--mutate | --reverse | --drop] [--st
 | 18 | 誘導性負荷の還流ダイオード（モータ・リレーのサージ） | max |
 | 19 | コンデンサ入力型整流の力率（≈ 0.45）と受動 PFC（L で改善） | powerFactor |
 | 20 | 三相ブリッジ整流（V_AC 3 個、位相 0/120/240°）: Vavg = 3√3·Vm/π | average, pp |
+
+---
+
+## 8. 分野D（発振回路）・E（変調・復調・通信回路）— problem-writer 向けの要点
+
+### 部品と理想化の前提（問題文の「条件」に書く）
+| 部品 | ピン（connect の順） | モデル（理想化） | 解析 |
+|---|---|---|---|
+| **XTAL**（水晶振動子） | 1, 2 | 等価回路: 1−Rm−Lm−Cm−2 の直列枝 ＋ 1−2 間の Cp。既定 Lm = 0.1H、Cm = 25.33pF（fs = 100kHz）、Rm = 100Ω（Q ≈ 628）、Cp = 1nF（fp = fs·√(1+Cm/Cp) ≈ 1.0126·fs）。`fsHz` を書くと Cm = 1/((2π·fs)²·Lm)。`initialI`（Lm の初期電流）で発振を起動。温度特性・スプリアス・励振レベルなし。**Q は実物（10⁴〜10⁶）より低い教育用**、Cm/Cp も実物（1/200〜1/500）より大きい | DC（開放）・AC・過渡 |
+| **V_AM**（AM 信号源） | p, n | v = Vc·(1 + m·sin 2πfm·t)·sin 2πfc·t（`Vc`, `fcHz`, `fmHz`, `m`） | 過渡のみ（DC・AC では 0V） |
+| **V_FM**（FM 信号源） | p, n | v = Vpk·sin(2πfc·t + β·sin 2πfm·t)、β = Δf/fm（瞬時周波数 fc + Δf·cos 2πfm·t。`Vpk`, `fcHz`, `fmHz`, `deviationHz`） | 過渡のみ |
+| **V_VCO**（電圧制御発振器） | p, n, ctrl_p, ctrl_n | f = f0 + Kv·(V(ctrl_p) − V(ctrl_n))（負は 0）、位相 = ∫2πf dt。`square: true` で方形波 Voffset ± Vpk（デューティ 50%）。制御電圧は前の刻みの値（陽解法）。制御端子に電流は流れない。`fMaxHz` は刻みの決定用（越えると警告） | 過渡のみ |
+| **MULT**（乗算器） | x, y, out | V(out) = k·V(x)·V(y)（gnd 基準、`k` 既定 1/V）。入力電流 0、出力抵抗 0、帯域・飽和なし | DC・過渡、AC は DC 動作点で線形化（入力に直流が無ければ出力 0） |
+| 論理ゲート（U_NOT, U_AND …）・DFF / DFF_R | §2 デジタルと同じ | **過渡解析でも動く**: 出力は gnd 基準の電圧源 High = `VOH`（既定 5V）/ Low = 0V（`Rout` 1Ω）、入力は電圧 ≥ `Vth`（既定 VOH/2）で 1、入力電流 0、遅延 0。`hyst`（V）> 0 でシュミット入力（0→1 は Vth+hyst/2、1→0 は Vth−hyst/2）。DFF は CLK の立ち上がりで直前の D を取り込む（Q = 0 で起動）。未配線の入力は 0。LOGIC_IN は value·VOH の電圧源。遅延 0 のゲートだけのループ（リング発振器）は扱えない | 過渡（DC・AC では従来どおり無視） |
+- 条件欄の書き方の例: 「オペアンプは理想（入力電流 0、出力抵抗 0、周波数特性なし）で、出力は ±12V で飽和する」「インバータは理想（しきい値 2.5V、出力 0V/5V、遅延 0、入力電流 0）」「水晶振動子は等価回路（Lm, Cm, Rm, Cp）で表す」「乗算器の出力は k·x·y（k = 1/V）」「VCO の周波数は f0 + Kv·vc」。
+- **発振の起動**: シミュレータには雑音が無いので、理想回路は 0V のまま動かない。次のどれかを**固定部品**で入れ、問題文にも「起動のため C2 に 10mV の初期電圧を与えてある」などと書く: C の `initialV`（10mV 程度）、L / XTAL の `initialI`、または起動パルス（V_PULSE を Rg の接地側に直列に入れ、10µs だけ 10mV にして後は 0V）。トランジスタの LC 発振は `"initialCondition": "dc"`（バイアス点から開始）＋ タンクの L の `initialI`。
+- **過渡のトランジスタ**: LC 発振（コルピッツ・ハートレー・ピアース）は **M_N（平方則、K > 0）を推奨**。BJT は VBE 一定モデル（gm が無限大に近い）なのでコルピッツは発振するが強いひずみで周波数が 1〜2% ずれ、ハートレーは起動しない例がある。J_N は線形領域が無く振幅が制限されず発散するので**使わない**。MOSFET の線形/飽和の境界で「収束しなかった時刻」の警告が出ることがある（結果は使える）。BJT の `Is`（指数モデル）は過渡で発散するので使わない。
+
+### 何で何を判定するか
+| 確かめたいこと | 判定 | judge |
+|---|---|---|
+| 発振周波数（実際に発振させる） | `oscillationFrequency`（`fromSec`＋`toSec`）または `transientMeasure` `frequency` / `period` | transient |
+| 発振が持続する・振幅 | `transientMeasure` `pp` / `max` に `expectedMin`（例: 1V 以上）、振幅制限（ダイオード）なら `expected` | transient |
+| 方形波のデューティ（555 など） | `transientMeasure` `duty` | transient |
+| バルクハウゼン条件（位相条件の周波数と一巡利得） | `loopGain`（ループを切った回路） | ac |
+| 水晶の共振（fs で最小、fp で最大） | `acImpedance`（XTAL の端子、信号源と直列 R を `exclude`）、`loopGain`（分圧の位相 0° の周波数） | ac |
+| VCO の特性 f = f0 + Kv·vc、PLL のロック | `transientMeasure` `frequency`（VCO 出力）、`average`（制御電圧）、`duty`（XOR 位相比較の出力） | transient |
+| スペクトル線（搬送波・側帯波・和差周波・イメージ・高調波） | `transientMeasure` `tone`（`frequencyHz`） | transient |
+| AM の変調度 | `transientMeasure` `modulationIndex`、または `tone` の比 2·A(fc±fm)/A(fc) | transient |
+| 検波の出力（平均・リプル・復元波形） | `average` / `pp` / `tone`（fm の成分 = 復元振幅、2fm の成分 = ひずみ）、`expectedMax` | transient |
+| デジタル変調（ASK・BPSK・FSK） | `tone`（BPSK は搬送波成分 0、ASK は duty 倍）、FSK は区間ごとの `frequency` | transient |
+
+### ループの切り方（loopGain 用の回路の作り方）
+- ループは**インピーダンスの影響が出ない点で切る**: (a) オペアンプの + 入力（入力インピーダンス無限大）、(b) オペアンプの出力（出力インピーダンス 0）。トランジスタの入力（rπ）で切ると負荷が変わるので、トランジスタ発振回路は過渡で判定する。
+- 切った先に**固定の V_AC**（ノード `vin`、Vpk 1V、freqHz は何でもよい）、戻ってくる点に**固定の TP**（ノード `fb`）。戻ってくる点は元の回路で切った点につながっていた負荷（ここでは無限大）のままにする。
+- 例（ウィーンブリッジ。オペアンプ・Rf・Rg は固定、プレイヤーが帰還回路の R・C を組む）:
+```json
+"judge": "ac",
+"fixedComponents": [
+  { "id": "V1", "type": "V_AC", "params": { "Vpk": 1, "freqHz": 1000 }, "connect": ["vin", "gnd"], "locked": true },
+  { "id": "U1", "type": "OPAMP", "params": { "GBP": 0 }, "connect": ["vin", "n", "out", "", ""], "locked": true },
+  { "id": "Rf", "type": "R", "params": { "R": 22000 }, "connect": ["out", "n"], "locked": true },
+  { "id": "Rg", "type": "R", "params": { "R": 10000 }, "connect": ["n", "gnd"], "locked": true },
+  { "id": "TPO", "type": "TP", "connect": ["out"], "locked": true },
+  { "id": "TPF", "type": "TP", "connect": ["fb"], "locked": true }
+],
+"checks": [ { "type": "loopGain", "input": "vin", "output": "fb", "fMinHz": 100, "fMaxHz": 100000,
+              "expectedFrequencyHz": 1591.5, "tolerancePct": 2, "gainMin": 1.0, "gainMax": 1.2 } ],
+"referenceSolution": [
+  { "id": "R1", "type": "R", "params": { "R": 10000 }, "connect": ["out", "x"] },
+  { "id": "C1", "type": "C", "params": { "C": 1e-8 }, "connect": ["x", "fb"] },
+  { "id": "R2", "type": "R", "params": { "R": 10000 }, "connect": ["fb", "gnd"] },
+  { "id": "C2", "type": "C", "params": { "C": 1e-8 }, "connect": ["fb", "gnd"] }
+]
+```
+  |T| = (1 + 22k/10k)/3 = 1.067。Rf = 18k なら 0.933 で不合格（振幅条件）、C を 1 個 2 倍にすると位相 0° の周波数がずれて不合格。移相発振（C-R 3 段）は (b) で切る: V_AC を C1 の入力に、出力 = 反転増幅の出力（Rf/R = 29 で |T| = 1、f = 1/(2πRC√6)）。
+- `GBP: 0`（理想）にする。既定の GBP = 1MHz だと 1kHz 付近でも位相が 0.2° 程度遅れ、周波数が少しずれる。Aol = 10⁵ のため |T| は理想値より 10⁻⁴ 程度小さい（利得ちょうど 3 は |T| = 0.9999 で gainMin 1.0 に届かない）。
+- 閉ループの過渡と組み合わせると強い: 同じ帰還回路を閉じた回路で「実際に発振し、周波数が f0 ± 3%」を判定する（別の問題にするか、閉ループの問題では oscillationFrequency と pp の expectedMin）。
+
+### 過渡で発振させる回路の目安（test_checks.mjs で確認済み）
+| 回路 | 結果（理論値との差） | 刻み・ステップ |
+|---|---|---|
+| ウィーン（利得 3.2、クリップで制限） | 周波数 −1.8%（クリップのひずみ） | 自動 0.8µs、30ms で 3.7 万。`dtFixed: T/200` で 1 万 |
+| ウィーン（逆並列ダイオードで振幅安定化） | 周波数 −0.35%、振幅 ±11.25V、3 次高調波 3% | 同上 |
+| 移相（Rf/R = 29 ちょうど） | 周波数 0.0%、振幅は保たれる。31 で成長中は −2.5%、35 でクリップ −7% | 1.9µs |
+| シュミット型弛張（OPAMP） | 周期 2RC·ln(1+2R1/R2) と 0.06% | τ/100 |
+| CMOS インバータ 2 個 / シュミットインバータ 1 個 | 2RC·ln3 と 0.04% / 2RC·ln1.5 と 0.12% | τ/100 |
+| 555 相当（OPAMP×2 ＋ NOR ラッチ ＋ SW_V） | ln2·(RA+2RB)C と 0.02%、デューティ ±0.001 | 3000 |
+| コルピッツ（MOSFET）/ ハートレー（MOSFET） | −1% / +0.6〜1.4% | `dtFixed` 推奨（ハートレーは自動だと刻み 3ns） |
+| ピアース（MOSFET＋XTAL、initialI で起動） | fs·√(1+Cm/(Cp+CL)) と +0.2%（fs と fp の間） | 0.1µs、2ms で 2 万 |
+| PLL（XOR＋RC＋VCO、÷1 / DFF で ÷2） | ロック後 VCO = N×基準を 0.01%、制御電圧 0.01% | 4 万 / 8 万（20ms） |
+- 正弦波発振は「振幅が飽和で決まるとひずみで周波数がずれる」ので、閉ループの周波数の許容は 3〜5%。位相条件の周波数そのものを厳しく見るなら loopGain（0.1% 以内）。
+
+### ステップ数（約 5 万以下が目安）
+- 刻み: 交流周期/100（D 系・サイリスタ系・SW_V があれば /400）。V_AM / V_FM の「交流周期」は 1/fc（V_FM は 1/(fc+Δf)）、V_VCO は 1/fMaxHz（方形波は /100 のまま）。論理ゲートだけなら /400 にはならない。
+- 例: AM＋ミキサ（ダイオード無し）fc = 100kHz、fm = 1kHz、5ms → 刻み 0.1µs で 5 万点。**包絡線検波（ダイオードあり）は /400** なので fc = 20kHz・fm = 200Hz・6ms で 4.8 万点、fc = 10kHz・fm = 500Hz・4ms で 1.6 万点。fc = 100kHz の検波は 5ms で 20 万点になるので作らない。
+- **推奨**: fc = 10〜20kHz、fm = fc/20〜fc/100、区間は 1/fm の整数倍（tone の漏れ 0）。解析は 2〜4 変調周期（最初の 1 周期は検波の C の充電で捨てる）。
+- 発振: 起動〜定常に 10〜20 周期 ＋ 判定区間 10 周期。50kHz の LC なら 0.5ms 程度（`dtFixed: T/200` で 5000 点）。
+
+### JSON 例（E: スーパーヘテロダインの IF を取り出す）
+```json
+"judge": "transient", "simulation": { "tStop": 0.002 },
+"fixedComponents": [
+  { "id": "VRF", "type": "V_AC", "params": { "Vpk": 1, "freqHz": 12000 }, "connect": ["rf", "gnd"], "locked": true },
+  { "id": "VLO", "type": "V_AC", "params": { "Vpk": 1, "freqHz": 10000 }, "connect": ["lo", "gnd"], "locked": true },
+  { "id": "TPI", "type": "TP", "connect": ["if"], "locked": true }
+],
+"checks": [
+  { "type": "transientMeasure", "node": "if", "measure": "tone", "frequencyHz": 2000, "fromSec": 0.001, "toSec": 0.002, "expected": 0.464, "tolerancePct": 3 },
+  { "type": "transientMeasure", "node": "if", "measure": "tone", "frequencyHz": 22000, "fromSec": 0.001, "toSec": 0.002, "expectedMax": 0.15 }
+],
+"referenceSolution": [
+  { "id": "MULT1", "type": "MULT", "params": { "k": 1 }, "connect": ["rf", "lo", "mix"] },
+  { "id": "R1", "type": "R", "params": { "R": 1000 }, "connect": ["mix", "if"] },
+  { "id": "C1", "type": "C", "params": { "C": 3.183e-8 }, "connect": ["if", "gnd"] }
+]
+```
+（差 2kHz の成分 = k·1·1/2 × |H(2kHz)| = 0.5/√(1+(2/5)²) = 0.464、和 22kHz は RC（fc = 5kHz）で 0.11 に減る。イメージ周波数 8kHz の RF でも同じ 2kHz が出る。）
+
+### 扱えない題材（作らない／簡略化）
+- 雑音から自然に立ち上がる発振（必ず初期値か起動パルスで種を入れる）、位相雑音・ジッタ・周波数安定度（温度・電源変動）、水晶の高 Q（実物の Q では立ち上がりに数万周期かかる）・オーバートーン・スプリアス・負荷容量による周波数調整の ppm 単位の議論（数値回答なら可）。
+- 3 段リング発振器（遅延 0 のゲートでは周期が出ない）、ゲートの伝搬遅延・スルーレート、555 の IC 部品そのもの（コンパレータ・ラッチ・放電スイッチで組む）。
+- J_N の発振回路、BJT の指数モデル（`Is`）の過渡、過渡での BJT の小信号利得（AC で判定）。
+- AC 解析での AM/FM/VCO/乗算器の非線形動作（AC は線形。変調・ミキサは過渡で）。FFT のスペクトル表示そのもの（判定は `tone` で指定周波数の振幅だけ）、THD の数値は tone の比で代用。
+- 可変容量ダイオード D_VC の電圧依存（DC・AC・過渡とも未対応。VCO は V_VCO で）、PLL のチャージポンプ・位相周波数比較器（PFD）・ロックレンジの厳密な計算、周波数シンセサイザの可変分周器（DFF で ÷2・÷4 は可）。
+- FM の復調（PLL 復調・フォスターシーリー・レシオ検波）は回路が大きく、ディスクリミネータ（LC の傾斜検波）なら V_FM ＋ RLC ＋ 包絡線検波で可能だが fc・Δf の設計に注意。SSB のフィルタ法（急峻な BPF）・位相推移法（ヒルベルト変換）は 90° 移相器を RC で作れる範囲に限る。QAM・OFDM・スペクトル拡散は作らない。
+
+### 20問の候補（易 → 難。現エンジンで無理なく作れるもの）
+**D 発振回路**
+| # | トピック | 主な判定 |
+|---|---|---|
+| 1 | LC タンクの自由振動（L の初期電流）: f = 1/(2π√LC) | oscillationFrequency |
+| 2 | 抵抗による減衰と Q（振動が消える＝発振には負性抵抗が必要） | transientPoint / pp |
+| 3 | シュミットトリガ（OPAMP）の弛張発振: T = 2RC·ln(1+2R1/R2) | period, duty |
+| 4 | CMOS インバータ 2 個の無安定マルチ: T ≈ 2.2RC | period |
+| 5 | シュミットインバータ 1 個の RC 発振器（ヒステリシス幅で周期が決まる） | period |
+| 6 | 555 相当の無安定動作: T = 0.693(RA+2RB)C、デューティ | period, duty |
+| 7 | 555 のデューティを 50% に近づける（RA ≪ RB、ダイオードで分離） | duty |
+| 8 | バルクハウゼン条件: ウィーン帰還回路の位相 0° の周波数 1/(2πRC) と減衰 1/3 | loopGain |
+| 9 | ウィーンブリッジの増幅率（≥ 3）を決める | loopGain gainMin/gainMax |
+| 10 | ウィーンブリッジを閉じて発振させる（初期電圧で起動、周波数と飽和振幅） | oscillationFrequency, pp |
+| 11 | 振幅安定化（逆並列ダイオード）でひずみを減らす | max（電源より小）, tone 3f 比 |
+| 12 | CR 移相発振: f = 1/(2πRC√6)、必要な利得 29 | loopGain |
+| 13 | 移相発振の閉ループ動作 | oscillationFrequency |
+| 14 | コルピッツ（MOSFET）: f = 1/(2π√(L·C1C2/(C1+C2))) | oscillationFrequency, expectedMin |
+| 15 | ハートレー（MOSFET）: f = 1/(2π√((L1+L2)C)) | oscillationFrequency |
+| 16 | 水晶振動子の等価回路: fs で最小・fp で最大のインピーダンス | acImpedance, loopGain |
+| 17 | ピアース発振（水晶）: 周波数が fs と fp の間 | oscillationFrequency |
+| 18 | VCO の特性 f = f0 + Kv·vc（制御電圧を設計） | frequency |
+| 19 | PLL のロック: XOR 位相比較＋ループフィルタ＋VCO、ロック時の制御電圧 | frequency, average, duty |
+| 20 | PLL の分周（DFF で ÷2）で基準の 2 倍の周波数を作る（シンセサイザ） | frequency |
+
+**E 変調・復調・通信回路**
+| # | トピック | 主な判定 |
+|---|---|---|
+| 1 | AM 波の形と変調度 m（包絡線の max/min） | modulationIndex |
+| 2 | AM のスペクトル: 搬送波と側帯波 m·Vc/2、帯域幅 2fm | tone |
+| 3 | 過変調（m > 1）で包絡線が崩れる、電力の配分（搬送波に 2/(2+m²)） | modulationIndex, tone, numericAnswer |
+| 4 | 乗算器で AM を作る: (Vdc + vm)·vc、直流で m が決まる | modulationIndex, tone |
+| 5 | DSB-SC（搬送波抑圧）: 乗算だけ → 搬送波成分 0 | tone |
+| 6 | 包絡線検波（D＋RC）: 出力 ≈ 包絡線 − Vf | average, tone(fm) |
+| 7 | 検波の時定数: 1/fc ≪ RC ≪ 1/fm（大きすぎるとダイアゴナルクリッピング） | tone(fm), tone(2fm) の expectedMax |
+| 8 | 検波後の結合コンデンサで直流を除き、音声だけを取り出す | average ≈ 0, tone |
+| 9 | 同期検波（DSB-SC を同じ搬送波で掛けて LPF） | tone(fm) |
+| 10 | 同期検波の位相ずれ（搬送波の位相 θ で出力が cos θ 倍） | tone |
+| 11 | ミキサ: 和と差の周波数 | tone |
+| 12 | スーパーヘテロダイン: 局発 − RF = IF、IF フィルタ（RC/RLC） | tone(IF), expectedMax(和) |
+| 13 | イメージ周波数（局発 + IF の局でも同じ IF が出る）と前置フィルタ | tone |
+| 14 | 同調回路（RLC）で IF を選ぶ: Q と帯域幅 | tone, AC bodePoint |
+| 15 | FM 波: 周波数偏移と変調指数 β = Δf/fm | frequency（区間ごと）, numericAnswer |
+| 16 | FM のスペクトル: ベッセル関数 J0, J1、搬送波が消える β ≈ 2.405、カーソン帯域 | tone |
+| 17 | ASK（オンオフ変調）: 乗算器または SW_V でオンオフ | tone, max |
+| 18 | BPSK（±1 で位相反転）: 搬送波成分 0、同期検波で復調 | tone |
+| 19 | FSK（VCO で 2 周波数）: マークとスペース | frequency（ビットごと） |
+| 20 | FM の傾斜検波（RLC の傾斜で FM → AM → 包絡線検波）、または PLL 復調（制御電圧が音声） | tone(fm) |

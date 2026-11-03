@@ -945,6 +945,125 @@
       }
     },
     {
+      "type": "XTAL",
+      "nameJa": "水晶振動子",
+      "description": "直列共振枝（Rm・Lm・Cm）と並列容量 Cp の等価回路。直列共振 fs = 1/(2π√(Lm·Cm)) でインピーダンス最小、並列共振 fp = fs·√(1+Cm/Cp) で最大。既定値は教育用に Q を下げた値（fs = 100kHz、Q ≈ 628）",
+      "category": ["D", "E"],
+      "symbol": "crystal",
+      "pinCount": 2,
+      "pinNames": ["1", "2"],
+      "params": [
+        { "key": "Lm", "labelJa": "等価インダクタンス", "unit": "H", "default": 0.1, "min": 1e-09, "max": 1000, "editable": true },
+        { "key": "Cm", "labelJa": "等価直列容量", "unit": "F", "default": 2.533029591e-11, "min": 1e-18, "max": 1e-06, "editable": true },
+        { "key": "Rm", "labelJa": "等価直列抵抗", "unit": "ohm", "default": 100, "min": 0.001, "max": 1000000, "editable": true },
+        { "key": "Cp", "labelJa": "並列容量（電極間容量）", "unit": "F", "default": 1e-09, "min": 0, "max": 0.001, "editable": true }
+      ],
+      "simulation": {
+        "model": "crystal"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "V_AM",
+      "nameJa": "AM信号源",
+      "description": "振幅変調波 v = Vc·(1 + m·sin 2πfm·t)·sin 2πfc·t を出す信号源（過渡解析専用。DC・AC では 0V）",
+      "category": ["D", "E"],
+      "symbol": "source_am",
+      "pinCount": 2,
+      "pinNames": ["p", "n"],
+      "params": [
+        { "key": "Vc", "labelJa": "搬送波の振幅（ピーク）", "unit": "V", "default": 1, "min": 0, "max": 1000, "editable": true },
+        { "key": "fcHz", "labelJa": "搬送波周波数", "unit": "Hz", "default": 10000, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "fmHz", "labelJa": "変調（信号）周波数", "unit": "Hz", "default": 500, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "m", "labelJa": "変調度", "unit": "", "default": 0.5, "min": 0, "max": 2, "editable": true }
+      ],
+      "simulation": {
+        "model": "amSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "V_FM",
+      "nameJa": "FM信号源",
+      "description": "周波数変調波 v = Vpk·sin(2πfc·t + β·sin 2πfm·t)、β = Δf/fm（瞬時周波数 fc + Δf·cos 2πfm·t）を出す信号源（過渡解析専用。DC・AC では 0V）",
+      "category": ["D", "E"],
+      "symbol": "source_fm",
+      "pinCount": 2,
+      "pinNames": ["p", "n"],
+      "params": [
+        { "key": "Vpk", "labelJa": "振幅（ピーク）", "unit": "V", "default": 1, "min": 0, "max": 1000, "editable": true },
+        { "key": "fcHz", "labelJa": "搬送波周波数", "unit": "Hz", "default": 10000, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "fmHz", "labelJa": "変調（信号）周波数", "unit": "Hz", "default": 500, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "deviationHz", "labelJa": "最大周波数偏移 Δf", "unit": "Hz", "default": 1000, "min": 0, "max": 1000000000.0, "editable": true }
+      ],
+      "simulation": {
+        "model": "fmSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "V_VCO",
+      "nameJa": "電圧制御発振器（VCO）",
+      "description": "制御電圧 vc = V(ctrl_p) − V(ctrl_n) で周波数が f = f0 + Kv·vc に変わる信号源（p−n 間に出力。制御端子に電流は流れない。過渡解析専用）。square で方形波（Voffset ± Vpk、デューティ 50%）",
+      "category": ["D", "E"],
+      "symbol": "vco",
+      "pinCount": 4,
+      "pinNames": ["p", "n", "ctrl_p", "ctrl_n"],
+      "params": [
+        { "key": "f0Hz", "labelJa": "制御電圧 0V のときの周波数", "unit": "Hz", "default": 1000, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "KvHzPerV", "labelJa": "感度 Kv", "unit": "Hz/V", "default": 100, "min": -1000000000.0, "max": 1000000000.0, "editable": true },
+        { "key": "Vpk", "labelJa": "振幅（ピーク）", "unit": "V", "default": 1, "min": 0, "max": 1000, "editable": true },
+        { "key": "Voffset", "labelJa": "直流分", "unit": "V", "default": 0, "min": -1000, "max": 1000, "editable": true },
+        { "key": "square", "labelJa": "方形波で出力", "unit": "", "default": false, "editable": true },
+        { "key": "fMaxHz", "labelJa": "想定する最高周波数（刻みの決定用）", "unit": "Hz", "default": 2000, "min": 0, "max": 1000000000.0, "editable": true }
+      ],
+      "simulation": {
+        "model": "vcoSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "MULT",
+      "nameJa": "乗算器",
+      "description": "出力 V(out) = k·V(x)·V(y)（gnd 基準）の理想乗算器（ミキサ・同期検波・DSB 変調用）。入力電流 0、出力抵抗 0。AC 解析では DC 動作点で線形化",
+      "category": ["D", "E"],
+      "symbol": "multiplier",
+      "pinCount": 3,
+      "pinNames": ["x", "y", "out"],
+      "params": [
+        { "key": "k", "labelJa": "係数 k", "unit": "1/V", "default": 1, "min": -1000, "max": 1000, "editable": true }
+      ],
+      "simulation": {
+        "model": "multiplier"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
       "type": "TP",
       "nameJa": "テストポイント",
       "description": "電圧観測点",

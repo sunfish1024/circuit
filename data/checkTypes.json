@@ -211,13 +211,16 @@
     {
       "type": "oscillationFrequency",
       "requiredSim": "transient",
-      "description": "過渡波形の零交差間隔から振動周波数（減衰固有周波数）を測定して比較します。node 省略時は振れ幅最大のノード。",
+      "description": "過渡波形の零交差間隔から振動周波数（減衰固有周波数）を測定して比較します。node 省略時は振れ幅最大のノード。toSec を書くと区間 [fromSec, toSec] の平均値の上向き交差から測る（持続発振・分野D）。expectedMin / expectedMax で範囲判定もできる。",
       "required": [
-        "expected"
+        "expected|expectedMin|expectedMax"
       ],
       "fields": [
         "node",
         "fromSec",
+        "toSec",
+        "expectedMin",
+        "expectedMax",
         "expected",
         "tolerancePct",
         "toleranceAbs",
@@ -323,11 +326,11 @@
     {
       "type": "transientMeasure",
       "requiredSim": "transient",
-      "description": "過渡波形の区間 [fromSec, toSec] の統計量を比較します。measure: max / min / pp（最大−最小）/ average（時間平均）/ rms / acRms（平均を除いた実効値）/ duty（threshold を超えている時間の割合 0〜1。threshold 省略時は区間の (最大+最小)/2）/ power（element の平均電力 v·i。既定は絶対値、signed: true で吸収が正）/ powerFactor（element の |平均電力|/(Vrms·Irms)）。node（nodeRef で差動）または element + quantity（v|i。電流は既定で向きを問わず max/min は |i|、average は |平均|。signed: true で符号つき）。定常の値を見るときは fromSec を必ず指定。",
+      "description": "過渡波形の区間 [fromSec, toSec] の統計量を比較します。measure: max / min / pp（最大−最小）/ average（時間平均）/ rms / acRms（平均を除いた実効値）/ duty（threshold を超えている時間の割合 0〜1。threshold 省略時は区間の (最大+最小)/2）/ power（element の平均電力 v·i。既定は絶対値、signed: true で吸収が正）/ powerFactor（element の |平均電力|/(Vrms·Irms)）。node（nodeRef で差動）または element + quantity（v|i。電流は既定で向きを問わず max/min は |i|、average は |平均|。signed: true で符号つき）。定常の値を見るときは fromSec を必ず指定。分野D/E の measure: frequency（区間の平均値の上向き交差から求めた周波数 Hz）/ period（その逆数 s）/ tone（frequencyHz の正弦波成分のピーク振幅。DFT。window: rect（既定。区間を全成分の周期の整数倍に）| hann）/ modulationIndex（AM の変調度 (Emax−Emin)/(Emax+Emin)）。expectedMin / expectedMax で範囲判定（expected と併用可）。",
       "required": [
         "node|element|match",
         "measure",
-        "expected"
+        "expected|expectedMin|expectedMax"
       ],
       "fields": [
         "node",
@@ -338,9 +341,13 @@
         "signed",
         "measure",
         "threshold",
+        "frequencyHz",
+        "window",
         "fromSec",
         "toSec",
         "expected",
+        "expectedMin",
+        "expectedMax",
         "tolerancePct",
         "toleranceAbs",
         "unit"
@@ -361,6 +368,32 @@
         "fromSec",
         "toSec",
         "expected",
+        "tolerancePct",
+        "toleranceAbs"
+      ]
+    },
+    {
+      "type": "loopGain",
+      "requiredSim": "ac",
+      "description": "ループ利得（バルクハウゼン条件, 分野D）。帰還ループを 1 か所で切り、切った先に V_AC（input ノード）、戻ってきた点に TP（output ノード）を置いた回路で、一巡伝達 T = V(output)/V(input) の位相が phaseDeg（既定 0°）を横切る周波数を fMinHz〜fMaxHz の対数掃引＋二分法で求め、expectedFrequencyHz（tolerancePct / toleranceAbs）と、その周波数の |T|（gainMin / gainMax の線形値、または gainDB と gainToleranceDB）を判定します。",
+      "required": [
+        "fMinHz",
+        "fMaxHz",
+        "expectedFrequencyHz|gainMin|gainMax|gainDB"
+      ],
+      "fields": [
+        "input",
+        "inputRef",
+        "output",
+        "outputRef",
+        "fMinHz",
+        "fMaxHz",
+        "phaseDeg",
+        "expectedFrequencyHz",
+        "gainMin",
+        "gainMax",
+        "gainDB",
+        "gainToleranceDB",
         "tolerancePct",
         "toleranceAbs"
       ]

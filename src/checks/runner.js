@@ -25,8 +25,11 @@ import {
   interpolateAt,
   measureTimeConstant,
   estimateOscillationFrequency,
+  frequencyOfSamples,
+  toneAmplitude,
+  modulationIndexOfSamples,
 } from "../sim/waveform.js";
-import { acVariantKey, acImpedanceKey } from "../sim/ac.js";
+import { acVariantKey, acImpedanceKey, loopGainKey } from "../sim/ac.js";
 import {
   evaluateTruthTable,
   evaluateSequence,
@@ -218,6 +221,31 @@ function compareNumeric(values) {
   const absTol = Number.isFinite(toleranceAbs)
     ? Math.abs(toleranceAbs)
     : absoluteTolerance;
+
+  // 範囲判定（分野D: 「発振が持続する＝ループ利得が 1 以上」「振幅が 1V 以上」など）:
+  // expectedMin / expectedMax の片方または両方。expected と併用すると両方を満たすときだけ合格
+  const { expectedMin, expectedMax } = values;
+  const hasRange = Number.isFinite(expectedMin) || Number.isFinite(expectedMax);
+  if (hasRange) {
+    const inRange = Number.isFinite(actual) &&
+      (!Number.isFinite(expectedMin) || actual >= expectedMin) &&
+      (!Number.isFinite(expectedMax) || actual <= expectedMax);
+    const near = Number.isFinite(expected) ? isWithinTolerance(expected, actual, tolerancePct, absTol) : true;
+    const ok = inRange && near;
+    const rangeText = [
+      Number.isFinite(expectedMin) ? `${formatValue(expectedMin, unit)} 以上` : "",
+      Number.isFinite(expectedMax) ? `${formatValue(expectedMax, unit)} 以下` : "",
+    ].filter(Boolean).join("・");
+    const want = Number.isFinite(expected) ? `期待値: ${formatValue(expected, unit)}（${rangeText}）` : `期待: ${rangeText}`;
+    const act = Number.isFinite(actual) ? formatValue(actual, unit) : "未取得";
+    return {
+      ok,
+      expected: Number.isFinite(expected) ? expected : { min: expectedMin ?? null, max: expectedMax ?? null },
+      actual,
+      tolerancePct: tolerancePct ?? null,
+      message: ok ? `${label}は範囲内です。${want}, 実際: ${act}` : `${label}が範囲外です。${want}, 実際: ${act}`,
+    };
+  }
 
   const ok = isWithinTolerance(
     expected,
@@ -543,6 +571,14 @@ export function measureWaveform(time, values, measure, fromSec, toSec, opts = {}
   }
   ts.push(t1);
   vs.push(interpolateAt(time, values, t1));
+  // 分野D/E: 周波数・周期（平均値の上向き交差）、指定周波数の成分の振幅（DFT）、AM の変調度
+  if (measure === "frequency") return frequencyOfSamples(ts, vs);
+  if (measure === "period") {
+    const f = frequencyOfSamples(ts, vs);
+    return f > 0 ? 1 / f : NaN;
+  }
+  if (measure === "tone") return toneAmplitude(ts, vs, Number(opts?.frequencyHz), opts?.window);
+  if (measure === "modulationIndex") return modulationIndexOfSamples(ts, vs);
   // 最大・最小はループで求める（Math.max(...vs) は 10 万点を超えるとスタックが溢れる）
   if (measure === "max" || measure === "min" || measure === "pp") {
     let lo = Infinity;
@@ -594,6 +630,7 @@ export function measureWaveform(time, values, measure, fromSec, toSec, opts = {}
 const TRANSIENT_MEASURE_NAMES = {
   max: "最大値", min: "最小値", pp: "ピークtoピーク", average: "平均値", rms: "実効値", acRms: "交流分の実効値",
   duty: "デューティ比（High の時間の割合）", power: "平均電力", powerFactor: "力率",
+  frequency: "周波数", period: "周期", tone: "周波数成分の振幅", modulationIndex: "変調度",
 };
 
 /**
@@ -1594,7 +1631,11 @@ export function registerDefaultCheckHandlers() {
         if (!Array.isArray(values)) {
           return nodeMissingResult(simulationResult, check.node, check.expected);
         }
-        actual = estimateOscillationFrequency(tr.time, values, check.fromSec ?? 0);
+        // toSec があれば区間 [fromSec, toSec] の平均値の上向き交差から測る（持続発振・分野D）。
+        // 無ければ従来どおり、波形の最終値まわりの零交差（減衰振動向け）
+        actual = Number.isFinite(check.toSec)
+          ? measureWaveform(tr.time, values, "frequency", check.fromSec ?? 0, check.toSec)
+          : estimateOscillationFrequency(tr.time, values, check.fromSec ?? 0);
       } else {
         actual = tr.waveformFrequencyHz;
       }
@@ -1611,12 +1652,89 @@ export function registerDefaultCheckHandlers() {
 
       return compareNumeric({
         expected: check.expected,
+        expectedMin: check.expectedMin,
+        expectedMax: check.expectedMax,
         actual,
         tolerancePct: check.tolerancePct,
         toleranceAbs: check.toleranceAbs,
         unit: check.unit ?? "Hz",
         label: "振動周波数",
       });
+    },
+  });
+
+  /**
+   * ループ利得（バルクハウゼン条件, judge: ac。分野D）。
+   * { "type":"loopGain", "input":"vin", "output":"fb", "fMinHz":100, "fMaxHz":100000,
+   *   "expectedFrequencyHz":1591.5, "tolerancePct":2, "gainMin":1.0, "gainMax":1.2 }
+   * 帰還ループを 1 か所で切り、切った点の先に V_AC（input ノード）、戻ってきた点に TP（output ノード）を置いた回路で、
+   * 一巡伝達 T = V(output)/V(input) の位相が phaseDeg（既定 0°。360° の倍数は同一視）を横切る周波数 f_osc を
+   * fMinHz〜fMaxHz の対数掃引＋二分法で求め、その周波数での |T| を判定する。
+   * - expectedFrequencyHz（tolerancePct / toleranceAbs）: 発振周波数の予測値。
+   * - gainMin / gainMax（|T| の線形値）または gainDB（gainToleranceDB）: 発振の振幅条件（|T| ≥ 1 で発振が成長）。
+   * 位相条件を満たす周波数が複数あるときは expectedFrequencyHz に最も近いもの（無ければ |T| が最大のもの）。
+   */
+  registerCheckHandler("loopGain", {
+    requiresSimulation: true,
+    run: ({ check, simulationResult }) => {
+      const entry = simulationResult?.ac?.loopGains?.[loopGainKey(check)];
+      const expected = {
+        frequencyHz: check.expectedFrequencyHz ?? null, gainMin: check.gainMin ?? null, gainMax: check.gainMax ?? null,
+        gainDB: check.gainDB ?? null,
+      };
+      if (!entry) {
+        return { ok: false, message: "ループ利得の掃引結果がありません（judge に \"ac\" があり、回路に V_AC があるか確認してください）。", expected, actual: null };
+      }
+      if (entry.error) {
+        const node = describeNodeProblem(simulationResult, check.output ?? "out") ?? describeNodeProblem(simulationResult, check.input ?? "vin");
+        return { ok: false, message: node ?? `ループ利得を求められませんでした: ${entry.error}`, expected, actual: null };
+      }
+      const target = Number.isFinite(check.phaseDeg) ? check.phaseDeg : 0;
+      const list = entry.crossings ?? [];
+      if (list.length === 0) {
+        return {
+          ok: false,
+          message: `${formatValue(check.fMinHz, "Hz")}〜${formatValue(check.fMaxHz, "Hz")} に一巡の位相が ${target}° になる周波数がありません（位相条件を満たさないので発振しません）。`,
+          expected,
+          actual: null,
+        };
+      }
+      const fExp = Number(check.expectedFrequencyHz);
+      const pick = Number.isFinite(fExp)
+        ? list.reduce((a, b) => (Math.abs(Math.log(b.frequencyHz / fExp)) < Math.abs(Math.log(a.frequencyHz / fExp)) ? b : a))
+        : list.reduce((a, b) => (b.gain > a.gain ? b : a));
+      const parts = [];
+      let ok = true;
+      if (Number.isFinite(fExp)) {
+        const fOk = isWithinTolerance(fExp, pick.frequencyHz, check.tolerancePct, Number.isFinite(check.toleranceAbs) ? Math.abs(check.toleranceAbs) : 1e-12);
+        ok = ok && fOk;
+        parts.push(`位相 ${target}° の周波数 期待: ${formatValue(fExp, "Hz")} / 実際: ${formatValue(pick.frequencyHz, "Hz")}`);
+      } else {
+        parts.push(`位相 ${target}° の周波数: ${formatValue(pick.frequencyHz, "Hz")}`);
+      }
+      const g = pick.gain;
+      if (Number.isFinite(check.gainMin) || Number.isFinite(check.gainMax)) {
+        const gOk = (!Number.isFinite(check.gainMin) || g >= check.gainMin) && (!Number.isFinite(check.gainMax) || g <= check.gainMax);
+        ok = ok && gOk;
+        const range = [
+          Number.isFinite(check.gainMin) ? `${check.gainMin} 以上` : "",
+          Number.isFinite(check.gainMax) ? `${check.gainMax} 以下` : "",
+        ].filter(Boolean).join("・");
+        parts.push(`その周波数での一巡利得 |T| 期待: ${range} / 実際: ${g.toPrecision(4)}（${pick.gainDB.toFixed(2)}dB）`);
+      }
+      if (Number.isFinite(check.gainDB)) {
+        const tol = Number.isFinite(check.gainToleranceDB) ? Math.abs(check.gainToleranceDB) : 0.1;
+        const gOk = Math.abs(pick.gainDB - check.gainDB) <= tol;
+        ok = ok && gOk;
+        parts.push(`一巡利得 期待: ${formatValue(check.gainDB, "dB")} / 実際: ${formatValue(pick.gainDB, "dB")}`);
+      }
+      return {
+        ok,
+        message: `${ok ? "ループ利得（バルクハウゼン条件）は条件を満たしています。" : "ループ利得（バルクハウゼン条件）が条件を満たしていません。"}${parts.join("、")}`,
+        expected,
+        actual: { frequencyHz: pick.frequencyHz, gain: g, gainDB: pick.gainDB },
+        details: { crossings: list },
+      };
     },
   });
 
@@ -1794,24 +1912,38 @@ export function registerDefaultCheckHandlers() {
       } else {
         throw new Error("transientMeasure には node または element が必要です。");
       }
-      if (measure === "duty") unit = check.unit ?? "";
-      let actual = measureWaveform(tr.time, values, measure, check.fromSec, check.toSec, { threshold: check.threshold });
+      if (measure === "duty" || measure === "modulationIndex") unit = check.unit ?? "";
+      if (measure === "frequency") unit = check.unit ?? "Hz";
+      if (measure === "period") unit = check.unit ?? "s";
+      if (measure === "tone" && !(Number(check.frequencyHz) >= 0)) {
+        throw new Error("transientMeasure の tone には frequencyHz（成分の周波数）が必要です。");
+      }
+      let actual = measureWaveform(tr.time, values, measure, check.fromSec, check.toSec, {
+        threshold: check.threshold, frequencyHz: check.frequencyHz, window: check.window,
+      });
       let expected = check.expected;
       if (check.element && check.quantity === "i" && check.signed !== true && measure === "average") {
         actual = Math.abs(actual);
         expected = Math.abs(expected);
       }
       if (!Number.isFinite(actual)) {
-        return { ok: false, message: `${what} の ${measure} を計算できませんでした（区間 fromSec〜toSec を確認してください）。`, expected, actual: null };
+        const why = measure === "frequency" || measure === "period"
+          ? "波形が振動していません（区間内で平均値を 2 回以上横切りません）"
+          : measure === "modulationIndex" ? "包絡線のピークが取れません（振動していない、または区間が短い）"
+          : "区間 fromSec〜toSec を確認してください";
+        return { ok: false, message: `${what} の${TRANSIENT_MEASURE_NAMES[measure]}を計算できませんでした（${why}）。`, expected, actual: null };
       }
       const th = measure === "duty" && Number.isFinite(check.threshold) ? `、しきい値 ${formatValue(check.threshold, "V")}` : "";
+      const tf = measure === "tone" ? `、${formatValue(Number(check.frequencyHz), "Hz")} の成分・ピーク値` : "";
       return compareNumeric({
         expected,
+        expectedMin: check.expectedMin,
+        expectedMax: check.expectedMax,
         actual,
         tolerancePct: check.tolerancePct,
         toleranceAbs: check.toleranceAbs,
         unit,
-        label: `${what}の${TRANSIENT_MEASURE_NAMES[measure]}（${range}${th}）`,
+        label: `${what}の${TRANSIENT_MEASURE_NAMES[measure]}（${range}${th}${tf}）`,
       });
     },
   });

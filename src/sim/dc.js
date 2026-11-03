@@ -75,7 +75,7 @@
 import { registerSimulationMode } from "./simulator.js";
 import { CONFIG } from "../config.js";
 import { parseMetricValue } from "../core/units.js";
-import { prepareNetlist, filterNodeResults, GMIN_NODE, NC_PREFIX } from "./netlist.js";
+import { prepareNetlist, filterNodeResults, GMIN_NODE, NC_PREFIX, INTERNAL_PREFIX } from "./netlist.js";
 
 /** コンデンサを DC で「ほぼ開放」と見なすときの単位静電容量あたりのコンダクタンス */
 const EPS_CONDUCTANCE_PER_FARAD = 1e-3;
@@ -141,13 +141,67 @@ const DIODE_RS_TYPES = new Set(["D", "SD", "LED", "ZD", "TVS"]);
  * @returns {Array<object>}
  */
 export function applyModelDefaults(components, options = {}) {
+  const expanded = expandCompositeParts(components);
   const rs = Number(options?.diodeRs);
-  if (!(Number.isFinite(rs) && rs > 0)) return components;
-  return components.map((c) =>
+  if (!(Number.isFinite(rs) && rs > 0)) return expanded;
+  return expanded.map((c) =>
     DIODE_RS_TYPES.has(c?.type) && c.params?.Rs === undefined
       ? { ...c, params: { ...(c.params || {}), Rs: rs } }
       : c
   );
+}
+
+/**
+ * 水晶振動子 XTAL の等価回路の既定値（教育用に Q を下げた値。実物の Q は 1e4〜1e5 以上で、
+ * 過渡解析では立ち上がりに数万周期かかるため扱えない）。
+ * fs = 1/(2π√(Lm·Cm)) = 100kHz、Q = 2π·fs·Lm/Rm ≈ 628、Cm/Cp ≈ 0.025（fp ≈ 1.0126·fs。実物の 1/200〜1/500 より大きくして fs と fp の差を見やすくした）。
+ */
+export const XTAL_DEFAULTS = { Lm: 0.1, Cm: 2.533029591e-11, Rm: 100, Cp: 1e-9 };
+
+/** XTAL の等価回路定数 { Lm, Cm, Rm, Cp }。fsHz があれば Cm = 1/((2π·fs)²·Lm)。 */
+export function xtalModel(c) {
+  const Lm = Math.max(getNumericParam(c, "Lm", XTAL_DEFAULTS.Lm), 1e-12);
+  const fs = getNumericParam(c, "fsHz", NaN);
+  const Cm = Number.isFinite(fs) && fs > 0
+    ? 1 / ((2 * Math.PI * fs) ** 2 * Lm)
+    : Math.max(getNumericParam(c, "Cm", XTAL_DEFAULTS.Cm), 1e-18);
+  const Rm = Math.max(getNumericParam(c, "Rm", XTAL_DEFAULTS.Rm), 1e-6);
+  const Cp = Math.max(getNumericParam(c, "Cp", XTAL_DEFAULTS.Cp), 0);
+  return { Lm, Cm, Rm, Cp };
+}
+
+/**
+ * 複合部品を基本素子に展開します（DC / AC / 過渡で共通。内部ネットは INTERNAL_PREFIX 付き）。
+ * - XTAL [1, 2]（水晶振動子の等価回路。理想化の前提）:
+ *     1 ─ Rm ─ Lm ─ Cm ─ 2（直列共振枝。Lm の初期電流 = params.initialI）と、1−2 間に並列の Cp。
+ *     直列共振 fs = 1/(2π√(Lm·Cm))（インピーダンス最小 ≈ Rm）、
+ *     並列（反共振）fp = fs·√(1 + Cm/Cp)（インピーダンス最大）。温度特性・スプリアス・励振レベル依存は無い。
+ *   展開後の部品 ID は "<id>#Rm" / "#Lm" / "#Cm" / "#Cp"。
+ */
+function expandCompositeParts(components) {
+  if (!Array.isArray(components) || !components.some((c) => c?.type === "XTAL")) return components;
+  const out = [];
+  for (const c of components) {
+    if (c?.type !== "XTAL") {
+      out.push(c);
+      continue;
+    }
+    const pins = Array.isArray(c.connect) ? c.connect : [];
+    const [p, n] = [pins[0] ?? "", pins[1] ?? ""];
+    const { Lm, Cm, Rm, Cp } = xtalModel(c);
+    const a = `${INTERNAL_PREFIX}${c.id}:a`;
+    const b = `${INTERNAL_PREFIX}${c.id}:b`;
+    const meta = { compositeOf: c.id };
+    out.push({ ...meta, id: `${c.id}#Rm`, type: "R", params: { R: Rm }, connect: [p, a] });
+    const lp = { L: Lm };
+    if (c.params?.initialI !== undefined) lp.initialI = getNumericParam(c, "initialI", 0);
+    const cpar = { C: Cm };
+    if (c.params?.initialV !== undefined) cpar.initialV = getNumericParam(c, "initialV", 0);
+    out.push({ ...meta, id: `${c.id}#Lm`, type: "L", params: lp, connect: [a, b] });
+    out.push({ ...meta, id: `${c.id}#Cm`, type: "C", params: cpar, connect: [b, n] });
+    if (Cp > 0) out.push({ ...meta, id: `${c.id}#Cp`, type: "C", params: { C: Cp }, connect: [p, n] });
+  }
+  return out;
 }
 
 /** 指数則 BJT の VBE 初期値・クランプ（V）。 */
@@ -307,7 +361,11 @@ function classifyComponents(components, warnings) {
         iSources.push({ id: c.id, p: pins[0], n: pins[1], value: getNumericParam(c, "I", 0) });
         break;
       case "V_AC":
+      case "V_AM":
+      case "V_FM":
+      case "V_VCO":
         // 交流電源は DC では 0V（短絡）。直列に入った交流源で回路が切れないようにする
+        // （V_AM / V_FM / V_VCO も同じ。波形は過渡解析だけで出る）
         vSources.push({ id: c.id, p: pins[0], n: pins[1], value: 0 });
         break;
       case "I_AC":
@@ -360,6 +418,7 @@ function classifyComponents(components, warnings) {
       case "U_WILSON":
       case "U_CASCODE":
       case "OPAMP":
+      case "MULT":
         devices.push(createDevice(c, pins));
         break;
       default:
@@ -466,6 +525,19 @@ function createDevice(c, pins) {
     device.railHighNet = wired(pins[3]) ? pins[3] : null;
     device.railLowNet = wired(pins[4]) ? pins[4] : null;
     device.state = { mode: "linear", vout: 0 };
+  } else if (c.type === "MULT") {
+    // 乗算器（ビヘイビア）: pins = [x, y, out]。V(out) = k·V(x)·V(y)（gnd 基準）。
+    // 理想化: 入力電流 0、出力抵抗 0、帯域・飽和・オフセットなし。ニュートン法で線形化して反復する
+    // （入力が出力に依存しない普通の使い方なら 2 回で収束）。
+    device.kind = "mult";
+    device.k = getNumericParam(c, "k", 1);
+    device.state = { x: 0, y: 0 };
+  } else if (typeof c.behavior === "object" && c.behavior) {
+    // 過渡解析のビヘイビア素子（src/sim/behavioral.js: 論理ゲート・DFF）。
+    // behavior = { branches(dev), stamp(dev, A, b, idx, rows), update(dev, vOf, cur), extract(dev, vOf, cur), commit(dev), describe(dev, vOf) }
+    device.kind = "custom";
+    device.behavior = c.behavior;
+    device.state = c.behavior.initialState ? c.behavior.initialState(c) : {};
   }
 
   return device;
@@ -475,7 +547,7 @@ function createDevice(c, pins) {
 export const NONLINEAR_TYPES = new Set([
   ...Object.keys(DIODE_FAMILY), ...Object.keys(BREAKDOWN_FAMILY),
   "Q_NPN", "Q_PNP", "M_N", "M_P", "J_N", "PD", "PT", "U_OPTO",
-  "SCR", "TRIAC", "DIAC", "U_WILSON", "U_CASCODE", "OPAMP", "SW_V",
+  "SCR", "TRIAC", "DIAC", "U_WILSON", "U_CASCODE", "OPAMP", "SW_V", "MULT",
 ]);
 
 /** サイリスタ系の素子か */
@@ -490,6 +562,8 @@ export function commitDeviceStep(devices) {
     if (isThyristor(dev)) {
       dev.state.latched = dev.state.mode !== "off";
       dev.state.fired = false;
+    } else if (dev.kind === "custom" && dev.behavior.commit) {
+      dev.behavior.commit(dev);
     }
   }
 }
@@ -952,6 +1026,29 @@ function stampDevices(A, b, idx, devices, branchStart) {
         break;
       }
 
+      case "mult": {
+        // V(out) = k·x·y をニュートン法で線形化: V(out) − k·y0·V(x) − k·x0·V(y) = −k·x0·y0
+        const xI = idx(dev.pins[0]);
+        const yI = idx(dev.pins[1]);
+        const o = idx(dev.pins[2]);
+        const row = branchCursor++;
+        branchRows.push({ deviceId: dev.id, role: "out" });
+        if (o >= 0) { A[o][row] += 1; A[row][o] += 1; }
+        if (xI >= 0) A[row][xI] -= dev.k * st.y;
+        if (yI >= 0) A[row][yI] -= dev.k * st.x;
+        b[row] = -dev.k * st.x * st.y;
+        break;
+      }
+
+      case "custom": {
+        const n = dev.behavior.branches(dev);
+        const rows = [];
+        for (let r = 0; r < n; r++) rows.push(branchCursor++);
+        branchRows.push(...dev.behavior.roles(dev).slice(0, n).map((role) => ({ deviceId: dev.id, role })));
+        dev.behavior.stamp(dev, A, b, idx, rows);
+        break;
+      }
+
       default:
         break;
     }
@@ -997,7 +1094,11 @@ function countDeviceBranches(devices) {
         break;
       case "mirror":
       case "opamp":
+      case "mult":
         count += 1;
+        break;
+      case "custom":
+        count += dev.behavior.branches(dev);
         break;
       default:
         break;
@@ -1044,6 +1145,7 @@ function updateDeviceStates(devices, ctx, x, branchRows, deviceBranchBase) {
   };
 
   const parts = [];
+  const iterCtx = { changed: false };
 
   for (const dev of devices) {
     const st = dev.state;
@@ -1293,6 +1395,19 @@ function updateDeviceStates(devices, ctx, x, branchRows, deviceBranchBase) {
         break;
       }
 
+      case "mult": {
+        st.x = vOf(dev.pins[0]);
+        st.y = vOf(dev.pins[1]);
+        parts.push(`${dev.id}:mult:${roundForSignature(st.x)}:${roundForSignature(st.y)}`);
+        break;
+      }
+
+      case "custom":
+        // iterCtx: 論理素子は 1 回の反復で 1 個だけ出力を切り替える（Gauss-Seidel 式。全ゲートを同時に
+        // 切り替えると帰還ループ（ラッチ・無安定マルチ）で「全部 0 ⇔ 全部 1」の往復になり収束しない）
+        parts.push(`${dev.id}:${dev.behavior.update(dev, vOf, branchCurrent, iterCtx)}`);
+        break;
+
       default:
         parts.push(`${dev.id}:static`);
         break;
@@ -1418,10 +1533,17 @@ function extractDeviceElements(devices, ctx, x, branchRows, deviceBranchBase) {
         i = st.iref ?? 0;
         break;
       }
-      case "opamp": {
+      case "opamp":
+      case "mult": {
         // v = 出力電圧（gnd 基準）、i = 出力端子から外部回路へ流れ出す電流
         v = vOf(dev.pins[2]);
         i = -branchCurrent(dev.id, "out");
+        break;
+      }
+      case "custom": {
+        const e = dev.behavior.extract(dev, vOf, branchCurrent);
+        v = e.v;
+        i = e.i;
         break;
       }
       default:
@@ -1533,6 +1655,10 @@ export function describeOperatingPoints(devices, vOf, elements) {
         break;
       case "vswitch":
         ops[dev.id] = { kind: dev.kind, type: dev.type, region: st.mode, i: e.i ?? 0 };
+        break;
+      case "mult":
+        // AC 解析の線形化に使う: vout = k·(Y0·vx + X0·vy)
+        ops[dev.id] = { kind: "mult", type: dev.type, region: "linear", k: dev.k, x: vOf(dev.pins[0]), y: vOf(dev.pins[1]) };
         break;
       default:
         ops[dev.id] = { kind: dev.kind, type: dev.type, region: "static" };

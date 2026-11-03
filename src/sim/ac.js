@@ -320,9 +320,24 @@ function solveAtFrequency(components, freq, warnings, excludedNets = new Set(), 
         break;
       }
       case "V_DC":
-      case "V_PULSE": {
-        // AC では短絡（0V 電圧源）。V_PULSE も小信号的には 0V 源として扱う
+      case "V_PULSE":
+      case "V_AM":
+      case "V_FM":
+      case "V_VCO": {
+        // AC では短絡（0V 電圧源）。V_PULSE も小信号的には 0V 源として扱う。
+        // V_AM / V_FM / V_VCO は単一周波数のフェーザで表せないので AC では 0V（波形は過渡解析で見る）
         vSources.push({ id: c.id, p, n, value: C.zero() });
+        break;
+      }
+      case "MULT": {
+        // 乗算器: DC 動作点 (X0, Y0) で線形化 vout = k·(Y0·vx + X0·vy)。
+        // 入力に直流が無ければ AC 出力は 0（ミキサ・変調は非線形動作なので過渡解析で判定する）
+        const [xN, yN, out] = pins;
+        const k = op?.k ?? getNumericParam(c, "k", 1);
+        vSources.push({
+          id: c.id, p: out, n: "gnd", value: C.zero(),
+          ctrl: [[xN, { re: k * (op?.y ?? 0), im: 0 }], [yN, { re: k * (op?.x ?? 0), im: 0 }]],
+        });
         break;
       }
       case "I_AC": {
@@ -583,6 +598,121 @@ export function acVariantKey(sources) {
   return JSON.stringify(ids.map((id) => [id, Object.keys(sources[id] || {}).sort().map((k) => [k, sources[id][k]])]));
 }
 
+/** loopGain 判定から ac.loopGains のキーを作ります。 */
+export function loopGainKey(check) {
+  return JSON.stringify([
+    check?.input ?? "vin", check?.inputRef ?? "", check?.output ?? "out", check?.outputRef ?? "",
+    Number(check?.fMinHz), Number(check?.fMaxHz), Number(check?.phaseDeg ?? 0),
+  ]);
+}
+
+/** loopGain の掃引の点数（1 ディケードあたり）と二分法の回数 */
+const LOOP_SWEEP_PER_DECADE = 100;
+const LOOP_BISECT_ITER = 50;
+
+/** (−180, 180] に正規化した角度（度） */
+function wrapDeg(d) {
+  let x = d % 360;
+  if (x > 180) x -= 360;
+  if (x <= -180) x += 360;
+  return x;
+}
+
+/**
+ * loopGain 判定用の掃引: fMinHz〜fMaxHz を対数で掃引し、伝達関数 H = V(output)/V(input) の位相が
+ * phaseDeg（既定 0°、360° の倍数の違いは同一視）を横切る周波数を二分法で求める。
+ * 位相が ±180° を越えて折り返す点（位相の跳び）は横切りとみなさない。
+ * @returns {Array<{ frequencyHz, gain, gainDB, phaseDeg }>} 横切る点（周波数の昇順）
+ */
+function sweepLoopGain(components, check, warnings, excludedNets, ops) {
+  const fMin = Number(check.fMinHz);
+  const fMax = Number(check.fMaxHz);
+  if (!(fMin > 0) || !(fMax > fMin)) return { error: "fMinHz / fMaxHz（掃引範囲）が不正です。" };
+  const target = Number.isFinite(Number(check.phaseDeg)) ? Number(check.phaseDeg) : 0;
+  const inN = check.input ?? "vin";
+  const outN = check.output ?? "out";
+  const H = (f) => {
+    const res = solveAtFrequency(components, f, warnings, excludedNets, { ops, quiet: true });
+    if (!res) return null;
+    const get = (net) => {
+      if (!net || net === "gnd" || net === "0") return { re: 0, im: 0 };
+      const d = res.nodes[net]?.[f];
+      return d ? { re: d.re, im: d.im } : null;
+    };
+    const a = get(inN);
+    const ar = check.inputRef ? get(check.inputRef) : { re: 0, im: 0 };
+    const o = get(outN);
+    const orf = check.outputRef ? get(check.outputRef) : { re: 0, im: 0 };
+    if (!a || !ar || !o || !orf) return null;
+    const vi = C.sub(a, ar);
+    const vo = C.sub(o, orf);
+    if (!(C.abs(vi) > 0)) return null;
+    const h = C.div(vo, vi);
+    return { mag: C.abs(h), d: wrapDeg((C.arg(h) * 180) / Math.PI - target) };
+  };
+  const decades = Math.log10(fMax / fMin);
+  const n = Math.max(20, Math.ceil(decades * LOOP_SWEEP_PER_DECADE));
+  const crossings = [];
+  let failed = null;
+  // 区間 [f1, f2] を調べる。位相の変化が大きい区間（Q の高い共振。水晶では 1 刻みで 180° 近く回る）は
+  // 細かく分けてから「横切り」か「±180° の折り返し」かを判断する
+  const scan = (f1, h1, f2, h2, depth) => {
+    if (Math.abs(h2.d - h1.d) > 45 && depth < 30) {
+      const fm = Math.sqrt(f1 * f2);
+      const hm = H(fm);
+      if (!hm) { failed = fm; return; }
+      scan(f1, h1, fm, hm, depth + 1);
+      scan(fm, hm, f2, h2, depth + 1);
+      return;
+    }
+    // 符号が変わり、かつ位相の折り返し（±180° の跳び）でない → 目標位相を横切った
+    if ((h1.d <= 0) === (h2.d <= 0) || Math.abs(h2.d - h1.d) >= 180) return;
+    let lo = f1;
+    let hi = f2;
+    let dLo = h1.d;
+    for (let it = 0; it < LOOP_BISECT_ITER; it++) {
+      const mid = Math.sqrt(lo * hi);
+      const m = H(mid);
+      if (!m) break;
+      if ((m.d <= 0) === (dLo <= 0)) { lo = mid; dLo = m.d; } else hi = mid;
+    }
+    const fc = Math.sqrt(lo * hi);
+    const r = H(fc);
+    if (r) crossings.push({ frequencyHz: fc, gain: r.mag, gainDB: 20 * Math.log10(r.mag), phaseDeg: wrapDeg(r.d + target) });
+  };
+  // 掃引点: 対数の等間隔に加え、L と C の組の共振周波数 1/(2π√(LC)) とその前後（±0.1%, ±1%）を入れる。
+  // Q の高い共振（水晶の fs〜fp は 0.25% 幅）は等間隔の点の間に隠れて見落とすため
+  const grid = [];
+  for (let k = 0; k <= n; k++) grid.push(fMin * 10 ** ((decades * k) / n));
+  const Ls = components.filter((c) => c.type === "L" || c.type === "L_RELAY").map((c) => getNumericParam(c, "L", 1e-3));
+  const Cs = components.filter((c) => c.type === "C").map((c) => getNumericParam(c, "C", 1e-6));
+  for (const L of Ls) {
+    for (const Cv of Cs) {
+      if (!(L > 0 && Cv > 0)) continue;
+      const f0 = 1 / (2 * Math.PI * Math.sqrt(L * Cv));
+      for (const r of [0.99, 0.999, 1, 1.001, 1.01]) {
+        const f = f0 * r;
+        if (f > fMin && f < fMax) grid.push(f);
+      }
+    }
+  }
+  grid.sort((a, b) => a - b);
+  let prevF = fMin;
+  let prev = H(fMin);
+  if (!prev) return { error: `ノード ${inN} / ${outN} の AC 電圧を求められませんでした（入力の振幅が 0 か、ノードが回路にありません）。` };
+  for (let k = 1; k < grid.length; k++) {
+    const f = grid[k];
+    if (!(f > prevF)) continue;
+    const cur = H(f);
+    if (!cur) return { error: `${f.toPrecision(4)}Hz で AC 解析に失敗しました。` };
+    scan(prevF, prev, f, cur, 0);
+    if (failed) return { error: `${failed.toPrecision(4)}Hz で AC 解析に失敗しました。` };
+    prevF = f;
+    prev = cur;
+  }
+  return { crossings };
+}
+
 /** acImpedance 判定から ac.impedances のキーを作ります。 */
 export function acImpedanceKey(check) {
   const exclude = Array.isArray(check?.exclude) ? [...check.exclude].map(String).sort() : [];
@@ -659,7 +789,14 @@ export function runAc(circuitIn, options = {}) {
   // --- 判定用の追加解析 ---
   const variants = {};
   const impedances = {};
+  const loopGains = {};
   const checks = Array.isArray(options?.checks) ? options.checks : [];
+  for (const chk of checks) {
+    if (chk?.type === "loopGain") {
+      const key = loopGainKey(chk);
+      if (!loopGains[key]) loopGains[key] = sweepLoopGain(circuit.components, chk, warnings, excludedNets, ops);
+    }
+  }
   const checkFreqs = (chk) => (Number.isFinite(chk?.frequencyHz) && chk.frequencyHz > 0 ? [chk.frequencyHz] : [primary]);
   for (const chk of checks) {
     if (chk?.sources && typeof chk.sources === "object") {
@@ -710,6 +847,7 @@ export function runAc(circuitIn, options = {}) {
       operatingPoints,
       variants,
       impedances,
+      loopGains,
     },
     errors,
     warnings,

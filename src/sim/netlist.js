@@ -16,6 +16,12 @@
 
 export const NC_PREFIX = "__nc:";
 
+/**
+ * 複合部品（XTAL など）を基本素子に展開したときの内部ネットの接頭辞（dc.js の expandCompositeParts）。
+ * 結果の nodes には出さない。
+ */
+export const INTERNAL_PREFIX = "__int:";
+
 /** 各ノードからグラウンドへ入れる微小コンダクタンス（S）。10V で 10pA の漏れ。 */
 export const GMIN_NODE = 1e-12;
 
@@ -34,7 +40,10 @@ export function isGroundNetName(net) {
  *   warnings: string[],
  * }}
  */
-export function prepareNetlist(components) {
+export function prepareNetlist(components, options = {}) {
+  // options.groundedTypes: 出力が gnd 基準の電圧源になる部品種別（過渡解析の論理ゲート・DFF）。
+  // その部品のピンはグラウンドとつながっているとみなす（浮いたネットの判定用）
+  const groundedTypes = options.groundedTypes instanceof Set ? options.groundedTypes : null;
   const warnings = [];
   const normalized = (components || []).filter(Boolean).map((c) => {
     if (c.type === "GND") return { ...c, connect: ["gnd"] };
@@ -97,6 +106,7 @@ export function prepareNetlist(components) {
   for (const c of normalized) {
     if (MARKER_TYPES.has(c.type)) continue;
     const pins = (c.connect || []).map((n) => (isGroundNetName(n) ? G : n));
+    if (groundedTypes?.has(c.type)) pins.push(G);
     for (let i = 1; i < pins.length; i++) union(pins[0], pins[i]);
   }
   const floatingNets = [];
@@ -121,7 +131,7 @@ export function filterNodeResults(nodes, prep) {
   const out = {};
   const drop = new Set([...prep.unconnectedNets, ...prep.floatingNets]);
   for (const [net, v] of Object.entries(nodes || {})) {
-    if (net.startsWith(NC_PREFIX) || drop.has(net)) continue;
+    if (net.startsWith(NC_PREFIX) || net.startsWith(INTERNAL_PREFIX) || drop.has(net)) continue;
     out[net] = v;
   }
   return out;

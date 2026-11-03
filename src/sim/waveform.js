@@ -126,6 +126,121 @@ export function estimateOscillationFrequency(time, values, fromSec = 0) {
 }
 
 /**
+ * 区間内の波形の周波数（分野D: 持続発振・方形波・VCO の出力）。
+ * 区間の時間平均を基準に「平均 − δ より下 → 平均以上」の上向き交差を数え、
+ * f = (交差の数 − 1) / (最後の交差 − 最初の交差)。δ = 振幅（(最大−最小)/2）の 10%（数値ノイズ・
+ * リプルで同じ交差を2回数えない）。交差の時刻は線形補間。交差が 2 回未満なら NaN。
+ * 区間の端数の影響を受けない（周期の整数倍でなくてよい）。
+ *
+ * @param {number[]} ts 区間の時刻（昇順）
+ * @param {number[]} vs 値
+ * @returns {number}
+ */
+export function frequencyOfSamples(ts, vs) {
+  const n = Math.min(ts.length, vs.length);
+  if (n < 4) return NaN;
+  let lo = Infinity;
+  let hi = -Infinity;
+  let s1 = 0;
+  for (let i = 0; i < n; i++) {
+    if (vs[i] < lo) lo = vs[i];
+    if (vs[i] > hi) hi = vs[i];
+    if (i > 0) s1 += 0.5 * (vs[i] + vs[i - 1]) * (ts[i] - ts[i - 1]);
+  }
+  const T = ts[n - 1] - ts[0];
+  if (!(T > 0) || !(hi > lo)) return NaN;
+  const mean = s1 / T;
+  const delta = 0.1 * (hi - lo) / 2;
+  let armed = false;
+  let first = NaN;
+  let last = NaN;
+  let count = 0;
+  for (let i = 1; i < n; i++) {
+    if (vs[i - 1] < mean - delta) armed = true;
+    if (armed && vs[i - 1] < mean && vs[i] >= mean) {
+      const frac = (mean - vs[i - 1]) / (vs[i] - vs[i - 1]);
+      const tc = ts[i - 1] + frac * (ts[i] - ts[i - 1]);
+      if (count === 0) first = tc;
+      last = tc;
+      count++;
+      armed = false;
+    }
+  }
+  if (count < 2 || !(last > first)) return NaN;
+  return (count - 1) / (last - first);
+}
+
+/**
+ * 指定周波数の正弦波成分の振幅（ピーク値）を DFT（区間の積分）で求めます（分野E: スペクトル線）。
+ * 方形窓（既定）: A = (2/T)·|∫v(t)·e^{−jωt} dt|。区間 T が、波形に含まれる**すべての**周波数成分の
+ * 周期の整数倍なら漏れ（リーク）は 0。そうでないと近くの強い成分が漏れ込む。
+ * window: "hann" なら w(t) = ½(1 − cos(2π(t−t0)/T)) を掛けて A = (4/T)·|∫v·w·e^{−jωt} dt|
+ * （周波数が 2/T 以上離れた成分の漏れを 1% 以下に抑える。整数倍でない区間向け）。
+ * 積分は台形則（刻み ≤ 周期/100 で相対誤差 0.1% 未満）。
+ *
+ * @returns {number} ピーク振幅（NaN: 区間が無い）
+ */
+export function toneAmplitude(ts, vs, freqHz, window = "rect") {
+  const n = Math.min(ts.length, vs.length);
+  if (n < 2 || !(freqHz >= 0)) return NaN;
+  const t0 = ts[0];
+  const T = ts[n - 1] - t0;
+  if (!(T > 0)) return NaN;
+  const w = 2 * Math.PI * freqHz;
+  const hann = window === "hann";
+  let re = 0;
+  let im = 0;
+  let pre = null;
+  for (let i = 0; i < n; i++) {
+    const tt = ts[i] - t0;
+    const win = hann ? 0.5 * (1 - Math.cos((2 * Math.PI * tt) / T)) : 1;
+    const cr = vs[i] * win * Math.cos(w * tt);
+    const ci = -vs[i] * win * Math.sin(w * tt);
+    if (pre) {
+      const h = ts[i] - ts[i - 1];
+      re += 0.5 * h * (cr + pre[0]);
+      im += 0.5 * h * (ci + pre[1]);
+    }
+    pre = [cr, ci];
+  }
+  const scale = freqHz === 0 ? (hann ? 2 / T : 1 / T) : (hann ? 4 / T : 2 / T);
+  return Math.hypot(re, im) * scale;
+}
+
+/**
+ * AM 波の変調度 m = (Emax − Emin)/(Emax + Emin)（分野E）。
+ * 区間の時間平均を引いた波形の正のピーク（極大値。前後の点で放物線補間）を包絡線とみなし、
+ * その最大 Emax と最小 Emin から求める。過変調（m > 1）は包絡線の最小が 0 になるので 1 と測られる。
+ * 極大が 3 個未満なら NaN。
+ */
+export function modulationIndexOfSamples(ts, vs) {
+  const n = Math.min(ts.length, vs.length);
+  if (n < 5) return NaN;
+  let s1 = 0;
+  for (let i = 1; i < n; i++) s1 += 0.5 * (vs[i] + vs[i - 1]) * (ts[i] - ts[i - 1]);
+  const T = ts[n - 1] - ts[0];
+  if (!(T > 0)) return NaN;
+  const mean = s1 / T;
+  let eMax = -Infinity;
+  let eMin = Infinity;
+  let peaks = 0;
+  for (let i = 1; i < n - 1; i++) {
+    const a = vs[i - 1] - mean;
+    const b = vs[i] - mean;
+    const c = vs[i + 1] - mean;
+    if (!(b > a && b >= c)) continue;
+    const den = a - 2 * b + c;
+    const peak = den < 0 ? b - ((a - c) * (a - c)) / (8 * den) : b;
+    const e = Math.max(peak, 0);
+    if (e > eMax) eMax = e;
+    if (e < eMin) eMin = e;
+    peaks++;
+  }
+  if (peaks < 3 || !(eMax > 0)) return NaN;
+  return (eMax - eMin) / (eMax + eMin);
+}
+
+/**
  * 区間 [fromSec, toSec] の時間平均（台形積分 / 区間長）。
  */
 export function averageOver(time, values, fromSec, toSec) {

@@ -11,7 +11,7 @@
 //                                      差し替えても同じ論理になる組み合わせは除外）
 //   node tools/verify.mjs --reverse  … 極性部品を1個ずつ逆向き（connect を逆順）にした誤答が不合格になるか
 //                                      （論理ゲートは入力 A と出力 Y、DFF は D と Q を入れ替えた誤答）
-//                                      （SW_V は制御端子 ctrl_p と ctrl_n を入れ替えた誤答）
+//                                      （SW_V・V_VCO は制御端子 ctrl_p と ctrl_n、MULT は入力 x と出力 out を入れ替えた誤答）
 //                                      （OPAMP は + 入力と − 入力を入れ替えた誤答。--mutate では OPAMP の
 //                                        Aol/GBP/Vpos/Vneg/Vdrop と平方則 MOSFET の RdsOn は2倍にしない＝設計値ではないモデル定数）
 //   node tools/verify.mjs --drop     … 参照解の部品を1個ずつ取り除いた誤答（部品忘れ・つなぎ忘れ）が不合格になるか
@@ -159,6 +159,9 @@ const MUTATE_MODEL_PARAMS = {
   DIAC: ["dV", "Ih", "Rs"],
   SW_V: ["Ron", "Roff", "Vth"],
   XFMR: ["coupling"],
+  // 分野D/E: V_VCO の fMaxHz は刻みを決めるだけ。過渡解析の論理ゲート・DFF の VOH / Vth / Rout は理想化の定数
+  V_VCO: ["fMaxHz"],
+  ...Object.fromEntries([...Object.keys(GATE_DEFS), ...Object.keys(FLIPFLOP_DEFS)].map((t) => [t, ["VOH", "Vth", "Rout"]])),
 };
 
 const toComp = (c) => ({
@@ -218,6 +221,18 @@ function variants(p) {
         // 電圧制御スイッチの「逆向き」= 制御端子の +/− の取り違え（制御が反転して閉じない）
         const connect = [c.connect[0], c.connect[1], c.connect[3], c.connect[2]];
         out.push({ label: `${c.id} の制御端子 ctrl_p と ctrl_n を入れ替えても合格`, comps: ref.map((d, j) => (j === i ? { ...d, connect } : d)), answers });
+        return;
+      }
+      if (c.type === "V_VCO" && Array.isArray(c.connect) && c.connect.length >= 4) {
+        // VCO の「逆向き」= 制御電圧の +/− の取り違え（周波数の変化の向きが逆になる）
+        const connect = [c.connect[0], c.connect[1], c.connect[3], c.connect[2]];
+        out.push({ label: `${c.id} の制御端子 ctrl_p と ctrl_n を入れ替えても合格`, comps: ref.map((d, j) => (j === i ? { ...d, connect } : d)), answers });
+        return;
+      }
+      if (c.type === "MULT" && Array.isArray(c.connect) && c.connect.length >= 3) {
+        // 乗算器の「逆向き」= 入力 x と出力 out の取り違え
+        const connect = [c.connect[2], c.connect[1], c.connect[0]];
+        out.push({ label: `${c.id} の入力 x と出力 out を入れ替えても合格`, comps: ref.map((d, j) => (j === i ? { ...d, connect } : d)), answers });
         return;
       }
       if (c.type === "OPAMP" && Array.isArray(c.connect) && c.connect.length >= 2) {
