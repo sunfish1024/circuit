@@ -50,6 +50,11 @@
   - F-05 のリプル判定は幅 ±15% で、候補外の約 1.95〜2.6mF でも合格する
   - F-08 は固定の SW_V + V_PULSE で「プローブを離す」を表現
 
+- J（20問、2026-11-03）: verify --strict 20/20、--mutate・--drop 甘い判定0、--reverse 対象17問で甘い判定1（J-04: TRIAC は負のゲートパルスでも点弧するため正しい挙動、verifyNote あり）、check_layout 問題0。マウス操作での確認: J-05, J-07, J-14, J-18
+  - J-05 の DIAC 調光は手計算（α≈95°）とシミュレーション（α≈81°）が合わない（DIAC が半周期に何度も導通するため）。電力 40〜70W の範囲判定で 68kΩ だけが通る形
+  - SW_V の ctrl_n がすべて gnd のため `sw`–`gnd` で絞る match は上側スイッチにも一致する。J-12 の下側スイッチ・J-15 の下側2個は接続判定を外し出力側の判定で確かめている
+  - 許容幅の補正: toleranceAbs だけを書くと既定の tolerancePct 2% と「大きい方」が採用され、意図より緩くなる（効率 0.98 付近で ±0.02 など）。C-20, F-20, I-10, I-19, I-20, J-12, J-14, J-17 の該当判定に tolerancePct: 0.001 を追加して意図した絶対許容にした。エンジン側で「toleranceAbs があれば既定の % は使わない」にするのが本来の直し方
+
 ## エンジン拡張（2026-11-02 C・G・H向け）
 - デジタル（sim-engineer）: digital.js を全面書き直し（旧コードは type でなく simulation.model で部品を見分けていて、ゲート回路を一度も評価できていなかった）。0/1/X の3値、未接続入力はX、出力衝突は不合格。新部品 LOGIC_IN / U_XNOR / U_AND3 / U_OR3 / DFF_R。新判定 truthTable（inputs/outputs/expect）、sequence（クロックごとの系列）、componentCount。verify に ゲート差し替え・DFF の Q/Q_NOT 取り違えの誤答を追加
 - アナログ（sim-engineer）: AC解析がBJT/MOSFET/OPAMPに対応（DC動作点で線形化）、OPAMP の DC/過渡/飽和、正帰還の不安定平衡点の修正。新判定 acImpedance / operatingRegion / transientMeasure（max/min/pp/average/rms/acRms。F分野の平均値・リップルにも使える）、nodeRef/inputRef/outputRef・sources による差動・同相の判定、simulation.initialCondition: dc

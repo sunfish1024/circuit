@@ -93,7 +93,8 @@
       "timeSec": 0.0795,
       "expected": 3.2,
       "toleranceAbs": 0.02,
-      "unit": "V"
+      "unit": "V",
+      "tolerancePct": 0.001
     },
     {
       "type": "transientPoint",

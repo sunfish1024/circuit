@@ -162,7 +162,8 @@
       "fromSec": 0.009,
       "toSec": 0.01,
       "expected": 0.966,
-      "toleranceAbs": 0.015
+      "toleranceAbs": 0.015,
+      "tolerancePct": 0.001
     },
     {
       "type": "connection",
@@ -200,10 +201,10 @@
         "Vlow": 0,
         "Vhigh": 5,
         "delaySec": 0,
-        "riseSec": 1e-9,
-        "fallSec": 1e-9,
-        "widthSec": 0.0000215,
-        "periodSec": 0.00005
+        "riseSec": 1e-09,
+        "fallSec": 1e-09,
+        "widthSec": 2.15e-05,
+        "periodSec": 5e-05
       },
       "connect": [
         "g",

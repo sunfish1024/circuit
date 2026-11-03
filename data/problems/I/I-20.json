@@ -168,7 +168,8 @@
       "timeSec": 0.2,
       "expected": 3.25,
       "toleranceAbs": 0.02,
-      "unit": "V"
+      "unit": "V",
+      "tolerancePct": 0.001
     },
     {
       "type": "sequence",

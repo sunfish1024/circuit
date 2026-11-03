@@ -153,7 +153,8 @@
       "output": "out",
       "frequencyHz": 1000,
       "expected": 40,
-      "toleranceAbs": 0.3
+      "toleranceAbs": 0.3,
+      "tolerancePct": 0.001
     },
     {
       "type": "acGaindB",
@@ -161,7 +162,8 @@
       "output": "out",
       "frequencyHz": 20000,
       "expected": 39.5,
-      "toleranceAbs": 0.5
+      "toleranceAbs": 0.5,
+      "tolerancePct": 0.001
     },
     {
       "type": "acGaindB",
@@ -169,7 +171,8 @@
       "output": "out",
       "frequencyHz": 20,
       "expected": 39.5,
-      "toleranceAbs": 0.5
+      "toleranceAbs": 0.5,
+      "tolerancePct": 0.001
     },
     {
       "type": "acGaindB",
