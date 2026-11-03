@@ -398,8 +398,12 @@ function setBoardZoom(next, root = document) {
  * @param {number} [rotation=0]
  * @returns {{x:number, y:number}}
  */
-function clampPositionToBoard(position, rotation = 0) {
-  const { width, height } = getBoardSize();
+function clampPositionToBoard(position, rotation = 0, minBoard = null) {
+  const size = getBoardSize();
+  // 問題データの固定部品は、読み込み時のキャンバス実寸ではなく基準ボード（960 x 560）に対して判定する
+  // （読み込み直後はキャンバスが基準より狭く、右寄りの部品が勝手に左へ寄せられるため）
+  const width = Math.max(size.width, minBoard?.width ?? 0);
+  const height = Math.max(size.height, minBoard?.height ?? 0);
   const box = getRotatedBox(rotation);
   const maxX = Math.max(0, width - box.w * COMP_SCALE);
   const maxY = Math.max(0, height - box.h * COMP_SCALE);
@@ -1157,7 +1161,8 @@ async function handleProblemSelect(problemId) {
                 x: snapValue(30 + col * stepX),
                 y: snapValue(30 + row * 110),
               },
-          rotation
+          rotation,
+          { width: BOARD_BASE_W, height: BOARD_BASE_H }
         ),
       });
     });

@@ -224,6 +224,24 @@ function selfTest() {
       expect: (is) => !codes(is).includes("c") && !codes(is).includes("a"),
     },
     {
+      // 分野 D/E の新部品（XTAL, V_AM, V_FM, V_VCO, MULT）: 0° と 90° で ID・値・ピン名ラベルが重ならない
+      name: "XTAL / V_AM / V_FM / V_VCO / MULT のラベルが重ならない",
+      problem: {
+        fixedComponents: [0, 90].flatMap((rot, r) => {
+          const y = 100 + r * 240;
+          const at = (i) => ({ x: 60 + i * 170, y });
+          return [
+            { id: `X${rot}`, type: "XTAL", params: { Lm: 0.1, Cm: 2.5e-11 }, connect: [`a${rot}`, `b${rot}`], rotation: rot, position: at(0) },
+            { id: `AM${rot}`, type: "V_AM", params: { Vc: 1, fcHz: 10000 }, connect: [`c${rot}`, `d${rot}`], rotation: rot, position: at(1) },
+            { id: `FM${rot}`, type: "V_FM", params: { Vpk: 1, fcHz: 10000 }, connect: [`e${rot}`, `f${rot}`], rotation: rot, position: at(2) },
+            { id: `VCO${rot}`, type: "V_VCO", params: { f0Hz: 1000, KvHzPerV: 100 }, connect: [`g${rot}`, `h${rot}`, `i${rot}`, `j${rot}`], rotation: rot, position: at(3) },
+            { id: `M${rot}`, type: "MULT", params: { k: 1 }, connect: [`k${rot}`, `l${rot}`, `m${rot}`], rotation: rot, position: at(4) },
+          ];
+        }),
+      },
+      expect: (is) => !codes(is).includes("c") && !codes(is).includes("a"),
+    },
+    {
       name: "部品の重なりを検出 [a]",
       problem: { fixedComponents: [R("R1", 200, 200, 0, ["a", "b"]), R("R2", 240, 210, 0, ["c", "d"])] },
       expect: (is) => codes(is).includes("a"),

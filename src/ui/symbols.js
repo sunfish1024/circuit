@@ -2,7 +2,7 @@
  * 部品の SVG 回路記号ライブラリです。
  *
  * 役割:
- * - 41種類の部品を本物の回路記号（JIS/IEC 風）で描画する
+ * - 46種類の部品を本物の回路記号（JIS/IEC 風）で描画する
  * - ピン位置（ワイヤ接続点）を記号に合わせて上書きする
  * - パレットとギャラリーでも同じ記号を使い回す
  *
@@ -57,6 +57,16 @@ function tri(points, cls = "sym-fill") {
  */
 function label(x, y, text, cls = "sym-label") {
   return `<text class="${cls}" x="${x}" y="${y}" text-anchor="middle">${text}</text>`;
+}
+
+
+/**
+ * 回転しても正立させたい記号内の要素を、記号の回転と逆向きに回すグループで包みます。
+ * 記号は回転グループの中で描かれるので、component.rotation の逆回転を (cx, cy) まわりにかける。
+ */
+function upright(content, component, cx, cy) {
+  const rot = ((Number(component?.rotation) || 0) % 360 + 360) % 360;
+  return rot ? `<g transform="rotate(${-rot} ${cx} ${cy})">${content}</g>` : content;
 }
 
 /**
@@ -167,6 +177,26 @@ const PINS_MIRROR = [
  * ピンが左右の辺だけなので、ID・値ラベルは上下に置け、回転しても他のラベルと重ならない。
  */
 const PINS_SW_V = [
+  { x: 96, y: 16 },
+  { x: 96, y: 36 },
+  { x: 0, y: 16 },
+  { x: 0, y: 36 },
+];
+
+/**
+ * 乗算器 MULT の 3 端子ピン位置です。pinNames 順 [x, y, out]。入力 x = 左上、y = 左下、出力 out = 右。
+ */
+const PINS_MULT = [
+  { x: 0, y: 16 },
+  { x: 0, y: 36 },
+  { x: 96, y: 26 },
+];
+
+/**
+ * 電圧制御発振器 V_VCO の 4 端子ピン位置です。pinNames 順 [p, n, ctrl_p, ctrl_n]。
+ * 制御入力は左（ctrl_p = 上, ctrl_n = 下）、出力は右（p = 上, n = 下）。SW_V と同じ配置。
+ */
+const PINS_VCO = [
   { x: 96, y: 16 },
   { x: 96, y: 36 },
   { x: 0, y: 16 },
@@ -303,6 +333,42 @@ const SYMBOLS = {
       circle(48, 26, 18) +
       path("M 34 26 Q 41 12 48 26 Q 55 40 62 26") +
       line(66, 26, 96, 26),
+  },
+
+  V_AM: {
+    // AM 信号源: 円の中に「搬送波 + 包絡線（振幅が膨らんで縮む波形）」と AM の文字。+ は p 側。
+    pins: PINS_LR,
+    render: (component) =>
+      line(0, 26, 30, 26) +
+      circle(48, 26, 18) +
+      line(66, 26, 96, 26) +
+      line(20, 19, 26, 19, "sym-thin") +
+      line(23, 16, 23, 22, "sym-thin") +
+      upright(
+        path("M 37 20 L 39 18 L 41 22 L 43 15.5 L 45 24.5 L 47 14 L 49 26 L 51 15.5 L 53 24.5 L 55 18 L 57 22 L 59 20", "sym-thin") +
+          label(48, 38, "AM", "sym-label-sm"),
+        component,
+        48,
+        26
+      ),
+  },
+
+  V_FM: {
+    // FM 信号源: 円の中に「周波数が変わる正弦波」と FM の文字。+ は p 側。
+    pins: PINS_LR,
+    render: (component) =>
+      line(0, 26, 30, 26) +
+      circle(48, 26, 18) +
+      line(66, 26, 96, 26) +
+      line(20, 19, 26, 19, "sym-thin") +
+      line(23, 16, 23, 22, "sym-thin") +
+      upright(
+        path("M 36 20 C 38 14, 41 14, 43 20 C 44.5 24, 46.5 24, 48 20 C 49 16.5, 50.5 16.5, 51.5 20 C 52.5 23, 53.5 23, 54.5 20 C 55.2 17.5, 56 17.5, 57 20 C 57.6 22, 58.4 22, 59 20", "sym-thin") +
+          label(48, 38, "FM", "sym-label-sm"),
+        component,
+        48,
+        26
+      ),
   },
 
   /* -------------------------------------------------------------- */
@@ -588,6 +654,50 @@ const SYMBOLS = {
       line(78, 36, 66, 20) +
       // 制御が接点を動かす（破線）
       `<line class="sym-thin" x1="44" y1="26" x2="62" y2="26" stroke-dasharray="3 3"></line>`,
+  },
+
+  XTAL: {
+    // 水晶振動子: 2 枚の電極（平行な線）の間に長方形（水晶片）
+    pins: PINS_LR,
+    render: () =>
+      line(0, 26, 34, 26) +
+      line(34, 8, 34, 44) +
+      `<rect class="sym-stroke" x="41" y="13" width="14" height="26"></rect>` +
+      line(62, 8, 62, 44) +
+      line(62, 26, 96, 26),
+  },
+
+  V_VCO: {
+    // 電圧制御発振器: 四角いブロック。左が制御入力（+ / −）、右が出力（+ = p, − = n）。中に VCO の文字と正弦波。
+    pins: PINS_VCO,
+    render: (component) =>
+      line(0, 16, 22, 16) +
+      line(0, 36, 22, 36) +
+      `<rect class="sym-stroke" x="22" y="6" width="52" height="40" rx="2"></rect>` +
+      line(74, 16, 96, 16) +
+      line(74, 36, 96, 36) +
+      upright(label(29, 20, "+", "sym-label-sm"), component, 29, 17) +
+      upright(label(29, 40, "−", "sym-label-sm"), component, 29, 37) +
+      upright(label(67, 20, "+", "sym-label-sm"), component, 67, 17) +
+      upright(label(67, 40, "−", "sym-label-sm"), component, 67, 37) +
+      upright(
+        label(48, 25, "VCO") + path("M 38 35 C 41 29, 45 29, 48 35 C 51 41, 55 41, 58 35", "sym-thin"),
+        component,
+        48,
+        26
+      ),
+  },
+
+  MULT: {
+    // 乗算器: 円の中に × 。入力 x / y は左、出力 out は右。
+    pins: PINS_MULT,
+    render: () =>
+      line(0, 16, 33, 16) +
+      line(0, 36, 33, 36) +
+      circle(48, 26, 18) +
+      line(41, 19, 55, 33) +
+      line(55, 19, 41, 33) +
+      line(66, 26, 96, 26),
   },
 
   TP: {

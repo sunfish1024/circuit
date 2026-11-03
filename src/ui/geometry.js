@@ -32,6 +32,9 @@
  *   - DFF_R: D (0,12) / CLK (0,27) / CLR (36,39 = 下中央) / Q (72,12) / Q_NOT (72,27)
  *   - LOGIC_IN（論理入力。1 ピン Y）: 右 (72,19.5)。ID は記号の上、値の 0/1 は記号の中（回転しても正立）
  *   - SW_V（電圧制御スイッチ）: 1 (72,12) / 2 (72,27) / ctrl_p (0,12) / ctrl_n (0,27)。接点が右、制御入力が左
+ *   - V_VCO（電圧制御発振器）: p (72,12) / n (72,27) / ctrl_p (0,12) / ctrl_n (0,27)。出力が右、制御入力が左（SW_V と同じ）
+ *   - MULT（乗算器）: x (0,12) / y (0,27) / out (72,19.5)
+ *   - XTAL（水晶振動子）・V_AM・V_FM: 2 端子と同じ（左 (0,19.5) / 右 (72,19.5)）
  */
 
 import { getSymbolDefinition, getSymbolPins } from "./symbols.js";
@@ -322,7 +325,8 @@ export function componentValueText(component, unitOf = () => "") {
         } catch {
           unit = "";
         }
-        shown = formatMetricValue(value, unit);
+        // 単位が数字で始まる（1/V など）と「k=11/V」と読めてしまうので、値と単位の間に空白を入れる
+        shown = /^\d/.test(unit) ? `${formatMetricValue(value, "")} ${unit}` : formatMetricValue(value, unit);
       }
       return `${key}=${shown}`;
     });
