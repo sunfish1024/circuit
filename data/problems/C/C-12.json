@@ -1,0 +1,194 @@
+{
+  "id": "C-12",
+  "category": "C",
+  "title": "MOSFET のバイアス：gm = 1 mS と最大の振れ幅から動作点を決める",
+  "difficulty": 3,
+  "prerequisites": [
+    "C-03",
+    "B-18"
+  ],
+  "learningGoal": "MOSFET の相互コンダクタンス gm = K(VGS − Vth) = √(2K·ID) から必要なドレイン電流とゲート電圧を逆算し、ドレインの直流電圧を「電源」と「飽和領域の下限 VG − Vth」の真ん中に置いて、出力の振れ幅を最大にする動作点を設計できる。",
+  "judge": "dc",
+  "statement": "### 状況\nC-06〜C-11 では BJT で増幅回路を作りました。ここからは MOSFET を使います。MOSFET はゲートに直流電流が流れないので、1 MΩ のような大きな抵抗でゲートの電圧を作れます（入力インピーダンスを高くできます）。\n\n次の C-13 で作るソース接地増幅回路の準備として、信号がないときの電流と電圧（**バイアス**、動作点）を決めます。増幅回路のバイアスは、次の2つの要求から決めます。\n\n- **相互コンダクタンス $g_m$**: ゲート-ソース間電圧の小さな変化に対する、ドレイン電流の変化の割合 $g_m = \\Delta I_D / \\Delta V_{GS}$ です（単位 S、ジーメンス）。増幅回路の利得は $g_m$ に比例します。ここでは **$g_m = 1$ mS** が必要です。\n- **出力の振れ幅**: 信号が入ると、ドレインの電圧は直流の値を中心に上下に振れます。上は電源の $V_{DD}$ まで、下は MOSFET が飽和領域から外れる境目 $V_{D,min} = V_G - V_{th}$ までです（飽和領域の条件 $V_{DS} \\ge V_{GS} - V_{th}$ の両辺に $V_S$ を足した式）。上下に同じだけ振れるように、**ドレインの直流電圧をこの範囲の真ん中** に置きます。\n\nボードには、ゲートの上側の抵抗 RG1 = 1 MΩ（`vdd`–`gate`）と、ソース抵抗 RS = 2 kΩ（`src`–`gnd`）が置いてあります。\n\n### やること\n1. N チャネル MOSFET を置き（パラメータは既定値のまま）、**D を `drain`（TPD）、G を `gate`（TPG）、S を `src`（TPS）** につなぐ。\n2. 抵抗を2本置く: ゲートの下側の抵抗 RG2（`gate`–`gnd`）と、ドレイン抵抗 RD（`vdd`–`drain`）。`vdd` には RG1 の上側のピンか VDD の + ピンからワイヤを引けます。\n3. $g_m = 1$ mS になり、`drain` の直流電圧が振れ幅の範囲の真ん中になるように、2本の値を決める。\n\n### 条件\n- VDD = 12 V。ゲート電流は 0 なので、RG1 と RG2 は負荷のない分圧回路です。\n- MOSFET（パレットの既定値）: しきい値電圧 $V_{th} = 2$ V、$K = 1$ mA/V²。\n- 飽和領域の式（チャネル長変調なし）:\n\n$$\nI_D = \\frac{1}{2} K (V_{GS} - V_{th})^2, \\qquad g_m = K (V_{GS} - V_{th}) = \\sqrt{2 K I_D}\n$$\n\n- 判定（直流）: MOSFET のドレイン電流と `drain` の電圧が設計値（どちらも ±2 %）、MOSFET が飽和領域、D・G・S が上のとおりにつながっていること。",
+  "hints": [
+    "まず $g_m$ から $V_{GS} - V_{th}$（オーバードライブ電圧 $V_{ov}$）と $I_D$ を出し、ソース電圧 → ゲート電圧 → 分圧比の順に RG2 を決めます。次に振れ幅の下限 $V_G - V_{th}$ を求め、$V_{DD}$ との真ん中を `drain` の目標にします。",
+    "$V_{ov} = g_m / K$、$I_D = \\frac12 K V_{ov}^2$、$V_S = I_D R_S$、$V_G = V_S + V_{th} + V_{ov}$、$R_{G2} = R_{G1} \\dfrac{V_G}{V_{DD} - V_G}$、$V_D = \\dfrac{V_{DD} + (V_G - V_{th})}{2}$、$R_D = \\dfrac{V_{DD} - V_D}{I_D}$。",
+    "$V_{ov} = 1$ V、$I_D = 0.5$ mA、$V_S = 1$ V、$V_G = 4$ V なので RG2 = 1 MΩ × 4/8 = 500 kΩ。下限は 4 − 2 = 2 V なので $V_D = (12 + 2)/2 = 7$ V、RD = 5 V ÷ 0.5 mA = 10 kΩ。"
+  ],
+  "availableComponents": [
+    "R",
+    "M_N"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VDD",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vdd",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 60,
+        "y": 220
+      }
+    },
+    {
+      "id": "RG1",
+      "type": "R",
+      "params": {
+        "R": 1000000
+      },
+      "connect": [
+        "vdd",
+        "gate"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 220,
+        "y": 60
+      }
+    },
+    {
+      "id": "TPG",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "gate"
+      ],
+      "locked": true,
+      "position": {
+        "x": 300,
+        "y": 140
+      }
+    },
+    {
+      "id": "RS",
+      "type": "R",
+      "params": {
+        "R": 2000
+      },
+      "connect": [
+        "src",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 560,
+        "y": 380
+      }
+    },
+    {
+      "id": "TPS",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "src"
+      ],
+      "locked": true,
+      "position": {
+        "x": 640,
+        "y": 300
+      }
+    },
+    {
+      "id": "TPD",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "drain"
+      ],
+      "locked": true,
+      "position": {
+        "x": 660,
+        "y": 140
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "match": {
+        "type": "M_N"
+      },
+      "expected": 0.0005,
+      "tolerancePct": 2,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "drain",
+      "expected": 7.0,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "operatingRegion",
+      "match": {
+        "type": "M_N"
+      },
+      "region": "saturation"
+    },
+    {
+      "type": "connection",
+      "match": {
+        "type": "M_N"
+      },
+      "pins": {
+        "D": "drain",
+        "G": "gate",
+        "S": "src"
+      }
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "M1",
+      "type": "M_N",
+      "params": {
+        "Vth": 2,
+        "K": 0.001
+      },
+      "connect": [
+        "drain",
+        "gate",
+        "src"
+      ]
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 500000
+      },
+      "connect": [
+        "gate",
+        "gnd"
+      ]
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "vdd",
+        "drain"
+      ]
+    }
+  ],
+  "explanation": {
+    "solution": "**1. $g_m$ からオーバードライブ電圧と電流を求める**\n\n$$\nV_{ov} = V_{GS} - V_{th} = \\frac{g_m}{K} = \\frac{1\\,\\mathrm{mS}}{1\\,\\mathrm{mA/V^2}} = 1\\,\\mathrm{V},\n\\qquad I_D = \\frac{1}{2} K V_{ov}^2 = \\frac{1}{2} \\times 1\\,\\mathrm{mA/V^2} \\times 1^2 = 0.5\\,\\mathrm{mA}\n$$\n\n（確かめ: $\\sqrt{2 K I_D} = \\sqrt{2 \\times 0.001 \\times 0.0005} = 1\\,\\mathrm{mS}$）\n\n**2. ソース電圧・ゲート電圧と RG2**\n\n$$\nV_S = I_D R_S = 0.5\\,\\mathrm{mA} \\times 2\\,\\mathrm{k\\Omega} = 1\\,\\mathrm{V},\\qquad\nV_G = V_S + V_{th} + V_{ov} = 1 + 2 + 1 = 4\\,\\mathrm{V}\n$$\n\nゲート電流は 0 なので、ふつうの分圧の式が使えます。\n\n$$\nV_G = V_{DD}\\frac{R_{G2}}{R_{G1} + R_{G2}} \\;\\Rightarrow\\; R_{G2} = R_{G1}\\frac{V_G}{V_{DD} - V_G} = 1\\,\\mathrm{M\\Omega} \\times \\frac{4}{8} = 500\\,\\mathrm{k\\Omega}\n$$\n\n**3. 振れ幅の範囲と RD**\n\nドレインの電圧の下限（飽和領域の境目）は $V_G - V_{th} = 4 - 2 = 2$ V、上限は $V_{DD} = 12$ V です。真ん中は\n\n$$\nV_D = \\frac{12 + 2}{2} = 7\\,\\mathrm{V}, \\qquad R_D = \\frac{V_{DD} - V_D}{I_D} = \\frac{12 - 7}{0.5\\,\\mathrm{mA}} = 10\\,\\mathrm{k\\Omega}\n$$\n\n上下にそれぞれ 5 V ずつ振れる余裕があります。\n\n**4. 確かめ**: シミュレーションでは $I_D$ = 0.500 mA、`gate` = 4.00 V、`src` = 1.00 V、`drain` = 7.00 V で、$V_{DS} = 6\\,\\mathrm{V} \\ge V_{GS} - V_{th} = 1\\,\\mathrm{V}$ なので飽和領域です。",
+    "why": "- **$g_m$ の意味**: 飽和領域の式 $I_D = \\frac12 K V_{ov}^2$ を $V_{GS}$ で微分すると $g_m = dI_D/dV_{GS} = K V_{ov}$ です。$I_D$ を使って書き直すと $g_m = \\sqrt{2KI_D} = 2I_D/V_{ov}$ になります。同じ電流でも、$V_{ov}$ が小さい（しきい値ぎりぎりで動かす）ほど $g_m$ が大きくなります。\n- **BJT との比較**: BJT の $g_m = I_C/V_T$ は、同じ 0.5 mA で $0.5\\,\\mathrm{mA}/26\\,\\mathrm{mV} \\approx 19$ mS です。MOSFET の $g_m = 2I_D/V_{ov}$ と比べると、$V_T$ = 26 mV に当たるのが $V_{ov}/2$ = 0.5 V で、約 20 倍大きいからです。MOSFET は同じ電流で得られる $g_m$ が小さいかわりに、ゲート電流が 0 で入力インピーダンスが非常に高くなります。\n- **振れ幅の下限が $V_G - V_{th}$ になる理由**: 飽和領域の条件 $V_{DS} \\ge V_{GS} - V_{th}$ に $V_S$ を足すと $V_D \\ge V_G - V_{th}$ です。ソースの電圧（RS）は打ち消し合って消えます。これより下がると線形領域（抵抗のようにふるまう領域）に入り、電流が $V_{GS}$ だけで決まらなくなって、波形の下側がつぶれます。\n- **RS による安定化（負帰還）**: 電流が増えようとすると $V_S$ が上がり、$V_{GS}$ が下がって電流が戻ります。$V_{th}$ が 2.0 V から ±0.5 V ばらついた場合を計算すると、この回路では $I_D$ = 0.67 mA（$V_{th}$ = 1.5 V）〜 0.34 mA（2.5 V）にとどまります。RS なしでゲートを 3 V に固定した場合は 1.13 mA 〜 0.13 mA と大きく変わります。",
+    "mistakes": "- **$V_{th}$ を足し忘れる**: $V_G = V_S + V_{ov} = 2$ V として RG2 = 200 kΩ にすると、$V_{GS}$ は $V_{th}$ = 2 V に届かず、MOSFET は OFF のままです。シミュレーションでは $I_D$ = 0、`drain` = 12 V で不合格です。\n- **振れ幅の下限を 0 V にする**: $V_D = 12/2 = 6$ V として RD = 12 kΩ にすると、`drain` = 6.0 V で不合格です。下限は 0 V ではなく、飽和領域の境目 $V_G - V_{th}$ = 2 V です。ソース電圧 1 V を下限にした場合（$V_D$ = 6.5 V、RD = 11 kΩ）も不合格です。\n- **RD を大きくしすぎる**: RD = 20 kΩ にすると `drain` は 2.0 V で、飽和領域のぎりぎりです。直流では飽和領域でも、信号が入ると下側がすぐに線形領域に入ってつぶれます。\n- **D と S を逆につなぐ**: D を `src`、S を `drain` にすると、ソース側の端子がゲートより高い電圧になり、MOSFET は OFF です（$I_D$ = 0）。",
+    "practice": "- **ばらつきへの備え**: ディスクリートの小信号 MOSFET は $V_{th}$ のばらつきが 1 V 以上あることも珍しくありません。RS を大きくすると電流は安定しますが、そのぶん電源電圧を RS で消費し、振れ幅が狭くなります。実際には、RS を大きめにしてバイパスコンデンサで交流的に短絡する（C-13）か、可変抵抗で調整します。\n- **大きなゲート抵抗**: 1 MΩ 級の分圧は消費電流が 8 µA と小さく、入力インピーダンスも 333 kΩ と高くできます。ただし湿気や基板の汚れによる漏れ電流でゲート電圧がずれやすいので、実装に注意します。\n- **IC の中では**: CMOS のアナログ IC（オペアンプや ADC の内部）では、この $g_m = \\sqrt{2KI_D}$ の関係と、$V_{ov}$ を 0.1〜0.3 V 程度の小さな値にする設計が基本です。\n- **消費電力**: $V_{DS} I_D = 6\\,\\mathrm{V} \\times 0.5\\,\\mathrm{mA} = 3$ mW と小さく、発熱の心配はありません。",
+    "next": "- **C-13**: この動作点（$g_m$ = 1 mS）のまま信号を入れ、ドレイン抵抗で利得 $-g_m R_D$ を作ります。RS をバイパスしないと利得が下がることも確かめます。\n- **利得と電圧の関係**: $g_m R_D = 2 I_D R_D / V_{ov} = 2 V_{RD} / V_{ov}$ なので、利得の上限は「RD にかけられる電圧」と $V_{ov}$ で決まります。C-13 でこの関係を使います。"
+  }
+}

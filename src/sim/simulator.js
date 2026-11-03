@@ -316,6 +316,35 @@ function finalizeSimulationResult(result, handlerUsed, startedAtMs, handlerOk) {
  * @returns {Promise<object>}
  */
 export async function simulate(circuit, options = {}) {
+  // 問題ごとの解析設定（problem.simulation: { tStop, dt, frequencies }）を取り込む。
+  // options.problem、または state 全体が渡された場合は state.currentProblem から読む。
+  // 呼び出し側が options に直接書いた値が優先。
+  const problemSim =
+    options?.problem?.simulation ?? circuit?.currentProblem?.simulation ?? null;
+  if (problemSim && typeof problemSim === "object") {
+    options = { ...problemSim, ...options };
+  }
+
+  // judge が配列（例: ["dc", "transient"]）なら各モードを順に実行して結果を統合する
+  if (Array.isArray(options.mode)) {
+    const modes = options.mode.length > 0 ? options.mode : ["dc"];
+    const merged = createEmptySimulationResult(normalizeSimulationMode(modes[0]));
+    merged.meta.startedAt = new Date().toISOString();
+    merged.mode = modes.map(normalizeSimulationMode).join("+");
+    merged.meta.mode = merged.mode;
+    let allOk = true;
+    for (const m of modes) {
+      const r = await simulate(circuit, { ...options, mode: m });
+      const key = normalizeSimulationMode(m);
+      merged.errors.push(...r.errors.map((e) => `[${key}] ${e}`));
+      merged.warnings.push(...r.warnings.map((w) => `[${key}] ${w}`));
+      if (r[key] !== undefined) merged[key] = r[key];
+      if (!r.ok) allOk = false;
+    }
+    merged.ok = allOk && merged.errors.length === 0;
+    return merged;
+  }
+
   const mode = normalizeSimulationMode(options.mode);
   const result = createEmptySimulationResult(mode);
 

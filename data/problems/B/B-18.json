@@ -1,102 +1,187 @@
 {
   "id": "B-18",
   "category": "B",
-  "title": "固定ベースバイアス時のコレクタ抵抗設計",
-  "difficulty": 2,
-  "statement": "前提: NPNトランジスタQ1はVBE=0.7V、β=100とする。活性領域で動作させ、温度特性は無視する。 Vcc=10V、Vin=5Vの直流電源がある。NPNトランジスタQ1のベースbには固定抵抗Rb=430kΩがvin-b間に接続され、エミッタはgndに固定されている。コレクタcとvccの間にコレクタ抵抗Rcを配置し、VCEを5Vにしたい。Rcの値を設定せよ。",
-  "prerequisites": [],
+  "title": "MOSFETのバイアス：ゲート分圧でドレイン電流 2 mA を決める",
+  "difficulty": 4,
+  "prerequisites": [
+    "B-17",
+    "B-15"
+  ],
+  "learningGoal": "MOSFET の飽和領域の式 ID = ½K(VGS − Vth)² を使い、ソース抵抗つきのゲート分圧バイアスで、指定したドレイン電流とドレイン電圧を実現できる。飽和領域にとどまる条件 VDS ≥ VGS − Vth を確かめられる。",
   "judge": "dc",
-  "learningGoal": "固定ベース電流からコレクタ電流を求め、所望のVCEとなるコレクタ抵抗を設計できる。",
-  "hint": "ベース電流は (5V - 0.7V) / 430kΩ = 10µA である。β=100よりコレクタ電流は1mAとなる。VCE=5VとなるRcの電圧降下は 10V - 5V = 5V である。",
+  "statement": "### 状況\nMOSFET で小さな信号を増幅する回路（ソース接地増幅回路）を作る準備として、信号がないときの電流と電圧を決めます。これを **バイアス**（または動作点）の設計といいます。\n\n増幅に使うときの MOSFET は、ドレイン-ソース間電圧 $V_{DS}$ が十分大きい **飽和領域** で動かします。飽和領域では、ドレイン電流が $V_{DS}$ にほとんど関係なく、ゲート-ソース間電圧 $V_{GS}$ だけで決まります。つまり MOSFET が「ゲート電圧で制御される電流源」になり、ゲートの信号を電流の変化に変えられます。\n\n回路の一部はすでにできています。ゲートの上側の抵抗 RG1 = 1 MΩ（`vdd`–`gate`）と、ソース抵抗 RS = 1 kΩ（`src`–`gnd`）です。\n\n### やること\n1. N チャネル MOSFET を置き（パラメータは既定値のまま）、**D を `drain`（TP2）、G を `gate`（TP1）、S を `src`（TP3）** につなぐ。\n2. 抵抗を2本置く: ゲートの下側の抵抗（`gate`–`gnd`）と、ドレイン抵抗（`vdd`–`drain`）。`vdd` には RG1 の上側のピンか V1 の + ピンからワイヤを引けます。\n3. ドレイン電流が **2.0 mA**、`drain` の電圧が **6.0 V** になるように、2本の値を決める。\n\n### 条件\n- V1 = 12 V（`vdd`）。ゲートには直流電流が流れないので、RG1 と下側の抵抗は、負荷のない純粋な分圧回路です。\n- MOSFET（パレットの既定値）: しきい値電圧 Vth = 2 V、K = 0.001 A/V²（1 mA/V²）。\n- 飽和領域（$V_{DS} \\ge V_{GS} - V_{th}$）のドレイン電流:\n\n$$\nI_D = \\frac{1}{2} K \\,(V_{GS} - V_{th})^2\n$$\n\n- 判定: MOSFET のドレイン電流 2.0 mA（±2 %）、`drain` の電圧 6.0 V（±2 %）、MOSFET の D・G・S が上のとおりにつながっていること。",
+  "hints": [
+    "電流 2 mA から逆算します。RS の電圧（ソース電圧）→ 必要な $V_{GS}$ → ゲート電圧 → 分圧比、の順に決め、最後にドレイン抵抗を決めます。",
+    "$V_{GS} = V_{th} + \\sqrt{2 I_D / K}$、$V_S = I_D R_S$、$V_G = V_S + V_{GS}$、$V_G = V_{DD} \\cdot \\dfrac{R_{G2}}{R_{G1} + R_{G2}}$、$R_D = (V_{DD} - V_D)/I_D$。",
+    "$\\sqrt{2 \\times 0.002 / 0.001} = 2$ V なので $V_{GS} = 4$ V。$V_S = 2$ V、$V_G = 6$ V は 12 V のちょうど半分なので、下側の抵抗は RG1 と同じ 1 MΩ。ドレイン抵抗は $(12 - 6)/2\\,\\mathrm{mA} = 3\\,\\mathrm{k\\Omega}$。"
+  ],
   "availableComponents": [
-    "R"
+    "R",
+    "M_N"
   ],
   "fixedComponents": [
     {
-      "id": "Vcc",
+      "id": "V1",
       "type": "V_DC",
       "params": {
-        "V": 10
+        "V": 12
       },
       "connect": [
-        "vcc",
+        "vdd",
         "gnd"
       ],
-      "locked": true
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 60,
+        "y": 220
+      }
     },
     {
-      "id": "Vin",
-      "type": "V_DC",
-      "params": {
-        "V": 5
-      },
-      "connect": [
-        "vin",
-        "gnd"
-      ],
-      "locked": true
-    },
-    {
-      "id": "Q1",
-      "type": "Q_NPN",
-      "params": {
-        "beta": 100,
-        "Vbe": 0.7
-      },
-      "connect": [
-        "c",
-        "b",
-        "gnd"
-      ],
-      "locked": true
-    },
-    {
-      "id": "Rb",
+      "id": "RG1",
       "type": "R",
       "params": {
-        "R": 430000
+        "R": 1000000
       },
       "connect": [
-        "vin",
-        "b"
+        "vdd",
+        "gate"
       ],
-      "locked": true
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 220,
+        "y": 60
+      }
+    },
+    {
+      "id": "TP1",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "gate"
+      ],
+      "locked": true,
+      "position": {
+        "x": 300,
+        "y": 140
+      }
+    },
+    {
+      "id": "RS",
+      "type": "R",
+      "params": {
+        "R": 1000
+      },
+      "connect": [
+        "src",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 560,
+        "y": 380
+      }
+    },
+    {
+      "id": "TP3",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "src"
+      ],
+      "locked": true,
+      "position": {
+        "x": 640,
+        "y": 300
+      }
+    },
+    {
+      "id": "TP2",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "drain"
+      ],
+      "locked": true,
+      "position": {
+        "x": 660,
+        "y": 140
+      }
     }
   ],
   "checks": [
     {
       "type": "dcCurrent",
-      "element": "Rc",
-      "expected": 0.001,
-      "tolerancePct": 3,
+      "match": {
+        "type": "M_N"
+      },
+      "expected": 0.002,
+      "tolerancePct": 2,
       "unit": "A"
     },
     {
       "type": "dcVoltage",
-      "node": "c",
-      "expected": 5,
-      "tolerancePct": 3,
+      "node": "drain",
+      "expected": 6.0,
+      "tolerancePct": 2,
       "unit": "V"
     },
     {
-      "type": "componentValue",
-      "element": "Rc",
-      "expected": 5000,
-      "tolerancePct": 2,
-      "unit": "Ω"
+      "type": "connection",
+      "match": {
+        "type": "M_N"
+      },
+      "pins": {
+        "D": "drain",
+        "G": "gate",
+        "S": "src"
+      }
     }
   ],
   "referenceSolution": [
     {
-      "id": "Rc",
-      "type": "R",
+      "id": "M1",
+      "type": "M_N",
       "params": {
-        "R": 5000
+        "Vth": 2,
+        "K": 0.001
       },
       "connect": [
-        "vcc",
-        "c"
+        "drain",
+        "gate",
+        "src"
+      ]
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 1000000
+      },
+      "connect": [
+        "gate",
+        "gnd"
+      ]
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 3000
+      },
+      "connect": [
+        "vdd",
+        "drain"
       ]
     }
-  ]
+  ],
+  "explanation": {
+    "solution": "**1. 必要な $V_{GS}$ を求める**（飽和領域の式を $V_{GS}$ について解く）\n\n$$\nI_D = \\frac{1}{2}K(V_{GS} - V_{th})^2 \\;\\Rightarrow\\;\nV_{GS} - V_{th} = \\sqrt{\\frac{2 I_D}{K}} = \\sqrt{\\frac{2 \\times 0.002}{0.001}} = 2\\,\\mathrm{V}\n\\;\\Rightarrow\\; V_{GS} = 4\\,\\mathrm{V}\n$$\n\n**2. ソース電圧とゲート電圧**\n\n$$\nV_S = I_D R_S = 2\\,\\mathrm{mA} \\times 1\\,\\mathrm{k\\Omega} = 2\\,\\mathrm{V}, \\qquad\nV_G = V_S + V_{GS} = 2 + 4 = 6\\,\\mathrm{V}\n$$\n\n**3. ゲート分圧の下側の抵抗**（ゲート電流は 0 なので、ふつうの分圧の式がそのまま使える）\n\n$$\nV_G = 12 \\times \\frac{R_{G2}}{1\\,\\mathrm{M\\Omega} + R_{G2}} = 6\\,\\mathrm{V}\n\\;\\Rightarrow\\; R_{G2} = 1\\,\\mathrm{M\\Omega}\n$$\n\n**4. ドレイン抵抗**\n\n$$\nR_D = \\frac{V_{DD} - V_D}{I_D} = \\frac{12 - 6}{2\\,\\mathrm{mA}} = 3\\,\\mathrm{k\\Omega}\n$$\n\n**5. 飽和領域にいるかの確認**: $V_{DS} = 6 - 2 = 4\\,\\mathrm{V} \\ge V_{GS} - V_{th} = 2\\,\\mathrm{V}$ なので飽和領域です。\n\nシミュレーションでは $I_D$ = 2.00 mA、`drain` = 6.00 V、`src` = 2.00 V、`gate` = 6.00 V になります。",
+    "why": "- **飽和領域で電流が一定になる理由**: $V_{DS}$ を大きくしていくと、ドレインの近くでゲートとの電圧差が Vth を下回り、チャネルが細く絞られます（ピンチオフ）。そこから先は $V_{DS}$ を上げても電流がほとんど増えず、電流は $V_{GS}$ だけで決まります。この境目が $V_{DS} = V_{GS} - V_{th}$ です。B-17 のスイッチは逆に、$V_{DS}$ が小さい線形領域（抵抗として動く範囲）を使っていました。\n- **2乗の関係**: 電流は $V_{GS} - V_{th}$ の2乗に比例します。$V_{GS}$ が少し変わるだけで電流が大きく変わるので、ゲート電圧だけで電流を決めようとすると、Vth のばらつきに非常に敏感になります。\n- **RS による負帰還**: 電流が増えようとすると $V_S = I_D R_S$ が上がり、ゲート電圧は一定なので $V_{GS}$ が下がって電流を戻します（B-15 のエミッタ抵抗と同じ考え方）。例えば Vth が 2.0 V から 2.5 V にずれた場合、RS なし（ゲート 4 V 固定）では電流が 2 mA → 1.13 mA（−44 %）になりますが、この回路では $I_D = \\tfrac12 K (6 - 1000 I_D - 2.5)^2$ を解いて約 1.67 mA（−16 %）にとどまります。\n- **ゲート電流が 0 であることの利点**: BJT（B-15, B-16）ではベース電流を見込んで分圧抵抗を補正しましたが、MOSFET ではその必要がありません。1 MΩ のような大きな抵抗で分圧でき、入力インピーダンスを高くできます。",
+    "mistakes": "- **Vth を足し忘れる**: $\\sqrt{2I_D/K} = 2$ V をそのまま $V_{GS}$ とすると、$V_G = 4$ V（下側 500 kΩ）になります。シミュレーションでは $I_D$ ≈ 0.76 mA、`drain` ≈ 9.7 V で不合格です。\n- **式の ½ を忘れる**: $I_D = K(V_{GS}-V_{th})^2$ として $V_{GS} - V_{th} = \\sqrt{2} \\approx 1.41$ V とすると、$V_G \\approx 5.41$ V（下側 ≈ 822 kΩ）になり、$I_D$ ≈ 1.61 mA、`drain` ≈ 7.2 V で不合格です。\n- **ドレイン抵抗を大きくしすぎる**: 例えば 6 kΩ にすると、2 mA なら `drain` が 0 V になるはずですが、そうなる前に $V_{DS} < V_{GS} - V_{th}$ となって線形領域に入り、電流が減ります。シミュレーションでは $I_D$ ≈ 1.62 mA、`drain` ≈ 2.3 V です。増幅器として使えない状態です。\n- **D と S を逆につなぐ**: D を `src`、S を `drain` にすると、ゲート（6 V）よりソース側の端子が高く、$V_{GS} < V_{th}$ で OFF のままです（シミュレーションでは電流 0、`drain` = 12 V）。",
+    "practice": "- **ばらつきへの対策**: 実際の小信号 MOSFET は Vth のばらつきが大きく（例: 2N7000 で 0.8〜3 V）、K も個体差があります。そのためソース抵抗による負帰還が重要で、さらに大きなばらつきに対しては、オペアンプを使った帰還で電流を決める方法もとられます。\n- **交流的な工夫**: 増幅器として使うときは、RS に並列にコンデンサ（バイパスコンデンサ）を付けて、信号に対しては RS が無いのと同じにし、利得を確保します（分野 C）。\n- **高抵抗の注意**: 1 MΩ の分圧は電流が 6 µA しか流れないので省電力ですが、基板の汚れや湿気による漏れ電流で狂いやすくなります。\n- **集積回路**: IC の中の CMOS アナログ回路（オペアンプなど）では、この2乗則によるバイアス計算が設計の基本です。\n- **消費電力**: MOSFET は $V_{DS} I_D = 4\\,\\mathrm{V} \\times 2\\,\\mathrm{mA} = 8\\,\\mathrm{mW}$ と小さく、発熱の心配はありません。",
+    "next": "- **B-19**: JFET は $V_{GS} = 0$ でも電流が流れる素子で、ソース抵抗だけで（ゲート分圧なしで）バイアスできる「自己バイアス」を使います。\n- **分野 C**: この動作点のまわりで信号を加えると、相互コンダクタンス $g_m = K(V_{GS} - V_{th}) = 2\\,\\mathrm{mS}$ と RD で利得が決まります。ソース接地増幅回路の設計に進みます。"
+  }
 }

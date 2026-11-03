@@ -1,7 +1,7 @@
 /**
  * 過渡（transient）シミュレーション
  *
- * 手法: 後退オイラー法（後退差分）によるコンパニオンモデル
+ * 手法: 台形則 / 後退オイラー法のコンパニオンモデル
  * 対応素子:
  *  - R:    conductance 1/R
  *  - C:    G = C/dt、履歴電流源 I_hist = (C/dt)·V_C_prev を p に注入
@@ -11,7 +11,13 @@
  *  - I_DC: 定電流
  *  - I_AC: Ipk·sin(2πft+φ)
  *  - SW:   closed=true で 1e3 S、false で 1e-12 S
+ *  - XFMR: 理想トランス（turnsRatio = Np/Ns。漏れ・巻線抵抗なし）。params.Lm > 0 なら一次に並列の
+ *          励磁インダクタンス（フライバック用。Lm = 0 / 省略なら励磁電流 0 で直流も伝える理想トランス）
+ *  - SW_V: 電圧制御スイッチ（dc.js の非線形素子として扱う）
  *  - GND:  0V 基準
+ *  - 非線形素子（D/ZD/LED/BJT/MOSFET/JFET/OPAMP など）: dc.js と同じモデルを各時刻で
+ *    状態反復（solveWithDevices）して解く。詳細は runTransient のコメント。
+ *  - 積分は台形則（t=0・パルスの角・素子の状態切替の直後 2 ステップは後退オイラー）
  *
  * 初期条件:
  *  - C: params.initialV（無ければ 0V）
@@ -43,6 +49,13 @@
 
 import { registerSimulationMode } from "./simulator.js";
 import { parseMetricValue } from "../core/units.js";
+import { estimateOscillationFrequency } from "./waveform.js";
+import { prepareNetlist, filterNodeResults, GMIN_NODE } from "./netlist.js";
+import {
+  runDc, createDevice, solveWithDevices, extractDeviceElements, NONLINEAR_TYPES,
+  commitDeviceStep, applyModelDefaults,
+} from "./dc.js";
+import { BEHAVIORAL_TYPES, createBehavioralDevice, logicInAsSource } from "./behavioral.js";
 
 /* ==========================================================================
    定数
@@ -51,7 +64,28 @@ import { parseMetricValue } from "../core/units.js";
 const CLOSED_SWITCH_G = 1e3;
 const OPEN_SWITCH_G = 1e-12;
 
-const MAX_STEPS = 50000;
+/**
+ * 最大ステップ数。小さな回路（ノード 10 個程度）で 1 ステップ 10〜20µs なので、
+ * 200000 ステップでブラウザでも数秒以内。問題は 50000 ステップ以下を目安に設計する。
+ */
+const MAX_STEPS = 200000;
+
+/**
+ * 「切り替わる素子」（ダイオード系・サイリスタ系・SW_V）がある回路での交流 1 周期あたりの最少点数。
+ * 整流・平滑のリプル（数%）を 0.2% 程度の精度で求めるため（台形則の位相誤差 (ωh)²/12 ≈ 2e-5、
+ * サンプル点で拾うピークの誤差 1−cos(π/400) ≈ 3e-5）。線形回路は 100 点のまま。
+ */
+const AC_POINTS_SWITCHING = 400;
+
+/**
+ * 素子の状態（導通/遮断）が刻みの途中で変わったとき、刻みを半分にしてやり直す回数の上限。
+ * 2^-6 = 1/64 刻みまで切り替わり時刻を絞り込む（整流ダイオードの導通開始、
+ * DCM の電流ゼロ、SCR の消弧など）。
+ */
+const EVENT_REFINE_LEVELS = 6;
+
+/** 切り替わる素子（イベント細分化・細かい刻みの対象）の kind */
+const SWITCHING_KINDS = new Set(["diode", "breakdown", "scr", "triac", "diac", "vswitch"]);
 const DT_MIN = 1e-9;
 const DT_MAX = 0.1;
 const DEFAULT_T_STOP = 0.01;
@@ -121,100 +155,243 @@ function solveLinearSystem(A, b) {
 }
 
 /* ==========================================================================
-   回路パラメータからの特性時間・振動数
+   部品の分類
    ========================================================================== */
 
-function extractCharacteristicTimes(components) {
-  const Rs = [];
-  const Cs = [];
-  const Ls = [];
+/** 理想トランス（過渡解析）。pins = [p1, p2, s1, s2]、turnsRatio = Np/Ns */
+const XFMR_TYPE = "XFMR";
+/** 過渡解析でインダクタとして扱う種別 */
+const INDUCTOR_TYPES = new Set(["L", "L_RELAY"]);
+/**
+ * 電圧源として扱う種別。
+ * V_AM / V_FM / V_VCO は分野E / D のビヘイビア信号源（過渡解析専用。DC・AC では 0V の短絡）:
+ * - V_AM [p, n]: v = Vc·(1 + m·sin(2π·fm·t))·sin(2π·fc·t)（params: Vc, fcHz, fmHz, m）
+ * - V_FM [p, n]: v = Vpk·sin(2π·fc·t + β·sin(2π·fm·t))、β = deviationHz / fmHz
+ *   （瞬時周波数 fc + Δf·cos(2π·fm·t)。params: Vpk, fcHz, fmHz, deviationHz）
+ * - V_VCO [p, n, ctrl_p, ctrl_n]: 瞬時周波数 f = f0 + Kv·(V(ctrl_p) − V(ctrl_n))（0 未満は 0）、
+ *   位相 φ = ∫2πf dt。正弦波: v = Voffset + Vpk·sin φ、square: true（または shape: "square"）なら Voffset ± Vpk（sin φ の符号。デューティ 50%）。
+ *   制御電圧は前の刻みの値を使う（陽解法。ループフィルタの時定数が刻みより十分長ければ誤差は無視できる）。
+ *   制御端子に電流は流れない。params: f0Hz, KvHzPerV, Vpk, Voffset, square, fMaxHz（刻みの決定用、既定 2·f0）
+ */
+const VSOURCE_TYPES = new Set(["V_DC", "V_AC", "V_PULSE", "V_AM", "V_FM", "V_VCO"]);
+/** 電流源として扱う種別 */
+const ISOURCE_TYPES = new Set(["I_DC", "I_AC"]);
+/** 電気的に何もしない（ノード名だけ与える）種別 */
+const PASSIVE_MARKER_TYPES = new Set(["GND", "TP"]);
+/** 過渡解析で扱える全種別 */
+const SUPPORTED_TYPES = new Set([
+  "R", "C", "SW", "WIRE", XFMR_TYPE,
+  ...INDUCTOR_TYPES, ...VSOURCE_TYPES, ...ISOURCE_TYPES, ...PASSIVE_MARKER_TYPES,
+]);
+/**
+ * 過渡解析で扱う非線形素子（dc.js と同じ区分線形 / 平方則モデルを各時刻で反復して解く）。
+ * SCR / TRIAC / DIAC はラッチ（自己保持）を時刻ごとに記録する（commitDeviceStep）。
+ */
+const DEVICE_TYPES = new Set(NONLINEAR_TYPES);
+
+function pinsOf(c) {
+  return Array.isArray(c.connect) ? c.connect : [];
+}
+
+function hasTwoPins(c) {
+  const pins = pinsOf(c);
+  return pins.length >= 2 && pins[0] && pins[1];
+}
+
+function capValue(c) {
+  return Math.max(getNumericParam(c, "C", 1e-6), 1e-15);
+}
+
+function indValue(c) {
+  return Math.max(getNumericParam(c, "L", 1e-3), 1e-12);
+}
+
+/** V_VCO が方形波出力か（params.square === true、または params.shape === "square"） */
+function isSquareVco(c) {
+  return c?.params?.square === true || c?.params?.square === "true" || c?.params?.shape === "square";
+}
+
+function switchConductance(c) {
+  if (c.type === "WIRE") return CLOSED_SWITCH_G;
+  return c.params?.closed === true ? CLOSED_SWITCH_G : OPEN_SWITCH_G;
+}
+
+/* ==========================================================================
+   V_PULSE（SPICE PULSE と同じ定義）
+   ========================================================================== */
+
+function pulseParams(c) {
+  return {
+    v1: getNumericParam(c, "Vlow", 0),
+    v2: getNumericParam(c, "Vhigh", 5),
+    td: Math.max(getNumericParam(c, "delaySec", 0), 0),
+    tr: Math.max(getNumericParam(c, "riseSec", 1e-9), 0),
+    tf: Math.max(getNumericParam(c, "fallSec", 1e-9), 0),
+    pw: Math.max(getNumericParam(c, "widthSec", 1e-3), 0),
+    per: Math.max(getNumericParam(c, "periodSec", 2e-3), 0),
+  };
+}
+
+/**
+ * パルス電圧の値。
+ * t < delay: Vlow。以後、周期 per ごとに
+ * [0, tr) 立ち上がり（直線）→ [tr, tr+pw) Vhigh → [tr+pw, tr+pw+tf) 立ち下がり → Vlow。
+ * per = 0（または tr+pw+tf 以下）のときは繰り返さない。
+ */
+export function pulseValue(pp, t) {
+  if (t < pp.td) return pp.v1;
+  let tt = t - pp.td;
+  const cycle = pp.tr + pp.pw + pp.tf;
+  if (pp.per > 0 && pp.per >= cycle) tt = tt % pp.per;
+  if (tt < pp.tr) return pp.v1 + ((pp.v2 - pp.v1) * tt) / pp.tr;
+  if (tt < pp.tr + pp.pw) return pp.v2;
+  if (tt < cycle) return pp.v2 + ((pp.v1 - pp.v2) * (tt - pp.tr - pp.pw)) / pp.tf;
+  return pp.v1;
+}
+
+/** パルスの角（不連続点）の時刻一覧（tStop まで） */
+function pulseBreakpoints(pp, tStop, out, limit) {
+  const cycle = pp.tr + pp.pw + pp.tf;
+  const repeat = pp.per > 0 && pp.per >= cycle;
+  for (let k = 0; ; k++) {
+    const base = pp.td + (repeat ? k * pp.per : 0);
+    if (base > tStop || out.length > limit) break;
+    for (const off of [0, pp.tr, pp.tr + pp.pw, cycle]) {
+      const t = base + off;
+      if (t > 0 && t < tStop) out.push(t);
+    }
+    if (!repeat) break;
+  }
+}
+
+/* ==========================================================================
+   テブナン抵抗（時定数の計算用）
+   ========================================================================== */
+
+/**
+ * 端子 (pNet, nNet) から見た抵抗を求めます。
+ * 独立電圧源は短絡（0V 源）、独立電流源は開放。
+ * 他の C / L は otherMode に従う:
+ *   "lf" … C 開放・L 短絡（直流的な見方。timeConstants に使う）
+ *   "hf" … C 短絡・L 開放（最速モードの見積り。刻み決定に使う）
+ * 各ノードに 1e-12 S の漏れを入れて浮遊ノードでも解けるようにし、
+ * 1e11 Ω を超えたら「つながっていない」とみなして Infinity を返す。
+ *
+ * @returns {number} R_th [Ω]（求まらなければ NaN）
+ */
+function theveninResistance(components, selfId, pNet, nNet, otherMode) {
+  if (isGroundNet(pNet) && isGroundNet(nNet)) return 0;
+  if (pNet === nNet) return 0;
+
+  const nets = new Set();
+  for (const c of components) {
+    for (const pin of pinsOf(c)) if (pin && !isGroundNet(pin)) nets.add(pin);
+  }
+  const list = Array.from(nets);
+  const ix = new Map(list.map((n, i) => [n, i]));
+  const idx = (net) => (isGroundNet(net) ? -1 : (ix.get(net) ?? -1));
+  const N = list.length;
+
+  const shorts = [];
+  const G_SHORT = 1e6;
+  const conds = [];
 
   for (const c of components) {
-    if (c.type === "R") Rs.push(Math.max(getNumericParam(c, "R", 1000), 1e-9));
-    if (c.type === "C") Cs.push(Math.max(getNumericParam(c, "C", 1e-6), 1e-15));
-    if (c.type === "L") Ls.push(Math.max(getNumericParam(c, "L", 1e-3), 1e-12));
+    if (c.id === selfId || !hasTwoPins(c)) continue;
+    const [a, b] = pinsOf(c);
+    if (c.type === "R") conds.push([a, b, 1 / Math.max(getNumericParam(c, "R", 1000), 1e-9)]);
+    else if (c.type === "SW" || c.type === "WIRE") conds.push([a, b, switchConductance(c)]);
+    else if (VSOURCE_TYPES.has(c.type)) shorts.push([a, b]);
+    else if (c.type === "C" && otherMode === "hf") conds.push([a, b, G_SHORT]);
+    else if (INDUCTOR_TYPES.has(c.type) && otherMode === "lf") conds.push([a, b, G_SHORT]);
   }
 
-  const taus = [];
-  for (const R of Rs) {
-    for (const C of Cs) taus.push(R * C);
-    for (const L of Ls) taus.push(L / R);
-  }
-
-  const periods = [];
-  for (const L of Ls) {
-    for (const C of Cs) periods.push(2 * Math.PI * Math.sqrt(L * C));
-  }
-
-  return { Rs, Cs, Ls, taus, periods };
-}
-
-/**
- * 支配的時定数 τ を回路パラメータから推定（高速側の最小値）。
- */
-function computeTheoreticalTimeConstant(components) {
-  const { taus } = extractCharacteristicTimes(components);
-  if (taus.length === 0) return null;
-  return Math.min(...taus);
-}
-
-/**
- * 減衰を考慮した理論振動数。
- * R が存在する場合は α = R/(2L)、ω_d = √(ω_n² − α²) を用いる。
- * 過減衰なら null を返す。
- */
-function computeTheoreticalOscillationFrequency(components) {
-  const { Rs, Cs, Ls, periods } = extractCharacteristicTimes(components);
-  if (periods.length === 0) return null;
-
-  if (Rs.length === 0) {
-    return 1 / Math.min(...periods);
-  }
-
-  // 最も支配的な R と最小の L/C で代表させる（本問題群では妥当）
-  const R = Math.max(...Rs);
-  const L = Math.min(...Ls);
-  const C = Math.min(...Cs);
-
-  const alpha = R / (2 * L);
-  const omegaN2 = 1 / (L * C);
-  const omegaD2 = omegaN2 - alpha * alpha;
-  if (omegaD2 <= 0) return null;
-  return Math.sqrt(omegaD2) / (2 * Math.PI);
-}
-
-/**
- * 波形の零交差（定常値基準）から振動数を推定。
- * 減衰振動でも、振幅が十分残っている区間で安定に推定できる。
- */
-function estimateWaveformFrequency(time, values) {
-  if (!values || values.length < 8) return null;
-
-  // 最終値の推定（末尾 10% の平均）
-  const tailStart = Math.max(1, Math.floor(values.length * 0.9));
-  let finalSum = 0;
-  for (let i = tailStart; i < values.length; i++) finalSum += values[i];
-  const finalValue = finalSum / (values.length - tailStart);
-
-  // 上向き零交差を収集
-  const crossings = [];
-  for (let i = 1; i < values.length; i++) {
-    const prev = values[i - 1] - finalValue;
-    const cur = values[i] - finalValue;
-    if (prev < 0 && cur >= 0) {
-      const denom = cur - prev;
-      const frac = denom !== 0 ? -prev / denom : 0;
-      crossings.push(time[i - 1] + frac * (time[i] - time[i - 1]));
+  const size = N + shorts.length;
+  const A = Array.from({ length: size }, () => new Array(size).fill(0));
+  const bvec = new Array(size).fill(0);
+  for (let i = 0; i < N; i++) A[i][i] += 1e-12;
+  for (const [a, b, g] of conds) {
+    const p = idx(a);
+    const n = idx(b);
+    if (p >= 0) A[p][p] += g;
+    if (n >= 0) A[n][n] += g;
+    if (p >= 0 && n >= 0) {
+      A[p][n] -= g;
+      A[n][p] -= g;
     }
   }
+  shorts.forEach(([a, b], k) => {
+    const p = idx(a);
+    const n = idx(b);
+    const row = N + k;
+    if (p >= 0) { A[p][row] += 1; A[row][p] += 1; }
+    if (n >= 0) { A[n][row] -= 1; A[row][n] -= 1; }
+  });
+  const ip = idx(pNet);
+  const inn = idx(nNet);
+  if (ip >= 0) bvec[ip] += 1;
+  if (inn >= 0) bvec[inn] -= 1;
 
-  if (crossings.length < 2) return null;
+  const x = solveLinearSystem(A, bvec);
+  if (!x) return NaN;
+  const r = (ip >= 0 ? x[ip] : 0) - (inn >= 0 ? x[inn] : 0);
+  if (!Number.isFinite(r)) return NaN;
+  if (r > 1e11) return Infinity;
+  return Math.max(r, 0);
+}
 
-  let sumInt = 0;
-  for (let i = 1; i < crossings.length; i++) {
-    sumInt += crossings[i] - crossings[i - 1];
+/**
+ * 各 C / L の時定数を求めます。
+ * @returns {{ lf: Map<string, number>, hf: Map<string, number> }}
+ */
+function computeElementTimeConstants(components) {
+  const lf = new Map();
+  const hf = new Map();
+  for (const c of components) {
+    if (!hasTwoPins(c)) continue;
+    const isC = c.type === "C";
+    const isL = INDUCTOR_TYPES.has(c.type);
+    if (!isC && !isL) continue;
+    const [a, b] = pinsOf(c);
+    for (const [mode, map] of [["lf", lf], ["hf", hf]]) {
+      const r = theveninResistance(components, c.id, a, b, mode);
+      let tau;
+      if (!Number.isFinite(r) && r !== Infinity) tau = NaN;
+      // "hf" で他の C を短絡（1µΩ）した経路だけで閉じる C（C だけのループ。水晶の Cp と負荷容量など）は
+      // 時定数を持たない（電荷の再配分だけ）ので刻みの決定に使わない
+      else if (isC && mode === "hf" && r < 1e-3) tau = NaN;
+      else if (isC) tau = r === Infinity ? Infinity : r * capValue(c);
+      else tau = r === 0 ? Infinity : r === Infinity ? 0 : indValue(c) / r;
+      map.set(c.id, tau);
+    }
   }
-  return (crossings.length - 1) / sumInt;
+  return { lf, hf };
+}
+
+/** LC の組み合わせから見た固有周期の見積り（刻み決定用） */
+function lcPeriods(components) {
+  const Cs = components.filter((c) => c.type === "C" && hasTwoPins(c)).map(capValue);
+  const Ls = components.filter((c) => INDUCTOR_TYPES.has(c.type) && hasTwoPins(c)).map(indValue);
+  const periods = [];
+  for (const L of Ls) for (const C of Cs) periods.push(2 * Math.PI * Math.sqrt(L * C));
+  return periods;
+}
+
+/**
+ * 回路定数からの理論振動数（参考値。判定には使わない）。
+ * 直列 RLC を仮定した α = R/(2L) なので並列 RLC では正しくない。
+ */
+function computeTheoreticalOscillationFrequency(components) {
+  const Rs = components.filter((c) => c.type === "R").map((c) => Math.max(getNumericParam(c, "R", 1000), 1e-9));
+  const Cs = components.filter((c) => c.type === "C").map(capValue);
+  const Ls = components.filter((c) => INDUCTOR_TYPES.has(c.type)).map(indValue);
+  if (Cs.length === 0 || Ls.length === 0) return null;
+  const L = Math.min(...Ls);
+  const C = Math.min(...Cs);
+  const alpha = Rs.length ? Math.max(...Rs) / (2 * L) : 0;
+  const omegaD2 = 1 / (L * C) - alpha * alpha;
+  if (omegaD2 <= 0) return null;
+  return Math.sqrt(omegaD2) / (2 * Math.PI);
 }
 
 /* ==========================================================================
@@ -224,22 +401,113 @@ function estimateWaveformFrequency(time, values) {
 /**
  * 過渡シミュレーション実行
  *
+ * 理想化の前提（problem-writer が問題文の「条件」に書く内容）:
+ * - t=0 で全電源が投入される。C の初期電圧は params.initialV（connect[0] 側が +、既定 0V）、
+ *   L の初期電流は params.initialI（connect[0]→connect[1] 向き、既定 0A）。
+ * - 記録される t=0 の値は「投入直後 (t=0+)」の値（C 電圧・L 電流は連続、他は即座に追従）。
+ * - SW は理想スイッチ（閉 1mΩ / 開 1TΩ）で、解析中は切り替わらない。
+ * - 積分は台形則。t=0 と各パルス角の直後 2 ステップは後退オイラー（数値振動の抑制）。
+ * - 非線形素子（D/SD/LED/ZD/TVS, Q_NPN/Q_PNP, M_N/M_P, J_N, OPAMP, PD, PT, U_OPTO, カレントミラー）は
+ *   DC 解析と同じモデルを各時刻で反復して解く（容量・遅れ・スルーレートは無し＝瞬時に応答）。
+ *   - BJT は VBE 一定（Vbe）・IC = β·IB・飽和 VCEsat の区分線形モデル。小信号の gm = IC/VT は入らない
+ *     （エミッタ抵抗なしの増幅率は過渡では正しく出ない → 小信号利得は AC 解析で判定する）。
+ *   - OPAMP は Vout = Aol·(V+−V−) をレールで頭打ちにする（GBP は過渡では使わない）。
+ *   - SCR / TRIAC / DIAC はラッチつきの区分線形スイッチ（dc.js の「サイリスタ系」）。ラッチは各時刻の解が
+ *     確定したときに記録する（commitDeviceStep）。
+ *   - SW_V は制御電圧が Vth を超えたら Ron、それ以外 Roff（切り替えは瞬時。制御電圧が V_PULSE なら
+ *     パルスの角の刻みで切り替わる）。
+ * - 切り替わる素子（D 系・サイリスタ系・SW_V）があるときは、交流周期の 1/400 以下の刻みにし、
+ *   刻みの途中で素子の状態が変わったら刻みを最大 1/64 まで二分して切り替わり時刻を求める
+ *   （整流の導通開始・DCM の電流ゼロ・SCR の消弧。理想ダイオードの不連続をそのまま扱い、平滑化はしない）。
+ * - options.diodeRs（問題の simulation.diodeRs）: Rs を書いていないダイオードの直列抵抗（既定 1Ω）。
+ * - options.initialCondition === "dc"（問題の simulation.initialCondition）なら、t=0 の電源値で
+ *   DC 動作点を求め、C の初期電圧・L の初期電流をその値にしてから始める（SPICE の既定と同じ。
+ *   結合コンデンサの充電を待たずに定常の増幅波形を見られる）。既定 "zero" は従来どおり。
+ *
  * @param {object} circuit { components, wires, nodes }
  * @param {object} [options]
- * @param {number} [options.dt]         時間刻み（秒）。省略時は回路から自動決定
+ * @param {number} [options.dt]         最大時間刻み（秒）。省略時は回路から自動決定
  * @param {number} [options.tStop]      終了時刻（秒）。省略時は自動
- * @param {Array}  [options.checks]     問題のchecks配列（timeSec参照に使用）
+ * @param {Array}  [options.checks]     問題のchecks配列（timeSec などを解析範囲に反映）
  * @returns {object}
  */
 export function runTransient(circuit, options = {}) {
   const errors = [];
   const warnings = [];
-  const components = circuit.components || [];
+  // 未配線ピン・TP だけのネット・浮いたネットの前処理（netlist.js）
+  // LOGIC_IN（1 ピン）は過渡解析では value·VOH の直流電圧源（behavioral.js）
+  const withLogicIn = (circuit.components || []).map((c) => (c?.type === "LOGIC_IN" ? logicInAsSource(c) : c));
+  const prep = prepareNetlist(applyModelDefaults(withLogicIn, options), { groundedTypes: BEHAVIORAL_TYPES });
+  warnings.push(...prep.warnings);
+  const excludedNets = new Set(prep.unconnectedNets);
+  const components = prep.components;
 
-  /* --- dt/tStop 決定 --- */
-  const { taus, periods } = extractCharacteristicTimes(components);
-  const minTau = taus.length > 0 ? Math.min(...taus) : null;
-  const minPeriod = periods.length > 0 ? Math.min(...periods) : null;
+  for (const c of components) {
+    if (!SUPPORTED_TYPES.has(c.type) && !DEVICE_TYPES.has(c.type) && !BEHAVIORAL_TYPES.has(c.type)) {
+      warnings.push(`過渡解析では未対応の部品です（無視されます）: ${c.id} (${c.type})`);
+    }
+  }
+  const devices = [
+    ...components
+      .filter((c) => DEVICE_TYPES.has(c.type) && pinsOf(c).length >= 2)
+      .map((c) => createDevice(c, pinsOf(c))),
+    // 論理ゲート・DFF（ビヘイビア素子。理想化の前提は behavioral.js）
+    ...components
+      .filter((c) => BEHAVIORAL_TYPES.has(c.type))
+      .map((c) => createBehavioralDevice(c, pinsOf(c)))
+      .filter(Boolean),
+  ];
+  const active = components.filter(
+    (c) => SUPPORTED_TYPES.has(c.type) && !PASSIVE_MARKER_TYPES.has(c.type) && hasTwoPins(c) &&
+      (c.type !== XFMR_TYPE || pinsOf(c).length >= 4)
+  );
+  // XFMR の励磁インダクタンス Lm（> 0 のとき）: 一次巻線に並列のインダクタ「<id>#Lm」として加える
+  // （フライバックコンバータのエネルギー蓄積。initialI は params.LmInitialI）
+  for (const c of active.filter((x) => x.type === XFMR_TYPE)) {
+    const Lm = getNumericParam(c, "Lm", 0);
+    if (Lm > 0) {
+      active.push({
+        id: `${c.id}#Lm`, type: "L", connect: [c.connect[0], c.connect[1]],
+        params: { L: Lm, initialI: getNumericParam(c, "LmInitialI", 0) },
+      });
+    }
+  }
+  const isSwitchingDevice = (d) => SWITCHING_KINDS.has(d.kind) || (d.kind === "custom" && d.behavior?.switching === true);
+  // 交流周期の 1/400 の刻みにするのはアナログの切り替わる素子（整流のリプル精度のため）。論理ゲート・DFF は含めない
+  const hasSwitching = devices.some((d) => SWITCHING_KINDS.has(d.kind));
+
+  /* --- 時定数・周期の見積り --- */
+  const { lf: tauLf, hf: tauHf } = computeElementTimeConstants(active);
+  const finitePos = (arr) => arr.filter((v) => Number.isFinite(v) && v > 0);
+  // 刻みには "hf"（他の C 短絡・L 開放）の τ を使う。"lf" は他の L を 1e6 S で短絡するため、
+  // 並列 LC などで見かけ上ほぼ 0 の τ が出てしまい刻みが不必要に細かくなる。
+  const tausFast = finitePos([...tauHf.values()]);
+  const tausSlow = finitePos([...tauLf.values()]);
+  const periods = finitePos(lcPeriods(active));
+
+  const acPeriods = [];
+  const pulses = [];
+  const slowPeriods = []; // 変調信号の周期（解析終了時刻の既定を 2 周期以上にする）
+  const squarePeriods = []; // V_VCO（方形波）の最短周期
+  for (const c of active) {
+    if (c.type === "V_AC" || c.type === "I_AC") {
+      const f = getNumericParam(c, "freqHz", 1000);
+      if (f > 0) acPeriods.push(1 / f);
+    } else if (c.type === "V_PULSE") {
+      pulses.push(pulseParams(c));
+    } else if (c.type === "V_AM" || c.type === "V_FM") {
+      const fc = getNumericParam(c, "fcHz", 10000);
+      const fm = getNumericParam(c, "fmHz", 500);
+      const df = c.type === "V_FM" ? Math.abs(getNumericParam(c, "deviationHz", 1000)) : 0;
+      if (fc + df > 0) acPeriods.push(1 / (fc + df));
+      if (fm > 0) slowPeriods.push(1 / fm);
+    } else if (c.type === "V_VCO") {
+      const f0 = getNumericParam(c, "f0Hz", 1000);
+      const fMax = getNumericParam(c, "fMaxHz", 2 * f0);
+      // 方形波出力は角の時刻がイベント（ゲートの切り替わり）で決まるので周期の 1/100 で足りる
+      if (fMax > 0) (isSquareVco(c) ? squarePeriods : acPeriods).push(1 / fMax);
+    }
+  }
 
   // tStop
   let tStop;
@@ -247,44 +515,66 @@ export function runTransient(circuit, options = {}) {
     tStop = options.tStop;
   } else {
     const candidates = [DEFAULT_T_STOP];
-    if (minTau !== null) candidates.push(10 * minTau);
-    if (minPeriod !== null) candidates.push(5 * minPeriod);
+    if (tausSlow.length) candidates.push(10 * Math.max(...tausSlow));
+    if (periods.length) candidates.push(5 * Math.max(...periods));
+    if (acPeriods.length) candidates.push(5 * Math.max(...acPeriods));
+    if (slowPeriods.length) candidates.push(2 * Math.max(...slowPeriods));
+    for (const pp of pulses) {
+      const cyc = pp.per > 0 ? pp.per : pp.tr + pp.pw + pp.tf;
+      candidates.push(pp.td + cyc);
+    }
     if (Array.isArray(options.checks)) {
       for (const chk of options.checks) {
-        if (Number.isFinite(chk?.timeSec)) {
-          candidates.push(chk.timeSec * 1.5);
+        for (const key of ["timeSec", "toSec"]) {
+          if (Number.isFinite(chk?.[key])) candidates.push(chk[key] * (key === "timeSec" ? 1.5 : 1.0001));
         }
       }
     }
     tStop = Math.max(...candidates);
   }
 
-  // dt
+  // 最大刻み
   let dt;
-  if (Number.isFinite(options.dt) && options.dt > 0) {
-    dt = options.dt;
-  } else {
+  {
     const candidates = [];
-    if (minTau !== null) candidates.push(minTau / 100);
-    if (minPeriod !== null) candidates.push(minPeriod / 100);
-    dt = candidates.length > 0 ? Math.min(...candidates) : tStop / 100;
+    if (tausFast.length) candidates.push(Math.min(...tausFast) / 100);
+    if (periods.length) candidates.push(Math.min(...periods) / 100);
+    if (acPeriods.length) candidates.push(Math.min(...acPeriods) / (hasSwitching ? AC_POINTS_SWITCHING : 100));
+    if (squarePeriods.length) candidates.push(Math.min(...squarePeriods) / 100);
+    for (const pp of pulses) {
+      if (pp.per > 0) candidates.push(pp.per / 100);
+      if (pp.pw > 0) candidates.push(pp.pw / 10);
+      // Low の時間も 10 点以上（デューティ比が大きい PWM）
+      const low = pp.per - pp.tr - pp.pw - pp.tf;
+      if (pp.per > 0 && low > 0) candidates.push(low / 10);
+    }
+    dt = candidates.length > 0 ? Math.min(...candidates) : tStop / 1000;
+    dt = Math.min(dt, tStop / 200);
+    if (Number.isFinite(options.dt) && options.dt > 0) dt = Math.min(dt, options.dt);
+    // simulation.dtFixed: 自動の刻み（最小時定数/100 など）を使わず、この刻みにする（分野D の LC 発振など、
+    // 発振に関係しない速いモード（L と並列の小さな抵抗による L/R）で刻みが不必要に細かくなる回路用）。
+    // 台形則は安定なので速いモードがあっても発散しないが、振動周期の 1/100 以下にすること。
+    if (Number.isFinite(options.dtFixed) && options.dtFixed > 0) dt = options.dtFixed;
   }
   dt = Math.max(Math.min(dt, DT_MAX), DT_MIN);
 
-  // ステップ数上限で tStop を再調整
   if (tStop / dt > MAX_STEPS) {
     tStop = dt * MAX_STEPS;
     warnings.push(
-      `tStop を ${tStop.toExponential(2)}s に制限しました（MAX_STEPS=${MAX_STEPS}）`
+      `解析時間を ${tStop.toExponential(2)}s に制限しました（最大 ${MAX_STEPS} ステップ）。simulation.tStop / dt を見直してください。`
     );
   }
-  const numSteps = Math.max(1, Math.ceil(tStop / dt));
+
+  // 不連続点（パルスの角）
+  const bpList = [];
+  for (const pp of pulses) pulseBreakpoints(pp, tStop, bpList, 20000);
+  const breakpoints = Array.from(new Set(bpList)).sort((a, b) => a - b);
 
   /* --- ノード列挙 --- */
   const nets = new Set();
   for (const c of components) {
-    for (const pin of (c.connect || [])) {
-      if (!isGroundNet(pin)) nets.add(pin);
+    for (const pin of pinsOf(c)) {
+      if (pin && !isGroundNet(pin) && !excludedNets.has(pin)) nets.add(pin);
     }
   }
   const nodeList = Array.from(nets);
@@ -293,43 +583,61 @@ export function runTransient(circuit, options = {}) {
   const N = nodeList.length;
   const idx = (net) => (isGroundNet(net) ? -1 : (nodeIdx.get(net) ?? -1));
 
-  /* --- 素子分類・状態初期化 --- */
-  const capState = new Map();
-  const indState = new Map();
+  /* --- 素子状態 --- */
+  const capState = new Map(); // id -> { C, v, i, p, n }
+  const indState = new Map(); // id -> { L, i, v, p, n }
   const vSources = [];
   const iSources = [];
+  const xfmrs = []; // { id, comp, pins, n（巻数比 Np/Ns） }
 
-  for (const c of components) {
-    if (c.type === "GND") continue;
-    const pins = c.connect || [];
-    if (pins.length < 2) continue;
-
+  for (const c of active) {
+    const [p, n] = pinsOf(c);
     if (c.type === "C") {
-      capState.set(c.id, {
-        C: Math.max(getNumericParam(c, "C", 1e-6), 1e-15),
-        v: getNumericParam(c, "initialV", 0),
-        p: pins[0],
-        n: pins[1],
+      capState.set(c.id, { C: capValue(c), v: getNumericParam(c, "initialV", 0), i: 0, p, n, explicit: c.params?.initialV !== undefined });
+    } else if (INDUCTOR_TYPES.has(c.type)) {
+      indState.set(c.id, { L: indValue(c), i: getNumericParam(c, "initialI", 0), v: 0, p, n, explicit: c.params?.initialI !== undefined });
+    } else if (VSOURCE_TYPES.has(c.type)) {
+      vSources.push({
+        id: c.id, type: c.type, comp: c, p, n,
+        pulse: c.type === "V_PULSE" ? pulseParams(c) : null,
+        // V_VCO の確定済みの位相 phi（時刻 tc）と、その時刻の制御電圧で決まる瞬時周波数 f
+        vco: c.type === "V_VCO" ? { phi: 0, tc: 0, f: Math.max(getNumericParam(c, "f0Hz", 1000), 0) } : null,
       });
-    } else if (c.type === "L") {
-      indState.set(c.id, {
-        L: Math.max(getNumericParam(c, "L", 1e-3), 1e-12),
-        i: 0,
-        p: pins[0],
-        n: pins[1],
-      });
-    } else if (c.type === "V_DC" || c.type === "V_AC") {
-      vSources.push({ id: c.id, type: c.type, comp: c, p: pins[0], n: pins[1] });
-    } else if (c.type === "I_DC" || c.type === "I_AC") {
-      iSources.push({ id: c.id, type: c.type, comp: c, p: pins[0], n: pins[1] });
+    } else if (ISOURCE_TYPES.has(c.type)) {
+      iSources.push({ id: c.id, type: c.type, comp: c, p, n });
+    } else if (c.type === XFMR_TYPE) {
+      xfmrs.push({ id: c.id, comp: c, pins: pinsOf(c), n: Math.max(getNumericParam(c, "turnsRatio", 1), 1e-6) });
     }
   }
 
   const M = vSources.length;
-  const size = N + M;
+  const X = xfmrs.length;
+  const size = N + M + X;
 
   function vSourceValue(vs, t) {
     if (vs.type === "V_DC") return getNumericParam(vs.comp, "V", 0);
+    if (vs.type === "V_PULSE") return pulseValue(vs.pulse, t);
+    if (vs.type === "V_AM") {
+      const Vc = getNumericParam(vs.comp, "Vc", 1);
+      const fc = getNumericParam(vs.comp, "fcHz", 10000);
+      const fm = getNumericParam(vs.comp, "fmHz", 500);
+      const m = getNumericParam(vs.comp, "m", 0.5);
+      return Vc * (1 + m * Math.sin(2 * Math.PI * fm * t)) * Math.sin(2 * Math.PI * fc * t);
+    }
+    if (vs.type === "V_FM") {
+      const Vpk = getNumericParam(vs.comp, "Vpk", 1);
+      const fc = getNumericParam(vs.comp, "fcHz", 10000);
+      const fm = getNumericParam(vs.comp, "fmHz", 500);
+      const beta = fm > 0 ? getNumericParam(vs.comp, "deviationHz", 1000) / fm : 0;
+      return Vpk * Math.sin(2 * Math.PI * fc * t + beta * Math.sin(2 * Math.PI * fm * t));
+    }
+    if (vs.type === "V_VCO") {
+      const phi = vs.vco.phi + 2 * Math.PI * vs.vco.f * (t - vs.vco.tc);
+      const Vpk = getNumericParam(vs.comp, "Vpk", 1);
+      const Voff = getNumericParam(vs.comp, "Voffset", 0);
+      const s = Math.sin(phi);
+      return isSquareVco(vs.comp) ? Voff + (s >= 0 ? Vpk : -Vpk) : Voff + Vpk * s;
+    }
     const Vpk = getNumericParam(vs.comp, "Vpk", 0);
     const f = getNumericParam(vs.comp, "freqHz", 1000);
     const ph = (getNumericParam(vs.comp, "phaseDeg", 0) * Math.PI) / 180;
@@ -344,206 +652,379 @@ export function runTransient(circuit, options = {}) {
     return Ipk * Math.sin(2 * Math.PI * f * t + ph);
   }
 
-  /* --- 結果配列の初期化（t=0 を含む） --- */
-  const time = [0];
-  const nodeArrays = { gnd: [0] };
-  for (const net of nodeList) nodeArrays[net] = [0];
+  function stampG(A, a, b, g) {
+    const p = idx(a);
+    const n = idx(b);
+    if (p >= 0) A[p][p] += g;
+    if (n >= 0) A[n][n] += g;
+    if (p >= 0 && n >= 0) {
+      A[p][n] -= g;
+      A[n][p] -= g;
+    }
+  }
+  function stampI(b, a, bNet, val) {
+    // ノード a に電流 val を注入し、ノード bNet から引き抜く
+    const p = idx(a);
+    const n = idx(bNet);
+    if (p >= 0) b[p] += val;
+    if (n >= 0) b[n] -= val;
+  }
 
-  // C の initialV が GND との間にあれば、そのノードの初期電圧に反映
-  for (const c of components) {
-    if (c.type !== "C") continue;
-    const iV = getNumericParam(c, "initialV", 0);
-    if (iV === 0) continue;
-    const pins = c.connect || [];
-    if (pins.length < 2) continue;
-    const [p, n] = pins;
-    if (isGroundNet(n) && !isGroundNet(p)) {
-      nodeArrays[p][0] = iV;
-    } else if (isGroundNet(p) && !isGroundNet(n)) {
-      nodeArrays[n][0] = -iV;
+  /**
+   * 1ステップ分の連立方程式を組んで解く。
+   * method: "be" | "tr"。h: 刻み。t: 新しい時刻。
+   */
+  let lastBranchRows = [];
+  let nonConvergedSteps = 0;
+  function solveStep(t, h, method) {
+    const stampLinear = (A, b) => {
+      for (let i = 0; i < N; i++) A[i][i] += GMIN_NODE; // 浮遊ノード対策の微小漏れ
+
+      for (const c of active) {
+        if (c.type === "R") {
+          stampG(A, c.connect[0], c.connect[1], 1 / Math.max(getNumericParam(c, "R", 1000), 1e-9));
+        } else if (c.type === "SW" || c.type === "WIRE") {
+          stampG(A, c.connect[0], c.connect[1], switchConductance(c));
+        }
+      }
+      for (const [, st] of capState) {
+        if (method === "tr") {
+          const g = (2 * st.C) / h;
+          stampG(A, st.p, st.n, g);
+          stampI(b, st.p, st.n, g * st.v + st.i);
+        } else {
+          const g = st.C / h;
+          stampG(A, st.p, st.n, g);
+          stampI(b, st.p, st.n, g * st.v);
+        }
+      }
+      for (const [, st] of indState) {
+        if (method === "tr") {
+          const g = h / (2 * st.L);
+          stampG(A, st.p, st.n, g);
+          stampI(b, st.p, st.n, -(st.i + g * st.v));
+        } else {
+          const g = h / st.L;
+          stampG(A, st.p, st.n, g);
+          stampI(b, st.p, st.n, -st.i);
+        }
+      }
+      for (const is of iSources) {
+        // I_DC/I_AC の向き（DC 解析と同じ）: 値 I>0 の電流が p 端子から外部回路へ出て、
+        // n 端子へ戻る（電池の + 端子と同じ向き）。
+        stampI(b, is.p, is.n, iSourceValue(is, t));
+      }
+      for (let k = 0; k < M; k++) {
+        const vs = vSources[k];
+        const p = idx(vs.p);
+        const n = idx(vs.n);
+        const row = N + k;
+        if (p >= 0) { A[p][row] += 1; A[row][p] += 1; }
+        if (n >= 0) { A[n][row] -= 1; A[row][n] -= 1; }
+        b[row] = vSourceValue(vs, t);
+      }
+      // 理想トランス: (V(s1)−V(s2)) − (V(p1)−V(p2))/n = 0、二次電流 is（s1 から巻線へ流れ込む向き）を
+      // 未知数にし、一次電流 ip = −is/n（p1 から巻線へ流れ込む向き。電力 Vp·ip + Vs·is = 0）
+      for (let k = 0; k < X; k++) {
+        const xf = xfmrs[k];
+        const row = N + M + k;
+        const [p1, p2, s1, s2] = xf.pins.map(idx);
+        const r = 1 / xf.n;
+        if (s1 >= 0) { A[s1][row] += 1; A[row][s1] += 1; }
+        if (s2 >= 0) { A[s2][row] -= 1; A[row][s2] -= 1; }
+        if (p1 >= 0) { A[p1][row] -= r; A[row][p1] -= r; }
+        if (p2 >= 0) { A[p2][row] += r; A[row][p2] += r; }
+      }
+    };
+
+    if (devices.length === 0) {
+      const A = Array.from({ length: size }, () => new Array(size).fill(0));
+      const b = new Array(size).fill(0);
+      stampLinear(A, b);
+      return solveLinearSystem(A, b);
+    }
+    // 非線形素子あり: 素子の状態（前の時刻の状態から開始）が変わらなくなるまで反復
+    const r = solveWithDevices({ baseSize: size, stampLinear, idx, nodeIdx, devices });
+    lastBranchRows = r.branchRows;
+    if (r.x && !r.converged) nonConvergedSteps++;
+    return r.x;
+  }
+
+  /** V_VCO: 刻みが確定したら位相を進め、その時刻の制御電圧で次の刻みの瞬時周波数を決める */
+  const vcoSources = vSources.filter((vs) => vs.vco);
+  let vcoOverWarned = false;
+  function commitVco(nodes, t) {
+    for (const vs of vcoSources) {
+      const st = vs.vco;
+      st.phi = (st.phi + 2 * Math.PI * st.f * (t - st.tc)) % (2 * Math.PI);
+      st.tc = t;
+      const pins = pinsOf(vs.comp);
+      const vc = vOfNode(nodes, pins[2]) - vOfNode(nodes, pins[3]);
+      const f0 = getNumericParam(vs.comp, "f0Hz", 1000);
+      const kv = getNumericParam(vs.comp, "KvHzPerV", 0);
+      st.f = Math.max(f0 + kv * vc, 0);
+      const fMax = getNumericParam(vs.comp, "fMaxHz", 2 * f0);
+      if (!vcoOverWarned && st.f > fMax * 1.05) {
+        vcoOverWarned = true;
+        warnings.push(`${vs.id} の周波数 ${st.f.toPrecision(4)}Hz が fMaxHz（${fMax}Hz）を超えました（刻みが粗くなります。fMaxHz を大きくしてください）。`);
+      }
     }
   }
 
-  const elementArrays = {};
-  for (const c of components) {
-    if (c.type === "GND") continue;
-    elementArrays[c.id] = { v: [0], i: [0] };
-    if (capState.has(c.id)) elementArrays[c.id].v[0] = capState.get(c.id).v;
-    if (indState.has(c.id)) elementArrays[c.id].i[0] = indState.get(c.id).i;
-  }
+  /** 素子の動作状態（導通/遮断/飽和など）の組。変わったら次の2ステップを後退オイラーにする */
+  const deviceModes = () => devices.map((d) => d.state?.mode ?? d.state?.ledMode ?? "").join(",");
 
-  /* --- 時間ステップ積分 --- */
-  for (let step = 1; step <= numSteps; step++) {
-    const t = step * dt;
-
-    const A = Array.from({ length: size }, () => new Array(size).fill(0));
-    const b = new Array(size).fill(0);
-
-    // R
-    for (const c of components) {
-      if (c.type !== "R") continue;
-      const pins = c.connect || [];
-      if (pins.length < 2) continue;
-      const R = Math.max(getNumericParam(c, "R", 1000), 1e-9);
-      const g = 1 / R;
-      const p = idx(pins[0]);
-      const n = idx(pins[1]);
-      if (p >= 0) A[p][p] += g;
-      if (n >= 0) A[n][n] += g;
-      if (p >= 0 && n >= 0) {
-        A[p][n] -= g;
-        A[n][p] -= g;
-      }
-    }
-
-    // C（BE コンパニオン）
-    for (const [, st] of capState) {
-      const g = st.C / dt;
-      const p = idx(st.p);
-      const n = idx(st.n);
-      if (p >= 0) A[p][p] += g;
-      if (n >= 0) A[n][n] += g;
-      if (p >= 0 && n >= 0) {
-        A[p][n] -= g;
-        A[n][p] -= g;
-      }
-      if (p >= 0) b[p] += g * st.v;
-      if (n >= 0) b[n] -= g * st.v;
-    }
-
-    // L（BE コンパニオン）
-    for (const [, st] of indState) {
-      const g = dt / st.L;
-      const p = idx(st.p);
-      const n = idx(st.n);
-      if (p >= 0) A[p][p] += g;
-      if (n >= 0) A[n][n] += g;
-      if (p >= 0 && n >= 0) {
-        A[p][n] -= g;
-        A[n][p] -= g;
-      }
-      if (p >= 0) b[p] -= st.i;
-      if (n >= 0) b[n] += st.i;
-    }
-
-    // SW
-    for (const c of components) {
-      if (c.type !== "SW") continue;
-      const pins = c.connect || [];
-      if (pins.length < 2) continue;
-      const closed = c.params?.closed === true;
-      const g = closed ? CLOSED_SWITCH_G : OPEN_SWITCH_G;
-      const p = idx(pins[0]);
-      const n = idx(pins[1]);
-      if (p >= 0) A[p][p] += g;
-      if (n >= 0) A[n][n] += g;
-      if (p >= 0 && n >= 0) {
-        A[p][n] -= g;
-        A[n][p] -= g;
-      }
-    }
-
-    // 電流源
-    for (const is of iSources) {
-      const val = iSourceValue(is, t);
-      const p = idx(is.p);
-      const n = idx(is.n);
-      if (p >= 0) b[p] += val;
-      if (n >= 0) b[n] -= val;
-    }
-
-    // 電圧源
-    for (let k = 0; k < M; k++) {
-      const vs = vSources[k];
-      const p = idx(vs.p);
-      const n = idx(vs.n);
-      const row = N + k;
-      if (p >= 0) {
-        A[p][row] += 1;
-        A[row][p] += 1;
-      }
-      if (n >= 0) {
-        A[n][row] -= 1;
-        A[row][n] -= 1;
-      }
-      b[row] = vSourceValue(vs, t);
-    }
-
-    const x = solveLinearSystem(A, b);
-    if (!x) {
-      errors.push(
-        `過渡解析が step=${step} (t=${t.toExponential(2)}s) で解けませんでした。短絡・浮遊ノードを確認してください。`
-      );
-      break;
-    }
-
+  function nodeMap(x) {
     const nodes = { gnd: 0 };
     for (const net of nodeList) nodes[net] = x[nodeIdx.get(net)];
+    return nodes;
+  }
 
-    time.push(t);
-    nodeArrays.gnd.push(0);
-    for (const net of nodeList) nodeArrays[net].push(nodes[net]);
-
-    // 素子値の記録と状態更新
-    for (const c of components) {
-      if (c.type === "GND") continue;
-      const arr = elementArrays[c.id];
-      if (!arr) continue;
-
-      let v = 0;
+  /** 状態更新と素子値の計算。commit=false なら状態を変えない（t=0+ 記録用） */
+  function elementValues(x, nodes, t, h, method, commit) {
+    const out = {};
+    for (const c of active) {
+      const [a, bNet] = c.connect;
+      const v = vOfNode(nodes, a) - vOfNode(nodes, bNet);
       let i = 0;
-
       if (c.type === "R") {
-        const pins = c.connect;
-        v = vOfNode(nodes, pins[0]) - vOfNode(nodes, pins[1]);
         i = v / Math.max(getNumericParam(c, "R", 1000), 1e-9);
       } else if (c.type === "C") {
         const st = capState.get(c.id);
-        const vNew = vOfNode(nodes, st.p) - vOfNode(nodes, st.n);
-        const iNew = (st.C / dt) * (vNew - st.v);
-        st.v = vNew;
-        v = vNew;
-        i = iNew;
-      } else if (c.type === "L") {
+        i = method === "tr" ? ((2 * st.C) / h) * (v - st.v) - st.i : (st.C / h) * (v - st.v);
+        if (commit) { st.v = v; st.i = i; }
+      } else if (INDUCTOR_TYPES.has(c.type)) {
         const st = indState.get(c.id);
-        const vNew = vOfNode(nodes, st.p) - vOfNode(nodes, st.n);
-        const iNew = st.i + (dt / st.L) * vNew;
-        st.i = iNew;
-        v = vNew;
-        i = iNew;
-      } else if (c.type === "V_DC" || c.type === "V_AC") {
-        const pins = c.connect;
-        v = vOfNode(nodes, pins[0]) - vOfNode(nodes, pins[1]);
+        i = method === "tr" ? st.i + (h / (2 * st.L)) * (v + st.v) : st.i + (h / st.L) * v;
+        if (commit) { st.i = i; st.v = v; }
+      } else if (VSOURCE_TYPES.has(c.type)) {
         const k = vSources.findIndex((s) => s.id === c.id);
         i = k >= 0 ? x[N + k] : 0;
-      } else if (c.type === "I_DC" || c.type === "I_AC") {
-        const pins = c.connect;
-        v = vOfNode(nodes, pins[0]) - vOfNode(nodes, pins[1]);
+      } else if (ISOURCE_TYPES.has(c.type)) {
         const is = iSources.find((s) => s.id === c.id);
         i = is ? iSourceValue(is, t) : 0;
-      } else if (c.type === "SW") {
-        const pins = c.connect;
-        v = vOfNode(nodes, pins[0]) - vOfNode(nodes, pins[1]);
-        const g = c.params?.closed === true ? CLOSED_SWITCH_G : OPEN_SWITCH_G;
-        i = v * g;
+      } else if (c.type === "SW" || c.type === "WIRE") {
+        i = v * switchConductance(c);
+      } else if (c.type === XFMR_TYPE) {
+        // v = 一次電圧 V(p1)−V(p2)、i = 一次電流（p1 から流れ込む向き）、v2/i2 = 二次側
+        const k = xfmrs.findIndex((s) => s.id === c.id);
+        const is = k >= 0 ? x[N + M + k] : 0;
+        const xf = xfmrs[k];
+        out[c.id] = {
+          v, i: -is / (xf?.n ?? 1),
+          v2: vOfNode(nodes, c.connect[2]) - vOfNode(nodes, c.connect[3]), i2: is,
+        };
+        continue;
       }
+      out[c.id] = { v, i };
+    }
+    if (devices.length > 0 && x) {
+      const dev = extractDeviceElements(devices, { nodeIdx }, x, lastBranchRows, size);
+      for (const [id, e] of Object.entries(dev)) out[id] = { v: e.v, i: e.i };
+    }
+    return out;
+  }
 
-      arr.v.push(v);
-      arr.i.push(i);
+  const time = [];
+  const nodeArrays = { gnd: [] };
+  for (const net of nodeList) nodeArrays[net] = [];
+  const elementArrays = {};
+  for (const c of active) {
+    elementArrays[c.id] = c.type === XFMR_TYPE ? { v: [], i: [], v2: [], i2: [] } : { v: [], i: [] };
+  }
+  for (const d of devices) elementArrays[d.id] = { v: [], i: [] };
+
+  function record(t, nodes, ev) {
+    time.push(t);
+    nodeArrays.gnd.push(0);
+    for (const net of nodeList) nodeArrays[net].push(nodes[net]);
+    for (const c of active) {
+      const arr = elementArrays[c.id];
+      arr.v.push(ev[c.id].v);
+      arr.i.push(ev[c.id].i);
+      if (arr.v2) {
+        arr.v2.push(ev[c.id].v2 ?? 0);
+        arr.i2.push(ev[c.id].i2 ?? 0);
+      }
+    }
+    for (const d of devices) {
+      elementArrays[d.id].v.push(ev[d.id]?.v ?? 0);
+      elementArrays[d.id].i.push(ev[d.id]?.i ?? 0);
     }
   }
 
+  /* --- 初期条件: DC 動作点から始める（simulation.initialCondition = "dc"） --- */
+  if (options.initialCondition === "dc") {
+    const opComponents = components.map((c) => {
+      if (c.type === "V_AC") {
+        const ph = (getNumericParam(c, "phaseDeg", 0) * Math.PI) / 180;
+        return { ...c, type: "V_DC", params: { V: getNumericParam(c, "Vpk", 0) * Math.sin(ph) } };
+      }
+      if (c.type === "I_AC") {
+        const ph = (getNumericParam(c, "phaseDeg", 0) * Math.PI) / 180;
+        return { ...c, type: "I_DC", params: { I: getNumericParam(c, "Ipk", 0) * Math.sin(ph) } };
+      }
+      if (c.type === "V_PULSE") return { ...c, type: "V_DC", params: { V: pulseValue(pulseParams(c), 0) } };
+      return c;
+    });
+    const op = runDc({ components: opComponents }, options);
+    if (!op.ok) {
+      warnings.push("DC 動作点を求められなかったため、初期状態 0 から過渡解析を始めます。");
+    } else {
+      // params.initialV / initialI を明示した C / L はその値を優先する（SPICE の .IC と同じ。
+      // 分野D: DC 動作点から始めて、タンクの L に初期電流を与えて発振を起動する）
+      for (const [id, st] of capState) {
+        const v = op.dc.elements?.[id]?.v;
+        if (Number.isFinite(v) && !st.explicit) st.v = v;
+      }
+      for (const [id, st] of indState) {
+        const i = op.dc.elements?.[id]?.i;
+        if (Number.isFinite(i) && !st.explicit) st.i = i;
+      }
+    }
+  }
+
+  /* --- t = 0+（極小刻みの後退オイラーで C 電圧・L 電流を保ったまま解く） --- */
+  {
+    const hTiny = dt * 1e-9;
+    const x0 = solveStep(0, hTiny, "be");
+    if (!x0) {
+      errors.push("過渡解析の初期状態を解けませんでした。短絡（電圧源どうしの並列など）や浮遊ノードを確認してください。");
+    } else {
+      const nodes = nodeMap(x0);
+      const ev = elementValues(x0, nodes, 0, hTiny, "be", false);
+      // C は初期電圧、L は初期電流のまま（連続）として記録
+      for (const [id, st] of capState) ev[id] = { v: st.v, i: ev[id].i };
+      for (const [id, st] of indState) {
+        ev[id] = { v: ev[id].v, i: st.i };
+        st.v = ev[id].v;
+      }
+      record(0, nodes, ev);
+      commitDeviceStep(devices);
+      commitVco(nodes, 0);
+    }
+  }
+
+  /* --- 時間積分 --- */
+  // イベント細分化: 切り替わる素子（ダイオード・サイリスタ・SW_V）の状態が刻みの途中で変わったら、
+  // 素子の状態を戻して刻みを半分にやり直す（最大 EVENT_REFINE_LEVELS 回）。切り替わり時刻の誤差を
+  // dt/64 以下にし、整流の導通開始・DCM の電流ゼロ・SCR の消弧のずれによる平均値・リプルの誤差を抑える。
+  // OPAMP の飽和 ⇔ 線形の切り替わり（コンパレータ・シュミットトリガ・弛張発振の反転、クリップの始まり）も
+  // 刻みを二分して時刻を求める（刻みの細かさ＝ hasSwitching の 1/400 規則には含めない）。
+  // これが無いと弛張発振の周期が刻み 1 つ分（数%）ずれる。
+  const switchingDevices = devices.filter((d) => isSwitchingDevice(d) || d.kind === "opamp");
+  const switchModes = () => switchingDevices.map((d) => `${d.state.mode}/${d.state.gateMode ?? ""}`).join(",");
+  const saveStates = () => devices.map((d) => ({ ...d.state }));
+  const restoreStates = (saved) => devices.forEach((d, k) => { d.state = { ...saved[k] }; });
+  let t = 0;
+  let bpIndex = 0;
+  let beSteps = 2; // t=0 直後は後退オイラー
+  let steps = 0;
+  let refinedSteps = 0;
+  let prevModes = devices.length > 0 ? deviceModes() : "";
+  const hMinEvent = dt / 2 ** EVENT_REFINE_LEVELS;
+  let hCap = Infinity; // 細分化の途中（切り替わりの手前まで進んだ）なら、次の刻みもその大きさから始める
+  while (errors.length === 0 && t < tStop * (1 - 1e-12) && steps < MAX_STEPS * 2 + breakpoints.length + 10) {
+    while (bpIndex < breakpoints.length && breakpoints[bpIndex] <= t * (1 + 1e-12) + 1e-18) bpIndex++;
+    let tNext = Math.min(t + Math.min(dt, hCap), tStop);
+    let hitBreakpoint = false;
+    if (bpIndex < breakpoints.length && breakpoints[bpIndex] < tNext * (1 - 1e-12)) {
+      tNext = breakpoints[bpIndex];
+      hitBreakpoint = true;
+    } else if (bpIndex < breakpoints.length && Math.abs(breakpoints[bpIndex] - tNext) <= 1e-12 * tNext) {
+      tNext = breakpoints[bpIndex];
+      hitBreakpoint = true;
+    }
+    let h = tNext - t;
+    if (!(h > 0)) break;
+    const method = beSteps > 0 ? "be" : "tr";
+    const saved = switchingDevices.length > 0 ? saveStates() : null;
+    const modesBefore = saved ? switchModes() : "";
+    let x = solveStep(tNext, h, method);
+    // 状態が変わった刻みを半分にして切り替わり時刻を絞り込む（パルスの角に合わせた刻みは除く:
+    // 角で切り替わるのが正しいので細分化しても同じ）
+    let refined = false;
+    while (x && saved && !hitBreakpoint && h > hMinEvent * 1.5 && switchModes() !== modesBefore) {
+      restoreStates(saved);
+      h /= 2;
+      tNext = t + h;
+      x = solveStep(tNext, h, method);
+      refinedSteps++;
+      refined = true;
+    }
+    // 切り替わりの手前で止まった → 残りも同じ刻みで二分探索を続ける。切り替わった → 通常の刻みに戻す
+    if (saved && switchModes() !== modesBefore) hCap = Infinity;
+    else if (refined) hCap = h;
+    else if (hCap < Infinity) hCap = hCap * 2 >= dt ? Infinity : hCap * 2;
+    if (!x) {
+      errors.push(
+        `過渡解析が t=${tNext.toExponential(2)}s で解けませんでした。短絡・浮遊ノードを確認してください。`
+      );
+      break;
+    }
+    const nodes = nodeMap(x);
+    const ev = elementValues(x, nodes, tNext, h, method, true);
+    record(tNext, nodes, ev);
+    commitDeviceStep(devices);
+    commitVco(nodes, tNext);
+    t = tNext;
+    steps++;
+    if (beSteps > 0) beSteps--;
+    if (hitBreakpoint) beSteps = 2;
+    if (devices.length > 0) {
+      const modes = deviceModes();
+      if (modes !== prevModes) beSteps = 2; // 素子の切替直後は台形則の数値振動を避ける
+      prevModes = modes;
+    }
+  }
+  if (nonConvergedSteps > 0) {
+    warnings.push(`非線形素子の状態が収束しなかった時刻が ${nonConvergedSteps} ステップありました（結果は参考値）。`);
+  }
+
+  /* --- 複合部品（XTAL）の端子電圧・電流: v = V(1) − V(2)、i = 直列枝 Rm の電流 + 並列 Cp の電流 --- */
+  for (const c of active) {
+    if (!c.compositeOf || !c.id.endsWith("#Rm") || elementArrays[c.compositeOf]) continue;
+    const id = c.compositeOf;
+    const rm = elementArrays[`${id}#Rm`];
+    const cm = active.find((x) => x.id === `${id}#Cm`);
+    const cp = elementArrays[`${id}#Cp`];
+    const p = c.connect[0];
+    const n = cm?.connect?.[1];
+    const vp = isGroundNet(p) ? null : nodeArrays[p];
+    const vn = isGroundNet(n) ? null : nodeArrays[n];
+    elementArrays[id] = {
+      v: time.map((_, k) => (vp ? vp[k] : 0) - (vn ? vn[k] : 0)),
+      i: rm.i.map((x, k) => x + (cp ? cp.i[k] : 0)),
+    };
+  }
+
   /* --- 派生結果 --- */
-  const timeConstant = computeTheoreticalTimeConstant(components);
-  const oscFreq = computeTheoreticalOscillationFrequency(components);
+  const reactive = active.filter((c) => c.type === "C" || INDUCTOR_TYPES.has(c.type));
+  const timeConstants = {};
+  for (const [id, tau] of tauLf) {
+    timeConstants[id] = Number.isFinite(tau) ? tau : null;
+  }
+  let timeConstant = null;
+  let timeConstantNote = null;
+  if (reactive.length === 1) {
+    timeConstant = timeConstants[reactive[0].id];
+    if (!Number.isFinite(timeConstant)) {
+      timeConstantNote = `${reactive[0].id} から見た抵抗が求まらないため時定数を決められません（${reactive[0].id} の両端が回路につながっているか確認してください）。`;
+    }
+  } else if (reactive.length === 0) {
+    timeConstantNote = "回路に C も L もないため時定数がありません。";
+  } else {
+    timeConstantNote = `C と L が合わせて ${reactive.length} 個あるため、時定数が1つに決まりません（判定に node を指定して波形から測ってください）。`;
+  }
 
   let waveformFreq = null;
   if (errors.length === 0) {
     let bestNode = null;
     let bestVar = 0;
-    for (const net of nodeList) {
+    const shown = filterNodeResults(nodeArrays, prep);
+    for (const net of Object.keys(shown)) {
       const arr = nodeArrays[net];
-      if (arr.length < 8) continue;
+      if (!arr || arr.length < 8) continue;
       let mean = 0;
       for (const v of arr) mean += v;
       mean /= arr.length;
@@ -556,7 +1037,7 @@ export function runTransient(circuit, options = {}) {
       }
     }
     if (bestNode) {
-      waveformFreq = estimateWaveformFrequency(time, nodeArrays[bestNode]);
+      waveformFreq = estimateOscillationFrequency(time, nodeArrays[bestNode]);
     }
   }
 
@@ -564,14 +1045,19 @@ export function runTransient(circuit, options = {}) {
     ok: errors.length === 0,
     transient: {
       time,
-      nodes: nodeArrays,
+      nodes: filterNodeResults(nodeArrays, prep),
+      unconnectedNets: prep.unconnectedNets,
+      floatingNets: prep.floatingNets,
       elements: elementArrays,
       timeConstant,
-      oscillationFrequencyHz: oscFreq,
+      timeConstantNote,
+      timeConstants,
+      oscillationFrequencyHz: computeTheoreticalOscillationFrequency(active),
       waveformFrequencyHz: waveformFreq,
       dt,
       tStop,
       steps: time.length,
+      refinedSteps,
     },
     errors,
     warnings,

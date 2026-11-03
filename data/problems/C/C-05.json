@@ -1,0 +1,217 @@
+{
+  "id": "C-05",
+  "category": "C",
+  "title": "動作点から小信号パラメータ gm・rπ・re を求める",
+  "difficulty": 3,
+  "prerequisites": [
+    "C-04"
+  ],
+  "learningGoal": "トランジスタの小信号パラメータ（相互コンダクタンス gm = IC/VT、ベース入力抵抗 rπ = β/gm、エミッタ抵抗 re = VT/IE）が、動作点の直流電流だけで決まることを理解する。バイアス回路を設計してから、その動作点の値を計算できる。",
+  "judge": "dc",
+  "statement": "### 状況\nC-01〜C-04 では、信号を入れる前の**動作点**（直流）を設計しました。ここからは、動作点のまわりで小さな交流信号がどう増幅されるかを考えます。\n\n信号が十分小さいとき、トランジスタは**小信号モデル**（**ハイブリッド π モデル**）という、抵抗と電流源だけでできた等価回路で表せます。その中身は次の 3 つの値です。\n- **相互コンダクタンス** $g_m = \\dfrac{I_C}{V_T}$ … ベース・エミッタ間の電圧が $v_{be}$ だけ変わると、コレクタ電流が $g_m v_{be}$ だけ変わる。単位は S（ジーメンス = A/V）。\n- **ベース入力抵抗** $r_\\pi = \\dfrac{\\beta}{g_m}$ … ベースから見た B-E 間の小信号の抵抗。\n- **エミッタ抵抗** $r_e = \\dfrac{V_T}{I_E}$ … エミッタから見た小信号の抵抗（$\\approx 1/g_m$）。\n\n$V_T$ は**熱電圧**（$kT/q$。$k$ はボルツマン定数、$T$ は絶対温度、$q$ は電子の電荷）で、室温で約 26 mV です。3 つとも**動作点の直流電流で決まる**ことが大切です。\n\nボードの回路は、C-04 で学んだ「硬い」分圧バイアス（RA = 18 kΩ、RB = 3.9 kΩ）です。エミッタ抵抗だけがまだ付いていません。\n\n### やること\n1. 抵抗（エミッタ抵抗）を 1 本置き、`emit`（TP_E）と `gnd` の間につなぐ。コレクタ電流が **1.3 mA** になる値にする。\n2. $I_C = 1.3$ mA の動作点での $g_m$、$r_\\pi$、$r_e$ を計算し、回答欄に SI 単位で入力する（`50m` のように m（ミリ）などの接頭辞を付けてもよい）。\n\n### 条件\n- V1 = 12 V、RA = 18 kΩ（`vcc`–`base`）、RB = 3.9 kΩ（`base`–`gnd`）、RC = 4.7 kΩ（`vcc`–`col`）。すべて固定。\n- トランジスタ TR（固定部品）: $\\beta = 100$（直流の電流増幅率 $h_{FE}$ と小信号の電流増幅率 $h_{fe}$ は同じ値とする）、$V_{BE} = 0.7$ V（直流では一定）、熱電圧 $V_T = 26$ mV、アーリー効果は無視する。\n- エミッタ抵抗は、ベース電流による分圧の電圧低下（C-04 のテブナン等価）も考えて計算するとよい。\n- 回答の 3 つの値は、設計値 $I_C = 1.3$ mA で計算する。\n- 判定:\n  - TR のコレクタ電流が 1.3 mA（±5%）、TR が活性領域で動作している\n  - $g_m$、$r_\\pi$、$r_e$ がそれぞれ正しい値の ±3%",
+  "questions": [
+    {
+      "key": "gm",
+      "kind": "numeric",
+      "prompt": "相互コンダクタンス gm は？（単位 S。例: 50m）",
+      "unit": "S"
+    },
+    {
+      "key": "rpi",
+      "kind": "numeric",
+      "prompt": "ベース入力抵抗 rπ は？（単位 Ω。例: 1.5k）",
+      "unit": "Ω"
+    },
+    {
+      "key": "re",
+      "kind": "numeric",
+      "prompt": "エミッタ抵抗 re は？（単位 Ω）",
+      "unit": "Ω"
+    }
+  ],
+  "hints": [
+    "まずバイアス: C-04 と同じテブナン等価で $V_{TH}$・$R_{TH}$ を求め、$I_C = 1.3$ mA のときのベース電圧 $V_B$、エミッタ電圧 $V_E$ を出して $R_E = V_E/I_E$ とします。小信号パラメータは、$I_C$（と $I_E$）を式に入れるだけです。",
+    "$V_{TH} = 12 \\times \\dfrac{3.9}{21.9}$、$R_{TH} = 18\\,\\mathrm{k} \\parallel 3.9\\,\\mathrm{k}$、$I_B = I_C/\\beta$、$V_B = V_{TH} - I_B R_{TH}$、$V_E = V_B - 0.7$、$I_E = I_C + I_B$、$R_E = V_E/I_E$。小信号は $g_m = I_C/V_T$、$r_\\pi = \\beta/g_m$、$r_e = V_T/I_E$。",
+    "$V_{TH} \\approx 2.137$ V、$R_{TH} \\approx 3.21$ kΩ、$V_B \\approx 2.137 - 13\\,\\mu\\mathrm{A} \\times 3.21\\,\\mathrm{k\\Omega} \\approx 2.095$ V、$V_E \\approx 1.395$ V、$R_E \\approx 1.395\\,\\mathrm{V}/1.313\\,\\mathrm{mA} \\approx 1.06$ kΩ。$g_m = 1.3\\,\\mathrm{mA}/26\\,\\mathrm{mV} = 50$ mS、$r_\\pi = 100/0.05\\,\\mathrm{S} = 2.0$ kΩ、$r_e = 26\\,\\mathrm{mV}/1.313\\,\\mathrm{mA} \\approx 19.8$ Ω。"
+  ],
+  "availableComponents": [
+    "R"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 60,
+        "y": 240
+      }
+    },
+    {
+      "id": "RA",
+      "type": "R",
+      "params": {
+        "R": 18000
+      },
+      "connect": [
+        "vcc",
+        "base"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 260,
+        "y": 80
+      }
+    },
+    {
+      "id": "RB",
+      "type": "R",
+      "params": {
+        "R": 3900
+      },
+      "connect": [
+        "base",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 260,
+        "y": 360
+      }
+    },
+    {
+      "id": "RC",
+      "type": "R",
+      "params": {
+        "R": 4700
+      },
+      "connect": [
+        "vcc",
+        "col"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 480,
+        "y": 80
+      }
+    },
+    {
+      "id": "TR",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100
+      },
+      "connect": [
+        "col",
+        "base",
+        "emit"
+      ],
+      "locked": true,
+      "position": {
+        "x": 460,
+        "y": 240
+      }
+    },
+    {
+      "id": "TP_C",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "col"
+      ],
+      "locked": true,
+      "position": {
+        "x": 620,
+        "y": 150
+      }
+    },
+    {
+      "id": "TP_E",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "emit"
+      ],
+      "locked": true,
+      "position": {
+        "x": 620,
+        "y": 290
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "dcCurrent",
+      "match": {
+        "type": "Q_NPN"
+      },
+      "expected": 0.0013,
+      "tolerancePct": 5,
+      "unit": "A"
+    },
+    {
+      "type": "operatingRegion",
+      "match": {
+        "type": "Q_NPN"
+      },
+      "region": "active"
+    },
+    {
+      "type": "numericAnswer",
+      "key": "gm",
+      "expected": 0.05,
+      "tolerancePct": 3,
+      "unit": "S"
+    },
+    {
+      "type": "numericAnswer",
+      "key": "rpi",
+      "expected": 2000,
+      "tolerancePct": 3,
+      "unit": "Ω"
+    },
+    {
+      "type": "numericAnswer",
+      "key": "re",
+      "expected": 19.8,
+      "tolerancePct": 3,
+      "unit": "Ω"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 1063
+      },
+      "connect": [
+        "emit",
+        "gnd"
+      ]
+    }
+  ],
+  "referenceAnswers": {
+    "gm": 0.05,
+    "rpi": 2000,
+    "re": 19.8
+  },
+  "explanation": {
+    "solution": "**1. バイアスのテブナン等価**:\n\n$$\nV_{TH} = 12 \\times \\frac{3.9}{18 + 3.9} = 2.137\\,\\mathrm{V},\\qquad R_{TH} = \\frac{18 \\times 3.9}{21.9}\\,\\mathrm{k\\Omega} = 3.205\\,\\mathrm{k\\Omega}\n$$\n\n**2. $I_C = 1.3$ mA のときの電圧**: $I_B = 1.3\\,\\mathrm{mA}/100 = 13\\,\\mu$A、$I_E = I_C + I_B = 1.313$ mA。\n\n$$\nV_B = V_{TH} - I_B R_{TH} = 2.137 - 13 \\times 10^{-6} \\times 3205 = 2.137 - 0.042 = 2.095\\,\\mathrm{V}\n$$\n\n$$\nV_E = V_B - 0.7 = 1.395\\,\\mathrm{V},\\qquad R_E = \\frac{V_E}{I_E} = \\frac{1.395}{1.313 \\times 10^{-3}} \\approx 1.063\\,\\mathrm{k\\Omega}\n$$\n\nシミュレーションでは $I_C = 1.300$ mA、$V_E = 1.395$ V、$V_{CE} = 4.49$ V（活性領域）になります。\n\n**3. 小信号パラメータ**:\n\n$$\ng_m = \\frac{I_C}{V_T} = \\frac{1.3 \\times 10^{-3}}{26 \\times 10^{-3}} = 0.05\\,\\mathrm{S} = 50\\,\\mathrm{mS}\n$$\n\n$$\nr_\\pi = \\frac{\\beta}{g_m} = \\frac{100}{0.05} = 2000\\,\\Omega = 2.0\\,\\mathrm{k\\Omega}\n$$\n\n$$\nr_e = \\frac{V_T}{I_E} = \\frac{26 \\times 10^{-3}}{1.313 \\times 10^{-3}} \\approx 19.8\\,\\Omega\n$$\n\n$1/g_m = 20$ Ω とほぼ同じです（$r_e = \\alpha/g_m$、$\\alpha = \\beta/(\\beta+1) = 0.990$）。",
+    "why": "- **$g_m$ は特性曲線の傾き**: 実際のトランジスタのコレクタ電流は $I_C = I_S\\,e^{V_{BE}/V_T}$（指数関数）です。動作点で $V_{BE}$ を少しだけ変えたときの $I_C$ の変化の割合（傾き）は、微分して\n\n$$\ng_m = \\frac{dI_C}{dV_{BE}} = \\frac{I_S\\,e^{V_{BE}/V_T}}{V_T} = \\frac{I_C}{V_T}\n$$\n\nとなります。指数関数の傾きはその点の値に比例するので、$g_m$ はトランジスタの大きさや β によらず、**$I_C$ だけ**で決まります。\n- **直流では $V_{BE}$ 一定でよい理由**: 同じ指数関数から、$I_C$ が 10 倍になっても $V_{BE}$ は $V_T \\ln 10 \\approx 60$ mV しか変わりません。直流の設計では 0.7 V 一定とみなせますが、mV 単位の小さな信号にとってはこの「わずかな傾き」が主役です。シミュレータも、直流は $V_{BE}$ 一定、交流（AC 解析）はこの $g_m$ を使うハイブリッド π モデルで計算します。\n- **$r_\\pi$ と $r_e$**: ベースに $v_{be}$ を加えるとコレクタ電流は $g_m v_{be}$、ベース電流はその $1/\\beta$ だけ変わるので、ベースから見た抵抗は $r_\\pi = v_{be}/(g_m v_{be}/\\beta) = \\beta/g_m$。エミッタには $(\\beta+1)$ 倍の電流が流れるので、エミッタから見ると $r_e = r_\\pi/(\\beta+1) = V_T/I_E$ です。同じ B-E 間を、ベース側から見るか（大きく見える）エミッタ側から見るか（小さく見える）の違いです。\n- **$V_T$ の値**: $V_T = kT/q = 1.381 \\times 10^{-23} \\times 300 / 1.602 \\times 10^{-19} \\approx 25.9$ mV（27°C）。教科書ではよく 26 mV や 25 mV が使われます。",
+    "mistakes": "- **単位の付け忘れ**: $g_m$ に「50」と入れると 50 S と解釈され、1000 倍違って不合格です。「50m」または「0.05」と入力します。\n- **$r_\\pi$ と $r_e$ の取り違え**: $r_\\pi$ に 20 Ω（$1/g_m$）を入れると 100 分の 1 で不合格です。ベースから見る $r_\\pi$ はエミッタから見る $r_e$ の約 $(\\beta+1)$ 倍です。\n- **$V_T = 25$ mV で計算する**: $g_m = 52$ mS（+4%）となり ±3% から外れます。この問題では条件の 26 mV を使います（シミュレータの AC 解析も 26 mV）。\n- **ベース電流で計算する**（$g_m = I_B/V_T$）: 100 分の 1 の 0.5 mS になります。$g_m$ はコレクタ電流で決まります。\n- **$R_E$ をベース電流なしで計算する**（$V_E = V_{TH} - 0.7 = 1.437$ V、$R_E = 1.437/1.3\\,\\mathrm{mA} \\approx 1.105$ kΩ）: $I_C$ = 1.25 mA（−3.7%）で今回の ±5% には入りますが、そのときの実際の $g_m$ は 48 mS で、設計値より 4% 小さくなります。",
+    "practice": "- **$I_C$ の選び方**: $g_m$ は $I_C$ に比例するので、電流を増やすほど利得（C-06 の $-g_m R_C$）を大きくできます。一方で $r_\\pi = \\beta V_T/I_C$ は小さくなり（入力インピーダンスが下がる。C-09）、消費電流も増えます。小信号増幅段の $I_C$ を 0.1〜数 mA に選ぶのは、このバランスのためです。\n- **温度**: $V_T$ は絶対温度に比例するので、同じ $I_C$ でも $g_m$ は温度が 1°C 上がると約 0.33% 下がります。利得が $g_m$ だけで決まる回路は温度で利得が変わるので、C-08 のようにエミッタ抵抗で利得を決める設計がよく使われます。\n- **データシートとの対応**: h パラメータで書かれたデータシートの $h_{ie}$ がほぼ $r_\\pi$、$h_{fe}$ が小信号の β です。$h_{fe}$ も個体差が大きいので、$r_\\pi$ も同じだけばらつきます（β = 300 の個体なら同じ $I_C$ で $r_\\pi$ = 6 kΩ。$g_m$ と $r_e$ は変わらない）。\n- MOSFET の $g_m = \\sqrt{2K I_D}$ は $\\sqrt{I_D}$ にしか比例しないので、同じ電流ならバイポーラトランジスタのほうが $g_m$ を大きくしやすい、という違いがあります（C-13）。",
+    "next": "- **C-06**: エミッタ接地増幅の電圧利得 $A_v = -g_m R_C$。この回路でエミッタ抵抗をバイパスすると $-0.05 \\times 4.7\\,\\mathrm{k} = -235$ 倍（約 47.4 dB）になります。\n- **C-08**: エミッタ抵抗をバイパスしないときの利得 $-R_C/(r_e + R_E)$。ここで求めた $r_e$ を使います。\n- **C-09**: 入力インピーダンス $R_1 \\parallel R_2 \\parallel r_\\pi$。\n- **C-11**: エミッタフォロワの出力インピーダンス（$r_e$ が主役）。"
+  }
+}

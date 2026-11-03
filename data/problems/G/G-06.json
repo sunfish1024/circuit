@@ -1,0 +1,175 @@
+{
+  "id": "G-06",
+  "category": "G",
+  "title": "NAND だけで AND と OR を作る",
+  "difficulty": 2,
+  "prerequisites": [
+    "G-05"
+  ],
+  "learningGoal": "NAND を NOT として使う方法とド・モルガンの法則を組み合わせ、NAND 1 種類だけで AND と OR を作れること（NAND の万能性）を理解する。",
+  "judge": "digital",
+  "statement": "### 状況\n試作基板の上に、**74HC00**（2 入力 NAND ゲートが 4 個入った IC）が 2 個余っています。部品を買い足さずに、この NAND だけで **AND** と **OR** の両方を作ることにしました。\n\nどんな論理回路も NAND 1 種類だけで作れる性質を **NAND の万能性**（機能的完全性）といいます。G-05 では、NAND の 2 つの入力を同じ信号につなぐと NOT（反転）になることを確かめました。今回はその NOT を部品として使います。\n\n### やること\nボードには、入力 **A**（ネット `a`）と **B**（ネット `b`）、出力のテストポイント **Y1**（ネット `y1`）と **Y2**（ネット `y2`）が置いてあります。\n\n1. `y1` が **A AND B**（$A \\cdot B$）になる回路を NAND で作る。\n2. `y2` が **A OR B**（$A + B$）になる回路を NAND で作る。\n3. 使う NAND は**合計 5 個以内**にする。\n\n目標の真理値表:\n\n| A | B | y1（AND） | y2（OR） |\n|---|---|---|---|\n| 0 | 0 | 0 | 0 |\n| 0 | 1 | 0 | 1 |\n| 1 | 0 | 0 | 1 |\n| 1 | 1 | 1 | 1 |\n\n### 条件\n- 使える部品は 2 入力 NAND ゲートだけ。\n- 論理値は 0 と 1 だけを考える理想的な論理素子として扱う（電圧・電流・伝搬遅延は考えない）。判定は、入力を変えて回路が落ち着いた後の出力で行う。\n- 入力（論理入力 **LOGIC_IN**）の値は、判定が全部の組み合わせに自動で切り替える。プレイヤーが値を操作する必要はない。\n- ゲートのピンは、入力が `A`・`B`（3 入力ゲートは `A`・`B`・`C`）、出力が `Y`。\n- ゲートの入力ピンを未接続のまま残すと値が不定（X）になり不合格。1 つのネットにゲートの出力を 2 つつなぐと「衝突」で不合格。\n- 判定:\n  - `y1`・`y2` の真理値表が上の表と一致する（入力 00, 01, 10, 11 の全 4 通り）\n  - NAND が 5 個以内で、NAND 以外のゲートを使っていない",
+  "hints": [
+    "AND は「NAND の出力をもう一度反転したもの」です。OR は、ド・モルガンの法則で「入力をそれぞれ反転してから NAND に入れたもの」に書き直せます。反転（NOT）は G-05 のとおり、NAND の 2 つの入力を同じネットにつないで作ります。",
+    "$A \\cdot B = \\overline{\\overline{A \\cdot B}}$（二重否定）、$A + B = \\overline{\\overline{A} \\cdot \\overline{B}}$（ド・モルガン）。NOT は $\\overline{X} = \\overline{X \\cdot X}$ なので NAND(X, X) です。",
+    "AND: NAND(a, b) → ネット `n1`、NAND(n1, n1) → `y1`（2 個）。OR: NAND(a, a) → `na`、NAND(b, b) → `nb`、NAND(na, nb) → `y2`（3 個）。合計 5 個です。"
+  ],
+  "availableComponents": [
+    "U_NAND"
+  ],
+  "fixedComponents": [
+    {
+      "id": "A",
+      "type": "LOGIC_IN",
+      "params": {
+        "value": 0
+      },
+      "connect": [
+        "a"
+      ],
+      "locked": true,
+      "position": {
+        "x": 60,
+        "y": 150
+      }
+    },
+    {
+      "id": "B",
+      "type": "LOGIC_IN",
+      "params": {
+        "value": 0
+      },
+      "connect": [
+        "b"
+      ],
+      "locked": true,
+      "position": {
+        "x": 60,
+        "y": 330
+      }
+    },
+    {
+      "id": "Y1",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "y1"
+      ],
+      "locked": true,
+      "position": {
+        "x": 680,
+        "y": 120
+      }
+    },
+    {
+      "id": "Y2",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "y2"
+      ],
+      "locked": true,
+      "position": {
+        "x": 680,
+        "y": 320
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "truthTable",
+      "inputs": [
+        "a",
+        "b"
+      ],
+      "outputs": [
+        "y1",
+        "y2"
+      ],
+      "expect": {
+        "y1": "0001",
+        "y2": "0111"
+      }
+    },
+    {
+      "type": "componentCount",
+      "types": [
+        "U_NAND"
+      ],
+      "max": 5
+    },
+    {
+      "type": "componentCount",
+      "types": [
+        "U_NOT",
+        "U_AND",
+        "U_OR",
+        "U_NOR",
+        "U_XOR",
+        "U_XNOR",
+        "U_AND3",
+        "U_OR3"
+      ],
+      "max": 0
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "U1",
+      "type": "U_NAND",
+      "params": {},
+      "connect": [
+        "a",
+        "b",
+        "n1"
+      ]
+    },
+    {
+      "id": "U2",
+      "type": "U_NAND",
+      "params": {},
+      "connect": [
+        "n1",
+        "n1",
+        "y1"
+      ]
+    },
+    {
+      "id": "U3",
+      "type": "U_NAND",
+      "params": {},
+      "connect": [
+        "a",
+        "a",
+        "na"
+      ]
+    },
+    {
+      "id": "U4",
+      "type": "U_NAND",
+      "params": {},
+      "connect": [
+        "b",
+        "b",
+        "nb"
+      ]
+    },
+    {
+      "id": "U5",
+      "type": "U_NAND",
+      "params": {},
+      "connect": [
+        "na",
+        "nb",
+        "y2"
+      ]
+    }
+  ],
+  "explanation": {
+    "solution": "**1. AND を作る（2 個）**\n\nNAND は AND の出力を反転したもの $\\overline{A \\cdot B}$ です。もう一度反転すれば元に戻ります（二重否定 $\\overline{\\overline{X}} = X$）。\n\n- U1: NAND(a, b) → `n1` $= \\overline{A \\cdot B}$\n- U2: NAND(n1, n1) → `y1` $= \\overline{n1 \\cdot n1} = \\overline{n1} = A \\cdot B$\n\n**2. OR を作る（3 個）**\n\nド・モルガンの法則 $\\overline{X \\cdot Y} = \\overline{X} + \\overline{Y}$ に $X = \\overline{A}$、$Y = \\overline{B}$ を入れると\n\n$$\n\\overline{\\overline{A} \\cdot \\overline{B}} = \\overline{\\overline{A}} + \\overline{\\overline{B}} = A + B\n$$\n\nつまり「A と B をそれぞれ反転してから NAND に入れる」と OR になります。\n\n- U3: NAND(a, a) → `na` $= \\overline{A}$\n- U4: NAND(b, b) → `nb` $= \\overline{B}$\n- U5: NAND(na, nb) → `y2` $= A + B$\n\n**3. 真理値表で確かめる**\n\n| A | B | n1 | y1 | na | nb | y2 |\n|---|---|---|---|---|---|---|\n| 0 | 0 | 1 | 0 | 1 | 1 | 0 |\n| 0 | 1 | 1 | 0 | 1 | 0 | 1 |\n| 1 | 0 | 1 | 0 | 0 | 1 | 1 |\n| 1 | 1 | 0 | 1 | 0 | 0 | 1 |\n\ny1 = 0001、y2 = 0111 で目標どおり。NAND は合計 5 個です。",
+    "why": "- **NAND 1 種類で NOT・AND・OR がそろう**: 今回 NOT（NAND の入力短絡）、AND（NAND＋NOT）、OR（NOT 2 個＋NAND）を作りました。NOT・AND・OR があれば、どんな真理値表も「1 になる行ごとの AND を OR でまとめる」形（積和形、G-09）で作れます。だから NAND だけで**どんな組み合わせ回路でも**作れます。これが NAND の万能性です。\n- **AND や OR だけでは万能にならない理由**: AND と OR は、入力を 0 から 1 に変えても出力が 1 から 0 に変わることがない（**単調**な）ゲートです。単調なゲートをいくら組み合わせても反転は作れません。NAND は中に「反転」を含んでいるので、反転も含めて全部を作れます。\n- **OR の作り方の直感**: 「A か B の少なくとも一方が 1」は「A も B も 0、ではない」と同じ意味です。「A も B も 0」は $\\overline{A} \\cdot \\overline{B}$ なので、それを否定した $\\overline{\\overline{A} \\cdot \\overline{B}}$ が OR になります。",
+    "mistakes": "- **NAND の出力をそのまま y1 にする**: y1 = 1110 になり、判定は「a=0, b=0 のとき y1=1（正しくは 0）」で不合格。NAND は AND の**反転**です。\n- **出力側を反転して OR を作ろうとする**: NOT(NAND(a, b)) は AND であって OR ではありません（y2 = 0001 となり、a=0, b=1 の行で不合格）。ド・モルガンで OR にするには、**入力側**を反転します。\n- **NOT にするつもりで NAND の片方の入力を開けたままにする**: 未接続の入力は不定（X）なので出力も X になり不合格。実物の CMOS IC でも、開放した入力はノイズで 0 と 1 の間をふらつき、誤動作や貫通電流（電源から GND へ無駄に流れる電流）の原因になります。NOT にするときは 2 つの入力を両方つなぐか、片方を 1（電源）に固定します（NAND(X, 1) = NOT X）。\n- **6 個以上使う**: 真理値表が合っていても componentCount の判定（NAND 5 個以内）で不合格。たとえば y1 の NOT と y2 の NOT を別々に余分に作ると増えます。",
+    "practice": "- **余ったゲートの再利用**: 74HC00 のような IC には同じゲートが 4 個入っています。基板上に AND が 1 個だけ必要になったとき、余っている NAND で作れば IC を増やさずに済み、部品点数・基板面積・コストを抑えられます。\n- **CMOS では NAND が基本**: CMOS の NAND はトランジスタ 4 個で作れますが、AND は NAND の後ろに NOT（2 個）を付けた 6 個になります。IC の中では NAND・NOR・NOT が最も小さく速いゲートなので、論理合成ツールは回路を NAND・NOR 中心の形に変換して作ります。\n- **段数と遅延**: NAND＋NOT で作った AND は、信号がゲートを 2 段通るぶん遅くなります（74HC シリーズで 1 段あたり数 ns〜十数 ns 程度）。このゲームでは遅延は扱いませんが、高速な回路では段数を数えて設計します。\n- **使わないゲートの入力**: 余った NAND の入力は開放せず、GND か電源に固定します。",
+    "next": "- **G-07**: 同じことを NOR だけで行います。NAND と NOR は「0 と 1、AND と OR を入れ替えた」双対の関係にあります。\n- **G-08**: NAND 4 個で XOR を作ります。今回のように NOT を素直に作ると 5 個かかるところを、信号を共有して 4 個に減らします。\n- **G-09**: 真理値表から積和形（AND を OR でまとめる形）の回路を作ります。AND-OR の 2 段回路は、ド・モルガンの法則で NAND-NAND の 2 段回路に置き換えられます。"
+  }
+}

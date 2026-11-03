@@ -1,15 +1,22 @@
 {
   "id": "B-15",
   "category": "B",
-  "title": "ダイオードによる逆接続保護回路",
-  "difficulty": 2,
-  "statement": "前提: ダイオードD1の順方向電圧は0.7V、それ以外は理想とする。逆方向漏れ電流は無視する。温度特性は無視する。 V1=12Vの直流電源があり、負荷抵抗Rload=1kΩはout-gnd間に固定されている。電源の逆接続から負荷を保護するため、ダイオードD1を電源と負荷の間に直列配置する。正常極性時に負荷へ電流が流れ、逆極性時には流れないようにD1を接続せよ。正常極性時の負荷電圧と負荷電流を判定条件に合わせよ。",
-  "prerequisites": [],
+  "title": "エミッタ抵抗で β に強いバイアスを作る",
+  "difficulty": 4,
+  "prerequisites": [
+    "B-14",
+    "A-04"
+  ],
+  "learningGoal": "分圧でベース電圧を決め、エミッタ抵抗 RE を入れたバイアス回路では、VE = VB − VBE から Ic ≈ Ie = VE/RE が決まり、β が 3 倍違うトランジスタでもコレクタ電流がほぼ同じになる（負帰還）ことを理解し、RE を設計できる。",
   "judge": "dc",
-  "learningGoal": "直列ダイオードによる逆極性保護の接続と電圧降下を理解する。",
-  "hint": "正常極性で電流を流すため、ダイオードのアノードを電源側vin、カソードを負荷側outに向ける。負荷電圧は 12V - 0.7V である。",
+  "statement": "### 状況\nB-14 の固定バイアスでは、コレクタ電流 $I_C$ が β に比例しました。ところが実際のトランジスタは、同じ型番でも β が 2〜3 倍ばらつきます。部品を交換するたびに動作点がずれる回路では、製品を量産できません。\n\nそこで、ベース電圧を抵抗 2 本の**分圧**で決め（A-04）、エミッタと gnd の間に**エミッタ抵抗** RE を入れる**分圧バイアス回路**を使います。ボードには同じ回路が 2 つあり、違いはトランジスタの β だけです。\n- 左の回路: QA（β = 100）\n- 右の回路: QB（β = 300）\n\n### やること\n1. 抵抗を 2 個置き、1 個を QA のエミッタ `eA` と `gnd` の間に、もう 1 個を QB のエミッタ `eB` と `gnd` の間につなぐ。\n2. 2 個とも同じ値にして、**どちらの回路でもコレクタ電流が 2.0 mA** になるように RE を決める。\n\n### 条件\n- V1 = 12 V。分圧抵抗は上側 RB1A・RB1B = 7.5 kΩ、下側 RB2A・RB2B = 2.5 kΩ。コレクタ抵抗 RCA・RCB = 2.5 kΩ。\n- トランジスタのモデル: $V_{BE} = 0.7$ V、β は QA = 100、QB = 300（固定部品なので変えられない）。飽和すると $V_{CE} = 0.2$ V。\n- 設計では、ベース電流は分圧抵抗を流れる電流よりずっと小さいので**無視してよい**。また $I_C \\approx I_E$（エミッタ電流）とみなしてよい。\n- 判定:\n  - QA、QB のコレクタ電流がどちらも 2.0 mA（±5%）\n  - `cA`、`cB` の電圧がどちらも 7.0 V（±5%）… 活性領域で動いている",
+  "hints": [
+    "ベース電流を無視すると、ベース電圧は分圧だけで決まります（A-04）。エミッタの電圧はベースより $V_{BE}$ だけ低く、エミッタ電流はその電圧と RE で決まります。どこにも β が出てこないことに注目しましょう。",
+    "$V_B = V_{CC} \\cdot \\dfrac{R_{B2}}{R_{B1} + R_{B2}}$、$V_E = V_B - V_{BE}$、$R_E = \\dfrac{V_E}{I_E} \\approx \\dfrac{V_E}{I_C}$。",
+    "$V_B = 12 \\times \\dfrac{2.5}{7.5 + 2.5} = 3.0$ V、$V_E = 3.0 - 0.7 = 2.3$ V、$R_E = 2.3\\,\\mathrm{V}/2.0\\,\\mathrm{mA} = 1.15$ kΩ を 2 個。"
+  ],
   "availableComponents": [
-    "D"
+    "R"
   ],
   "fixedComponents": [
     {
@@ -19,59 +26,238 @@
         "V": 12
       },
       "connect": [
-        "vin",
+        "vcc",
         "gnd"
       ],
-      "locked": true
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 40,
+        "y": 220
+      }
     },
     {
-      "id": "Rload",
+      "id": "RB1A",
       "type": "R",
       "params": {
-        "R": 1000
+        "R": 7500
       },
       "connect": [
-        "out",
+        "vcc",
+        "bA"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 160,
+        "y": 100
+      }
+    },
+    {
+      "id": "RB2A",
+      "type": "R",
+      "params": {
+        "R": 2500
+      },
+      "connect": [
+        "bA",
         "gnd"
       ],
-      "locked": true
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 160,
+        "y": 330
+      }
+    },
+    {
+      "id": "RCA",
+      "type": "R",
+      "params": {
+        "R": 2500
+      },
+      "connect": [
+        "vcc",
+        "cA"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 320,
+        "y": 100
+      }
+    },
+    {
+      "id": "QA",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100
+      },
+      "connect": [
+        "cA",
+        "bA",
+        "eA"
+      ],
+      "locked": true,
+      "position": {
+        "x": 300,
+        "y": 250
+      }
+    },
+    {
+      "id": "TPA",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "cA"
+      ],
+      "locked": true,
+      "position": {
+        "x": 380,
+        "y": 170
+      }
+    },
+    {
+      "id": "RB1B",
+      "type": "R",
+      "params": {
+        "R": 7500
+      },
+      "connect": [
+        "vcc",
+        "bB"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 560,
+        "y": 100
+      }
+    },
+    {
+      "id": "RB2B",
+      "type": "R",
+      "params": {
+        "R": 2500
+      },
+      "connect": [
+        "bB",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 560,
+        "y": 330
+      }
+    },
+    {
+      "id": "RCB",
+      "type": "R",
+      "params": {
+        "R": 2500
+      },
+      "connect": [
+        "vcc",
+        "cB"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 720,
+        "y": 100
+      }
+    },
+    {
+      "id": "QB",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 300
+      },
+      "connect": [
+        "cB",
+        "bB",
+        "eB"
+      ],
+      "locked": true,
+      "position": {
+        "x": 700,
+        "y": 250
+      }
+    },
+    {
+      "id": "TPB",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "cB"
+      ],
+      "locked": true,
+      "position": {
+        "x": 780,
+        "y": 170
+      }
     }
   ],
   "checks": [
     {
-      "type": "dcVoltage",
-      "node": "out",
-      "expected": 11.3,
-      "tolerancePct": 2,
-      "unit": "V"
-    },
-    {
       "type": "dcCurrent",
-      "element": "Rload",
-      "expected": 0.0113,
-      "tolerancePct": 3,
+      "element": "QA",
+      "expected": 0.002,
+      "tolerancePct": 5,
       "unit": "A"
     },
     {
-      "type": "connection",
-      "element": "D1",
-      "nets": [
-        "vin",
-        "out"
-      ]
+      "type": "dcCurrent",
+      "element": "QB",
+      "expected": 0.002,
+      "tolerancePct": 5,
+      "unit": "A"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "cA",
+      "expected": 7.0,
+      "tolerancePct": 5,
+      "unit": "V"
+    },
+    {
+      "type": "dcVoltage",
+      "node": "cB",
+      "expected": 7.0,
+      "tolerancePct": 5,
+      "unit": "V"
     }
   ],
   "referenceSolution": [
     {
-      "id": "D1",
-      "type": "D",
+      "id": "R1",
+      "type": "R",
       "params": {
-        "Vf": 0.7
+        "R": 1150
       },
       "connect": [
-        "vin",
-        "out"
+        "eA",
+        "gnd"
+      ]
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "params": {
+        "R": 1150
+      },
+      "connect": [
+        "eB",
+        "gnd"
       ]
     }
-  ]
+  ],
+  "explanation": {
+    "solution": "**1. ベース電圧**（ベース電流を無視して分圧の式）:\n\n$$\nV_B = 12 \\times \\frac{2.5\\,\\mathrm{k}}{7.5\\,\\mathrm{k} + 2.5\\,\\mathrm{k}} = 3.0\\,\\mathrm{V}\n$$\n\n**2. エミッタ電圧**: B-E 間で 0.7 V 下がるので $V_E = 3.0 - 0.7 = 2.3\\,\\mathrm{V}$。\n\n**3. エミッタ抵抗**: RE を流れる電流がエミッタ電流で、$I_C \\approx I_E$ なので\n\n$$\nR_E = \\frac{V_E}{I_E} \\approx \\frac{2.3\\,\\mathrm{V}}{2.0\\,\\mathrm{mA}} = 1.15\\,\\mathrm{k\\Omega}\n$$\n\n**4. コレクタ電圧の確認**: $V_C = 12 - 2.0\\,\\mathrm{mA} \\times 2.5\\,\\mathrm{k\\Omega} = 7.0\\,\\mathrm{V}$。$V_{CE} = 7.0 - 2.3 = 4.7\\,\\mathrm{V} > 0.2\\,\\mathrm{V}$ なので活性領域です。\n\n**5. ベース電流も入れた精密な計算**: 分圧回路をテブナン等価（A-10）にすると $V_{TH} = 3.0\\,\\mathrm{V}$、$R_{TH} = 7.5\\,\\mathrm{k} \\parallel 2.5\\,\\mathrm{k} = 1.875\\,\\mathrm{k\\Omega}$。ベースの KVL $V_{TH} = I_B R_{TH} + V_{BE} + (\\beta + 1) I_B R_E$ より\n\n$$\nI_C = \\beta I_B = \\frac{\\beta\\,(V_{TH} - V_{BE})}{R_{TH} + (\\beta + 1) R_E}\n$$\n\n- β = 100: $I_C = \\dfrac{100 \\times 2.3}{1875 + 101 \\times 1150} \\approx 1.95\\,\\mathrm{mA}$\n- β = 300: $I_C = \\dfrac{300 \\times 2.3}{1875 + 301 \\times 1150} \\approx 1.98\\,\\mathrm{mA}$\n\nβ が 3 倍違っても、コレクタ電流の差は 2% 未満です（固定バイアスなら 3 倍違う）。",
+    "why": "- **負帰還**: もし何かの理由で $I_C$ が増えようとすると、$V_E = I_E R_E$ が上がります。ベース電圧は分圧で決まっているので、$V_{BE} = V_B - V_E$ が小さくなろうとしてベース電流が減り、$I_C$ の増加を打ち消します。出力（電流）の変化が入力（$V_{BE}$）を逆向きに動かすので、負帰還と呼びます。\n- その結果、$I_C$ を決めるのは β ではなく、**$V_B$、$V_{BE}$、$R_E$** になります。上の精密な式で $(\\beta + 1) R_E \\gg R_{TH}$ のとき、$I_C \\approx \\dfrac{\\beta}{\\beta+1} \\cdot \\dfrac{V_{TH} - V_{BE}}{R_E} \\approx \\dfrac{V_E}{R_E}$ となり、β がほぼ消えます。\n- ベースから見ると、RE は $(\\beta + 1)$ 倍の大きさに見えます（エミッタ電流はベース電流の $\\beta + 1$ 倍なので、RE の電圧降下はベース電流で見ると $(\\beta+1)R_E$ 倍）。ここでは $101 \\times 1.15\\,\\mathrm{k} \\approx 116\\,\\mathrm{k\\Omega}$ が $R_{TH} = 1.875\\,\\mathrm{k\\Omega}$ よりずっと大きいので、ベース電流が分圧をほとんど乱しません。これが「ベース電流を無視してよい」理由です。",
+    "mistakes": "- **$V_{BE}$ を引き忘れて $R_E = 3.0/2.0\\,\\mathrm{mA} = 1.5\\,\\mathrm{k\\Omega}$ にする**: $I_C \\approx 1.50$ mA（β = 100）と約 25% 小さくなり不合格です。\n- **エミッタを gnd に直結する（RE なし）**: ベースが 0.7 V に引き下げられ、分圧からベースに約 $(3.0 - 0.7)/1.875\\,\\mathrm{k} \\approx 1.2$ mA もの電流が流れ込みます。両方とも飽和し、`cA`・`cB` = 0.2 V、$I_C \\approx 4.7$ mA で不合格です。\n- **分圧の式で上下を取り違えて $V_B = 12 \\times 7.5/10 = 9$ V とする**: $R_E = 8.3/2.0\\,\\mathrm{mA} \\approx 4.15\\,\\mathrm{k\\Omega}$ になり、実際の $V_B$ は 3 V なので $I_C$ は約 0.55 mA にしかなりません。\n- **RE を片方の回路にだけ入れる**: RE の無い側は上と同じく飽和して不合格です。",
+    "practice": "- エミッタ接地増幅回路の標準的なバイアス方式です。設計の目安は次のとおりです。\n  - $V_E$ を 1〜2 V 以上にする: $V_{BE}$ は温度で約 −2 mV/°C 変わります。50 °C 上がると約 0.1 V 下がりますが、$V_E = 2.3$ V なら $I_C$ の変化は約 4% で済みます（固定バイアスでは β の温度変化がそのまま効く）。\n  - 分圧抵抗の電流をベース電流の 10 倍以上にする: ここでは $12/10\\,\\mathrm{k} = 1.2$ mA で、ベース電流（20 µA 以下）の約 60 倍です。ただし分圧電流を増やすと消費電力が増えます。\n- 1.15 kΩ は E24 系列にありません。1.1 kΩ なら $I_C$ ≈ 2.04 mA（β = 100）/ 2.07 mA（β = 300）で合格範囲、1.2 kΩ なら約 1.87 mA（β = 100）で範囲外です。\n- RE は交流信号に対しても負帰還をかけて利得を下げます（利得 ≈ $-R_C/R_E \\approx -2.2$）。交流の利得を大きくしたいときは、RE と並列にコンデンサ（バイパスコンデンサ）を入れて交流だけ短絡します（分野C）。",
+    "next": "- **B-16**: エミッタから出力をとるエミッタフォロワ。$V_E = V_B - V_{BE}$ の関係をそのまま出力に使います。\n- **B-18**: MOSFET の分圧バイアス。ゲート分圧＋ソース抵抗という同じ考え方です。\n- **分野C（アナログ回路）**: このバイアス回路にコンデンサで信号を入れるエミッタ接地増幅回路、バイパスコンデンサと電圧利得。"
+  }
 }

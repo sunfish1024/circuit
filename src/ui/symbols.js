@@ -2,7 +2,7 @@
  * 部品の SVG 回路記号ライブラリです。
  *
  * 役割:
- * - 41種類の部品を本物の回路記号（JIS/IEC 風）で描画する
+ * - 46種類の部品を本物の回路記号（JIS/IEC 風）で描画する
  * - ピン位置（ワイヤ接続点）を記号に合わせて上書きする
  * - パレットとギャラリーでも同じ記号を使い回す
  *
@@ -59,6 +59,16 @@ function label(x, y, text, cls = "sym-label") {
   return `<text class="${cls}" x="${x}" y="${y}" text-anchor="middle">${text}</text>`;
 }
 
+
+/**
+ * 回転しても正立させたい記号内の要素を、記号の回転と逆向きに回すグループで包みます。
+ * 記号は回転グループの中で描かれるので、component.rotation の逆回転を (cx, cy) まわりにかける。
+ */
+function upright(content, component, cx, cy) {
+  const rot = ((Number(component?.rotation) || 0) % 360 + 360) % 360;
+  return rot ? `<g transform="rotate(${-rot} ${cx} ${cy})">${content}</g>` : content;
+}
+
 /**
  * 標準の 2 端子ピン位置（左 / 右）です。
  */
@@ -88,6 +98,27 @@ const PINS_GATE = [
 const PINS_DFF = [
   { x: 0, y: 16 },
   { x: 0, y: 36 },
+  { x: 96, y: 16 },
+  { x: 96, y: 36 },
+];
+
+/**
+ * 3入力ゲートの 4 端子ピン位置（A/B/C = 左, Y = 右）です。
+ */
+const PINS_GATE3 = [
+  { x: 0, y: 10 },
+  { x: 0, y: 26 },
+  { x: 0, y: 42 },
+  { x: 96, y: 26 },
+];
+
+/**
+ * クリア付き D フリップフロップの 5 端子ピン位置（D/CLK = 左, CLR = 下, Q/Q_NOT = 右）です。
+ */
+const PINS_DFF_R = [
+  { x: 0, y: 16 },
+  { x: 0, y: 36 },
+  { x: 48, y: 52 },
   { x: 96, y: 16 },
   { x: 96, y: 36 },
 ];
@@ -138,6 +169,38 @@ const PINS_MIRROR = [
   { x: 0, y: 26 },
   { x: 96, y: 16 },
   { x: 48, y: 52 },
+];
+
+/**
+ * 電圧制御スイッチ SW_V の 4 端子ピン位置です。
+ * pinNames 順 [1, 2, ctrl_p, ctrl_n]。制御入力は左（ctrl_p = 上, ctrl_n = 下）、接点は右（1 = 上, 2 = 下）。
+ * ピンが左右の辺だけなので、ID・値ラベルは上下に置け、回転しても他のラベルと重ならない。
+ */
+const PINS_SW_V = [
+  { x: 96, y: 16 },
+  { x: 96, y: 36 },
+  { x: 0, y: 16 },
+  { x: 0, y: 36 },
+];
+
+/**
+ * 乗算器 MULT の 3 端子ピン位置です。pinNames 順 [x, y, out]。入力 x = 左上、y = 左下、出力 out = 右。
+ */
+const PINS_MULT = [
+  { x: 0, y: 16 },
+  { x: 0, y: 36 },
+  { x: 96, y: 26 },
+];
+
+/**
+ * 電圧制御発振器 V_VCO の 4 端子ピン位置です。pinNames 順 [p, n, ctrl_p, ctrl_n]。
+ * 制御入力は左（ctrl_p = 上, ctrl_n = 下）、出力は右（p = 上, n = 下）。SW_V と同じ配置。
+ */
+const PINS_VCO = [
+  { x: 96, y: 16 },
+  { x: 96, y: 36 },
+  { x: 0, y: 16 },
+  { x: 0, y: 36 },
 ];
 
 /**
@@ -255,10 +318,11 @@ const SYMBOLS = {
   I_DC: {
     pins: PINS_LR,
     render: () =>
+      // 矢印はピン軸（p→n 方向の線）に沿って描く。電流は p 端子から外部回路へ流れ出すので、矢頭は p 側（0° では左）
       line(0, 26, 30, 26) +
       circle(48, 26, 18) +
-      line(48, 14, 48, 36) +
-      tri("48 40 43 32 53 32") +
+      line(38, 26, 60, 26) +
+      tri("32 26 44 20 44 32") +
       line(66, 26, 96, 26),
   },
 
@@ -269,6 +333,42 @@ const SYMBOLS = {
       circle(48, 26, 18) +
       path("M 34 26 Q 41 12 48 26 Q 55 40 62 26") +
       line(66, 26, 96, 26),
+  },
+
+  V_AM: {
+    // AM 信号源: 円の中に「搬送波 + 包絡線（振幅が膨らんで縮む波形）」と AM の文字。+ は p 側。
+    pins: PINS_LR,
+    render: (component) =>
+      line(0, 26, 30, 26) +
+      circle(48, 26, 18) +
+      line(66, 26, 96, 26) +
+      line(20, 19, 26, 19, "sym-thin") +
+      line(23, 16, 23, 22, "sym-thin") +
+      upright(
+        path("M 37 20 L 39 18 L 41 22 L 43 15.5 L 45 24.5 L 47 14 L 49 26 L 51 15.5 L 53 24.5 L 55 18 L 57 22 L 59 20", "sym-thin") +
+          label(48, 38, "AM", "sym-label-sm"),
+        component,
+        48,
+        26
+      ),
+  },
+
+  V_FM: {
+    // FM 信号源: 円の中に「周波数が変わる正弦波」と FM の文字。+ は p 側。
+    pins: PINS_LR,
+    render: (component) =>
+      line(0, 26, 30, 26) +
+      circle(48, 26, 18) +
+      line(66, 26, 96, 26) +
+      line(20, 19, 26, 19, "sym-thin") +
+      line(23, 16, 23, 22, "sym-thin") +
+      upright(
+        path("M 36 20 C 38 14, 41 14, 43 20 C 44.5 24, 46.5 24, 48 20 C 49 16.5, 50.5 16.5, 51.5 20 C 52.5 23, 53.5 23, 54.5 20 C 55.2 17.5, 56 17.5, 57 20 C 57.6 22, 58.4 22, 59 20", "sym-thin") +
+          label(48, 38, "FM", "sym-label-sm"),
+        component,
+        48,
+        26
+      ),
   },
 
   /* -------------------------------------------------------------- */
@@ -535,6 +635,71 @@ const SYMBOLS = {
     },
   },
 
+  SW_V: {
+    // 電圧制御スイッチ: 左の枠が制御入力（+ / −）、右が接点（1−2 間）。破線は「制御が接点を動かす」ことを表す。
+    // 図は開いた状態（刃が上の接点から離れている）。
+    pins: PINS_SW_V,
+    render: () =>
+      // 制御入力
+      line(0, 16, 18, 16) +
+      line(0, 36, 18, 36) +
+      `<rect class="sym-stroke" x="18" y="8" width="26" height="36" rx="2"></rect>` +
+      label(31, 24, "+") +
+      label(31, 40, "−") +
+      // 接点（1 = 上, 2 = 下）
+      line(96, 16, 78, 16) +
+      circle(78, 16, 2.5, "sym-fill") +
+      line(96, 36, 78, 36) +
+      circle(78, 36, 2.5, "sym-fill") +
+      line(78, 36, 66, 20) +
+      // 制御が接点を動かす（破線）
+      `<line class="sym-thin" x1="44" y1="26" x2="62" y2="26" stroke-dasharray="3 3"></line>`,
+  },
+
+  XTAL: {
+    // 水晶振動子: 2 枚の電極（平行な線）の間に長方形（水晶片）
+    pins: PINS_LR,
+    render: () =>
+      line(0, 26, 34, 26) +
+      line(34, 8, 34, 44) +
+      `<rect class="sym-stroke" x="41" y="13" width="14" height="26"></rect>` +
+      line(62, 8, 62, 44) +
+      line(62, 26, 96, 26),
+  },
+
+  V_VCO: {
+    // 電圧制御発振器: 四角いブロック。左が制御入力（+ / −）、右が出力（+ = p, − = n）。中に VCO の文字と正弦波。
+    pins: PINS_VCO,
+    render: (component) =>
+      line(0, 16, 22, 16) +
+      line(0, 36, 22, 36) +
+      `<rect class="sym-stroke" x="22" y="6" width="52" height="40" rx="2"></rect>` +
+      line(74, 16, 96, 16) +
+      line(74, 36, 96, 36) +
+      upright(label(29, 20, "+", "sym-label-sm"), component, 29, 17) +
+      upright(label(29, 40, "−", "sym-label-sm"), component, 29, 37) +
+      upright(label(67, 20, "+", "sym-label-sm"), component, 67, 17) +
+      upright(label(67, 40, "−", "sym-label-sm"), component, 67, 37) +
+      upright(
+        label(48, 25, "VCO") + path("M 38 35 C 41 29, 45 29, 48 35 C 51 41, 55 41, 58 35", "sym-thin"),
+        component,
+        48,
+        26
+      ),
+  },
+
+  MULT: {
+    // 乗算器: 円の中に × 。入力 x / y は左、出力 out は右。
+    pins: PINS_MULT,
+    render: () =>
+      line(0, 16, 33, 16) +
+      line(0, 36, 33, 36) +
+      circle(48, 26, 18) +
+      line(41, 19, 55, 33) +
+      line(55, 19, 41, 33) +
+      line(66, 26, 96, 26),
+  },
+
   TP: {
     pins: [{ x: 48, y: 52 }],
     idLabel: { x: 68, y: 24, anchor: "start" },
@@ -617,6 +782,72 @@ const SYMBOLS = {
       label(58, 20, "Q") +
       label(58, 40, "Q") +
       line(54, 31, 62, 31, "sym-thin"),
+  },
+
+  U_XNOR: {
+    pins: PINS_GATE,
+    render: () =>
+      line(0, 16, 30, 16) +
+      line(0, 36, 30, 36) +
+      path("M 24 8 Q 34 26 24 44") +
+      path("M 30 8 Q 40 26 30 44 Q 56 44 72 26 Q 56 8 30 8 Z") +
+      circle(76, 26, 4) +
+      line(80, 26, 96, 26),
+  },
+
+  U_AND3: {
+    pins: PINS_GATE3,
+    render: () =>
+      line(0, 10, 30, 10) +
+      line(0, 26, 30, 26) +
+      line(0, 42, 30, 42) +
+      path("M 30 4 L 46 4 A 22 22 0 0 1 46 48 L 30 48 Z") +
+      line(68, 26, 96, 26),
+  },
+
+  U_OR3: {
+    pins: PINS_GATE3,
+    render: () =>
+      line(0, 10, 32, 10) +
+      line(0, 26, 36, 26) +
+      line(0, 42, 32, 42) +
+      path("M 28 4 Q 40 26 28 48 Q 56 48 74 26 Q 56 4 28 4 Z") +
+      line(74, 26, 96, 26),
+  },
+
+  DFF_R: {
+    pins: PINS_DFF_R,
+    render: () =>
+      line(0, 16, 28, 16) +
+      line(0, 36, 28, 36) +
+      `<rect class="sym-stroke" x="28" y="4" width="40" height="38" rx="2"></rect>` +
+      line(68, 16, 96, 16) +
+      line(68, 36, 96, 36) +
+      circle(48, 45, 3) +
+      line(48, 48, 48, 52) +
+      path("M 28 32 L 36 36 L 28 40") +
+      label(38, 18, "D") +
+      label(45, 31, "CLR", "sym-label-sm") +
+      label(60, 18, "Q") +
+      label(61, 40, "Q") +
+      line(57, 31, 65, 31, "sym-thin"),
+  },
+
+  LOGIC_IN: {
+    pins: [{ x: 96, y: 26 }],
+    idLabel: { x: 30, y: 6, anchor: "middle" },
+    valueLabel: null,
+    render: (component) => {
+      const v = Number(component?.params?.value) >= 0.5 ? "1" : "0";
+      // 記号は回転グループの中で描かれるので、値の文字だけ逆回転して常に正立させる
+      const rot = ((Number(component?.rotation) || 0) % 360 + 360) % 360;
+      const cls = v === "1" ? "sym-label sym-logic-on" : "sym-label sym-logic-off";
+      return (
+        path("M 12 14 L 48 14 L 60 26 L 48 38 L 12 38 Z") +
+        `<text class="${cls}" x="34" y="31" text-anchor="middle"${rot ? ` transform="rotate(${-rot} 34 26)"` : ""}>${v}</text>` +
+        line(60, 26, 96, 26)
+      );
+    },
   },
 
   /* -------------------------------------------------------------- */

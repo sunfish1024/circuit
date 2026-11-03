@@ -7,9 +7,37 @@
  *  - L:    admittance 1/(jωL) = -j/(ωL)
  *  - V_AC: 交流電圧源（複素フェーザ Vpk·e^{jφ}）
  *  - I_AC: 交流電流源（複素フェーザ Ipk·e^{jφ}）
- *  - V_DC: AC では短絡（0V 電圧源として扱う）
+ *  - V_DC / V_PULSE: AC では短絡（0V 電圧源として扱う）
+ *  - L_RELAY: L と同じ
+ *  - TP / GND: 電気的には何もしない
+ *  - 解析周波数: 電源の freqHz と options.checks の frequencyHz すべて
+ *    （options.frequencies 指定時はそれだけ）
  *  - I_DC: AC では開放（寄与なし）
  *  - SW:   closed=true で微小抵抗、false で高抵抗
+ *
+ * 非線形素子（小信号モデル）:
+ *  回路に非線形素子があると、まず DC 解析（dc.js の runDc、V_AC は 0V・I_AC は 0A、
+ *  V_PULSE は Vlow の直流）で動作点を求め、その点で線形化した小信号モデルを使う
+ *  （SPICE の .AC と同じ）。熱電圧 VT = 26mV（dc.js の VT_THERMAL）。
+ *  - Q_NPN / Q_PNP（ハイブリッドπ）: 活性領域なら B-E 間に rπ = β/gm、C→E に
+ *    電流源 gm·v_be（gm = |IC|/VT）。出力抵抗 ro（アーリー効果）は無し（∞）。
+ *    DC の VBE 一定モデルの微分（gm=∞）ではなく教科書どおり gm = IC/VT を使う。
+ *    ベース直列抵抗（DC の 10Ω）も AC では入れない。飽和: B-E 10Ω, C-E 短絡（1mΩ）。遮断: 開放。
+ *  - M_N / M_P: 飽和領域なら D→S に gm·v_gs（gm = K·(VGS−|Vth|) = √(2K·ID)）、ゲート電流 0、
+ *    ro = ∞（チャネル長変調なし）。線形領域は抵抗 1/(K·Vov)、K=0（スイッチ）は ON で RdsOn。
+ *  - J_N: D→S に gm·v_gs（gm = −2·IDSS/VGS(off)·(1−VGS/VGS(off))）。
+ *  - D / SD / LED / ZD / TVS: 導通（降伏）中は 1Ω（DC モデルの直列抵抗と同じ）、オフは開放。
+ *  - OPAMP: 線形領域なら Vout = A(f)·(V+ − V−)、A(f) = Aol / (1 + j·f/fp)、fp = GBP/Aol
+ *    （1 次遅れの単一極。GBP ≤ 0 なら周波数特性なし）。入力電流 0、出力抵抗 0。
+ *    DC 動作点で飽和していれば出力はレール（電源ピンのノード、未配線なら固定電位）に固定。
+ *  - U_WILSON / U_CASCODE: 参照端子 0V（短絡）、出力は理想電流源（開放）。
+ *
+ * 判定用の追加解析（options.checks から自動）:
+ *  - check.sources（例 { "V2": { "phaseDeg": 0 } }）がある判定は、その電源パラメータに
+ *    置き換えた回路でも解き、ac.variants[acVariantKey(sources)] に入れる（差動/同相入力の切替用）。
+ *  - acImpedance 判定は、独立電源をすべて 0（電圧源は短絡・電流源は開放）にし、exclude の部品を
+ *    取り除いて、node−nodeRef 間に 1A を注入した電圧 = インピーダンスを ac.impedances に入れる。
+ *    非線形素子の線形化には元の回路の DC 動作点を使う。
  *
  * 結果形式:
  *  {
@@ -43,6 +71,8 @@
 
 import { registerSimulationMode } from "./simulator.js";
 import { parseMetricValue } from "../core/units.js";
+import { prepareNetlist, filterNodeResults, GMIN_NODE } from "./netlist.js";
+import { runDc, NONLINEAR_TYPES, RS_DIODE, RB_BASE, G_MIN, applyModelDefaults } from "./dc.js";
 
 const SQRT2 = Math.SQRT2;
 const DEFAULT_FREQUENCY_HZ = 1000;
@@ -175,36 +205,74 @@ function solveComplexLinearSystem(A, b) {
 
 function extractFrequencies(circuit, options) {
   if (Array.isArray(options?.frequencies) && options.frequencies.length > 0) {
-    return options.frequencies.filter((f) => Number.isFinite(f) && f > 0);
+    const list = options.frequencies.filter((f) => Number.isFinite(f) && f > 0);
+    return { frequencies: list, primary: list[0] ?? null };
   }
 
-  const freqs = new Set();
+  // 電源の周波数（先頭を primaryFrequency とする）
+  const sourceFreqs = [];
   for (const c of circuit.components) {
     if (c.type === "V_AC" || c.type === "I_AC") {
       const f = getNumericParam(c, "freqHz", 0);
+      if (Number.isFinite(f) && f > 0 && !sourceFreqs.includes(f)) sourceFreqs.push(f);
+    }
+  }
+  const primary = sourceFreqs.length > 0 ? sourceFreqs[0] : DEFAULT_FREQUENCY_HZ;
+
+  // checks の frequencyHz も解析する（線形 AC 解析なので、電源振幅のまま
+  // 任意の周波数で解いてよい。1つの電源で複数周波数の利得を判定できる）
+  const freqs = new Set([primary, ...sourceFreqs]);
+  if (Array.isArray(options?.checks)) {
+    for (const chk of options.checks) {
+      const f = chk?.frequencyHz;
       if (Number.isFinite(f) && f > 0) freqs.add(f);
     }
   }
 
-  if (freqs.size === 0) {
-    return [DEFAULT_FREQUENCY_HZ];
-  }
-  return Array.from(freqs).sort((a, b) => a - b);
+  return {
+    frequencies: Array.from(freqs).sort((a, b) => a - b),
+    primary,
+  };
 }
 
 /* ==========================================================================
    単一周波数での複素 MNA
    ========================================================================== */
 
-function solveAtFrequency(circuit, freq, warnings) {
-  const omega = 2 * Math.PI * freq;
+/** 線形化に使う「動作点が無い」場合の扱い（開放） */
+const OPEN_Y = { re: G_MIN, im: 0 };
 
-  // --- ノード列挙 ---
+/** 飽和 BJT の C-E 間（DC では VCEsat の電圧源）の小信号コンダクタンス */
+const SAT_CE_G = 1e3;
+
+/**
+ * 1 つの周波数で複素 MNA を解きます。
+ *
+ * @param {Array<object>} components 前処理済みの部品
+ * @param {number} freq
+ * @param {string[]} warnings
+ * @param {Set<string>} excludedNets
+ * @param {object} [opts]
+ * @param {Record<string, object>} [opts.ops] 非線形素子の DC 動作点（dc.operatingPoints）
+ * @param {Record<string, object>} [opts.overrides] 部品ID → 置き換える params（電源の切替用）
+ * @param {boolean} [opts.zeroSources] 独立電源をすべて 0 にする（インピーダンス計算用）
+ * @param {{node: string, ref: string}} [opts.inject] node−ref 間に 1A を注入（ref→外部→node の向き）
+ * @param {boolean} [opts.quiet] 警告を出さない
+ */
+function solveAtFrequency(components, freq, warnings, excludedNets = new Set(), opts = {}) {
+  const { ops = {}, overrides = null, zeroSources = false, inject = null, quiet = false } = opts;
+  const omega = 2 * Math.PI * freq;
+  const warn = (m) => { if (!quiet && !warnings.includes(m)) warnings.push(m); };
+
+  // --- ノード列挙（TP だけのネットなど未接続ネットは除外） ---
   const nets = new Set();
-  for (const c of circuit.components) {
+  for (const c of components) {
     for (const pin of (c.connect || [])) {
-      if (!isGroundNet(pin)) nets.add(pin);
+      if (!isGroundNet(pin) && !excludedNets.has(pin)) nets.add(pin);
     }
+  }
+  if (inject) {
+    for (const n of [inject.node, inject.ref]) if (!isGroundNet(n) && !excludedNets.has(n)) nets.add(n);
   }
   const nodeList = Array.from(nets);
   const nodeIdx = new Map();
@@ -214,15 +282,19 @@ function solveAtFrequency(circuit, freq, warnings) {
 
   // --- 素子分類 ---
   const branches = []; // アドミタンス素子 { id, p, n, y }
-  const vSources = []; // { id, p, n, value }
-  const iSources = []; // { id, p, n, value }
+  const vSources = []; // { id, p, n, value, ctrl: [[net, coef]] }  V(p)−V(n)−Σcoef·V(net) = value
+  const iSources = []; // { id, p, n, value }  p から外部回路へ value を流し出す
+  const vccs = [];     // { id, a, b, cp, cn, gm }  a→（素子内）→b へ gm·(V(cp)−V(cn)) が流れる
+  const deviceOut = []; // 素子の小信号電圧・電流の記録用
 
-  for (const c of circuit.components) {
-    if (c.type === "GND") continue;
+  for (const c0 of components) {
+    if (c0.type === "GND") continue;
+    const c = overrides?.[c0.id] ? { ...c0, params: { ...(c0.params || {}), ...overrides[c0.id] } } : c0;
     const pins = Array.isArray(c.connect) ? c.connect : [];
     if (pins.length < 2) continue;
     const p = pins[0];
     const n = pins[1];
+    const op = ops[c.id];
 
     switch (c.type) {
       case "R": {
@@ -235,36 +307,44 @@ function solveAtFrequency(circuit, freq, warnings) {
         branches.push({ id: c.id, p, n, y: { re: 0, im: omega * Cval } });
         break;
       }
-      case "L": {
+      case "L":
+      case "L_RELAY": {
         const L = Math.max(getNumericParam(c, "L", 1e-3), 1e-12);
         branches.push({ id: c.id, p, n, y: { re: 0, im: -1 / (omega * L) } });
         break;
       }
       case "V_AC": {
-        const Vpk = getNumericParam(c, "Vpk", 0);
+        const Vpk = zeroSources ? 0 : getNumericParam(c, "Vpk", 0);
         const phaseDeg = getNumericParam(c, "phaseDeg", 0);
-        vSources.push({
-          id: c.id,
-          p,
-          n,
-          value: C.fromPolar(Vpk, (phaseDeg * Math.PI) / 180),
-        });
+        vSources.push({ id: c.id, p, n, value: C.fromPolar(Vpk, (phaseDeg * Math.PI) / 180) });
         break;
       }
-      case "V_DC": {
-        // AC では短絡（0V 電圧源）
+      case "V_DC":
+      case "V_PULSE":
+      case "V_AM":
+      case "V_FM":
+      case "V_VCO": {
+        // AC では短絡（0V 電圧源）。V_PULSE も小信号的には 0V 源として扱う。
+        // V_AM / V_FM / V_VCO は単一周波数のフェーザで表せないので AC では 0V（波形は過渡解析で見る）
         vSources.push({ id: c.id, p, n, value: C.zero() });
         break;
       }
+      case "MULT": {
+        // 乗算器: DC 動作点 (X0, Y0) で線形化 vout = k·(Y0·vx + X0·vy)。
+        // 入力に直流が無ければ AC 出力は 0（ミキサ・変調は非線形動作なので過渡解析で判定する）
+        const [xN, yN, out] = pins;
+        const k = op?.k ?? getNumericParam(c, "k", 1);
+        vSources.push({
+          id: c.id, p: out, n: "gnd", value: C.zero(),
+          ctrl: [[xN, { re: k * (op?.y ?? 0), im: 0 }], [yN, { re: k * (op?.x ?? 0), im: 0 }]],
+        });
+        break;
+      }
       case "I_AC": {
+        if (zeroSources) break; // 電流源を 0 にする = 開放
         const Ipk = getNumericParam(c, "Ipk", 0);
         const phaseDeg = getNumericParam(c, "phaseDeg", 0);
-        iSources.push({
-          id: c.id,
-          p,
-          n,
-          value: C.fromPolar(Ipk, (phaseDeg * Math.PI) / 180),
-        });
+        iSources.push({ id: c.id, p, n, value: C.fromPolar(Ipk, (phaseDeg * Math.PI) / 180) });
         break;
       }
       case "I_DC":
@@ -276,10 +356,88 @@ function solveAtFrequency(circuit, freq, warnings) {
         branches.push({ id: c.id, p, n, y: { re: g, im: 0 } });
         break;
       }
+      case "WIRE":
+        branches.push({ id: c.id, p, n, y: { re: CLOSED_SWITCH_G, im: 0 } });
+        break;
+
+      // ---------------- 非線形素子（DC 動作点で線形化） ----------------
+      case "D":
+      case "SD":
+      case "LED":
+      case "ZD":
+      case "TVS": {
+        const on = op && op.region !== "off";
+        const rs = Math.max(getNumericParam(c, "Rs", RS_DIODE), 1e-4);
+        branches.push({ id: c.id, p, n, y: on ? { re: 1 / rs, im: 0 } : OPEN_Y });
+        break;
+      }
+      case "SW_V": {
+        // 電圧制御スイッチ: DC 動作点の状態（on なら Ron、off なら Roff）の抵抗
+        const on = op?.region === "on";
+        const r = on ? Math.max(getNumericParam(c, "Ron", 0.01), 1e-6) : Math.max(getNumericParam(c, "Roff", 1e9), 1e-6);
+        branches.push({ id: c.id, p, n, y: { re: 1 / r, im: 0 } });
+        break;
+      }
+      case "Q_NPN":
+      case "Q_PNP": {
+        const [cN, bN, eN] = pins;
+        if (!op) warn(`AC解析: ${c.id} の動作点がありません（開放として扱います）`);
+        if (op?.region === "active") {
+          branches.push({ id: `${c.id}#rpi`, p: bN, n: eN, y: { re: op.gm / op.beta, im: 0 } });
+          vccs.push({ id: c.id, a: cN, b: eN, cp: bN, cn: eN, gm: op.gm });
+          deviceOut.push({ id: c.id, vp: cN, vn: eN, gm: op.gm, cp: bN, cn: eN });
+        } else if (op?.region === "saturation") {
+          branches.push({ id: `${c.id}#be`, p: bN, n: eN, y: { re: 1 / RB_BASE, im: 0 } });
+          branches.push({ id: `${c.id}#ce`, p: cN, n: eN, y: { re: SAT_CE_G, im: 0 } });
+        } else {
+          branches.push({ id: `${c.id}#be`, p: bN, n: eN, y: OPEN_Y });
+          branches.push({ id: `${c.id}#ce`, p: cN, n: eN, y: OPEN_Y });
+        }
+        break;
+      }
+      case "M_N":
+      case "M_P":
+      case "J_N": {
+        const [dN, gN, sN] = pins;
+        if (!op) warn(`AC解析: ${c.id} の動作点がありません（開放として扱います）`);
+        if (op && op.gm > 0) {
+          vccs.push({ id: c.id, a: dN, b: sN, cp: gN, cn: sN, gm: op.gm });
+          deviceOut.push({ id: c.id, vp: dN, vn: sN, gm: op.gm, cp: gN, cn: sN });
+        }
+        const gds = op?.gds > 0 ? op.gds : G_MIN;
+        branches.push({ id: `${c.id}#ds`, p: dN, n: sN, y: { re: gds, im: 0 } });
+        break;
+      }
+      case "OPAMP": {
+        const [inP, inM, out] = pins;
+        if (!op) warn(`AC解析: ${c.id} の動作点がありません`);
+        if (!op || op.region === "linear") {
+          const aol = Math.max(getNumericParam(c, "Aol", 1e5), 1);
+          const gbp = getNumericParam(c, "GBP", 1e6);
+          // A(f) = Aol / (1 + j f/fp)、fp = GBP/Aol（GBP ≤ 0 なら周波数特性なし）
+          let A = { re: aol, im: 0 };
+          if (gbp > 0) A = C.div({ re: aol, im: 0 }, { re: 1, im: (freq * aol) / gbp });
+          vSources.push({
+            id: c.id, p: out, n: "gnd", value: C.zero(),
+            ctrl: [[inP, A], [inM, { re: -A.re, im: -A.im }]],
+          });
+        } else {
+          const railNet = op.region === "satHigh" ? op.railHighNet : op.railLowNet;
+          vSources.push({ id: c.id, p: out, n: railNet ?? "gnd", value: C.zero() });
+        }
+        break;
+      }
+      case "U_WILSON":
+      case "U_CASCODE":
+        // 参照端子は Vref の電圧源 → AC では短絡。出力は理想電流源 → 開放
+        vSources.push({ id: c.id, p: pins[0], n: pins[2], value: C.zero() });
+        break;
       default:
-        warnings.push(`AC解析では未対応の部品: ${c.id} (${c.type})`);
+        warn(`AC解析では未対応の部品です（無視されます）: ${c.id} (${c.type})`);
     }
   }
+
+  if (inject) iSources.push({ id: "__inject", p: inject.node, n: inject.ref ?? "gnd", value: C.one() });
 
   const M = vSources.length;
   const size = N + M;
@@ -296,6 +454,9 @@ function solveAtFrequency(circuit, freq, warnings) {
   );
   const b = new Array(size).fill(null).map(() => C.zero());
 
+  // 全ノードに Gmin（浮いたノードがあっても解けるように）
+  for (let i = 0; i < N; i++) A[i][i] = C.add(A[i][i], { re: GMIN_NODE, im: 0 });
+
   // アドミタンススタンプ
   for (const br of branches) {
     const p = idx(br.p);
@@ -308,6 +469,20 @@ function solveAtFrequency(circuit, freq, warnings) {
     }
   }
 
+  // 電圧制御電流源（トランジスタの gm）
+  for (const g of vccs) {
+    const a = idx(g.a);
+    const bb = idx(g.b);
+    const cp = idx(g.cp);
+    const cn = idx(g.cn);
+    const gm = { re: g.gm, im: 0 };
+    for (const [row, sign] of [[a, 1], [bb, -1]]) {
+      if (row < 0) continue;
+      if (cp >= 0) A[row][cp] = C.add(A[row][cp], { re: sign * gm.re, im: 0 });
+      if (cn >= 0) A[row][cn] = C.sub(A[row][cn], { re: sign * gm.re, im: 0 });
+    }
+  }
+
   // 電流源スタンプ
   for (const cs of iSources) {
     const p = idx(cs.p);
@@ -316,7 +491,7 @@ function solveAtFrequency(circuit, freq, warnings) {
     if (n >= 0) b[n] = C.sub(b[n], cs.value);
   }
 
-  // 電圧源スタンプ
+  // 電圧源スタンプ（制御項つき: 電圧制御電圧源）
   for (let k = 0; k < M; k++) {
     const vs = vSources[k];
     const p = idx(vs.p);
@@ -329,6 +504,10 @@ function solveAtFrequency(circuit, freq, warnings) {
     if (n >= 0) {
       A[n][row] = C.sub(A[n][row], C.one());
       A[row][n] = C.sub(A[row][n], C.one());
+    }
+    for (const [net, coef] of vs.ctrl ?? []) {
+      const j = idx(net);
+      if (j >= 0) A[row][j] = C.sub(A[row][j], coef);
     }
     b[row] = vs.value;
   }
@@ -356,6 +535,7 @@ function solveAtFrequency(circuit, freq, warnings) {
   const elements = {};
 
   for (const br of branches) {
+    if (br.id.includes("#")) continue; // 素子内部の小信号要素は出さない
     const v = C.sub(vOf(br.p), vOf(br.n));
     const i = C.mul(v, br.y);
     const s = C.mul(v, C.conj(i)); // 複素電力 S = V·I*
@@ -369,6 +549,7 @@ function solveAtFrequency(circuit, freq, warnings) {
   }
 
   for (const cs of iSources) {
+    if (cs.id === "__inject") continue;
     const v = C.sub(vOf(cs.p), vOf(cs.n));
     const s = C.mul(v, C.conj(cs.value));
     elements[cs.id] = {
@@ -394,18 +575,165 @@ function solveAtFrequency(circuit, freq, warnings) {
     };
   }
 
+  // トランジスタ: v = V(C/D) − V(E/S)、i = 小信号コレクタ（ドレイン）電流 gm·v_be(gs)
+  for (const d of deviceOut) {
+    const v = C.sub(vOf(d.vp), vOf(d.vn));
+    const vc = C.sub(vOf(d.cp), vOf(d.cn));
+    const i = { re: d.gm * vc.re, im: d.gm * vc.im };
+    const s = C.mul(v, C.conj(i));
+    elements[d.id] = { [freq]: { v: describeComplex(v), i: describeComplex(i), p: { re: s.re, im: s.im } } };
+  }
+
   return { nodes, elements };
+}
+
+/* ==========================================================================
+   判定用キー（runner.js と共通）
+   ========================================================================== */
+
+/** 電源の置き換え指定（check.sources）から ac.variants のキーを作ります。 */
+export function acVariantKey(sources) {
+  if (!sources || typeof sources !== "object") return "";
+  const ids = Object.keys(sources).sort();
+  return JSON.stringify(ids.map((id) => [id, Object.keys(sources[id] || {}).sort().map((k) => [k, sources[id][k]])]));
+}
+
+/** loopGain 判定から ac.loopGains のキーを作ります。 */
+export function loopGainKey(check) {
+  return JSON.stringify([
+    check?.input ?? "vin", check?.inputRef ?? "", check?.output ?? "out", check?.outputRef ?? "",
+    Number(check?.fMinHz), Number(check?.fMaxHz), Number(check?.phaseDeg ?? 0),
+  ]);
+}
+
+/** loopGain の掃引の点数（1 ディケードあたり）と二分法の回数 */
+const LOOP_SWEEP_PER_DECADE = 100;
+const LOOP_BISECT_ITER = 50;
+
+/** (−180, 180] に正規化した角度（度） */
+function wrapDeg(d) {
+  let x = d % 360;
+  if (x > 180) x -= 360;
+  if (x <= -180) x += 360;
+  return x;
+}
+
+/**
+ * loopGain 判定用の掃引: fMinHz〜fMaxHz を対数で掃引し、伝達関数 H = V(output)/V(input) の位相が
+ * phaseDeg（既定 0°、360° の倍数の違いは同一視）を横切る周波数を二分法で求める。
+ * 位相が ±180° を越えて折り返す点（位相の跳び）は横切りとみなさない。
+ * @returns {Array<{ frequencyHz, gain, gainDB, phaseDeg }>} 横切る点（周波数の昇順）
+ */
+function sweepLoopGain(components, check, warnings, excludedNets, ops) {
+  const fMin = Number(check.fMinHz);
+  const fMax = Number(check.fMaxHz);
+  if (!(fMin > 0) || !(fMax > fMin)) return { error: "fMinHz / fMaxHz（掃引範囲）が不正です。" };
+  const target = Number.isFinite(Number(check.phaseDeg)) ? Number(check.phaseDeg) : 0;
+  const inN = check.input ?? "vin";
+  const outN = check.output ?? "out";
+  const H = (f) => {
+    const res = solveAtFrequency(components, f, warnings, excludedNets, { ops, quiet: true });
+    if (!res) return null;
+    const get = (net) => {
+      if (!net || net === "gnd" || net === "0") return { re: 0, im: 0 };
+      const d = res.nodes[net]?.[f];
+      return d ? { re: d.re, im: d.im } : null;
+    };
+    const a = get(inN);
+    const ar = check.inputRef ? get(check.inputRef) : { re: 0, im: 0 };
+    const o = get(outN);
+    const orf = check.outputRef ? get(check.outputRef) : { re: 0, im: 0 };
+    if (!a || !ar || !o || !orf) return null;
+    const vi = C.sub(a, ar);
+    const vo = C.sub(o, orf);
+    if (!(C.abs(vi) > 0)) return null;
+    const h = C.div(vo, vi);
+    return { mag: C.abs(h), d: wrapDeg((C.arg(h) * 180) / Math.PI - target) };
+  };
+  const decades = Math.log10(fMax / fMin);
+  const n = Math.max(20, Math.ceil(decades * LOOP_SWEEP_PER_DECADE));
+  const crossings = [];
+  let failed = null;
+  // 区間 [f1, f2] を調べる。位相の変化が大きい区間（Q の高い共振。水晶では 1 刻みで 180° 近く回る）は
+  // 細かく分けてから「横切り」か「±180° の折り返し」かを判断する
+  const scan = (f1, h1, f2, h2, depth) => {
+    if (Math.abs(h2.d - h1.d) > 45 && depth < 30) {
+      const fm = Math.sqrt(f1 * f2);
+      const hm = H(fm);
+      if (!hm) { failed = fm; return; }
+      scan(f1, h1, fm, hm, depth + 1);
+      scan(fm, hm, f2, h2, depth + 1);
+      return;
+    }
+    // 符号が変わり、かつ位相の折り返し（±180° の跳び）でない → 目標位相を横切った
+    if ((h1.d <= 0) === (h2.d <= 0) || Math.abs(h2.d - h1.d) >= 180) return;
+    let lo = f1;
+    let hi = f2;
+    let dLo = h1.d;
+    for (let it = 0; it < LOOP_BISECT_ITER; it++) {
+      const mid = Math.sqrt(lo * hi);
+      const m = H(mid);
+      if (!m) break;
+      if ((m.d <= 0) === (dLo <= 0)) { lo = mid; dLo = m.d; } else hi = mid;
+    }
+    const fc = Math.sqrt(lo * hi);
+    const r = H(fc);
+    if (r) crossings.push({ frequencyHz: fc, gain: r.mag, gainDB: 20 * Math.log10(r.mag), phaseDeg: wrapDeg(r.d + target) });
+  };
+  // 掃引点: 対数の等間隔に加え、L と C の組の共振周波数 1/(2π√(LC)) とその前後（±0.1%, ±1%）を入れる。
+  // Q の高い共振（水晶の fs〜fp は 0.25% 幅）は等間隔の点の間に隠れて見落とすため
+  const grid = [];
+  for (let k = 0; k <= n; k++) grid.push(fMin * 10 ** ((decades * k) / n));
+  const Ls = components.filter((c) => c.type === "L" || c.type === "L_RELAY").map((c) => getNumericParam(c, "L", 1e-3));
+  const Cs = components.filter((c) => c.type === "C").map((c) => getNumericParam(c, "C", 1e-6));
+  for (const L of Ls) {
+    for (const Cv of Cs) {
+      if (!(L > 0 && Cv > 0)) continue;
+      const f0 = 1 / (2 * Math.PI * Math.sqrt(L * Cv));
+      for (const r of [0.99, 0.999, 1, 1.001, 1.01]) {
+        const f = f0 * r;
+        if (f > fMin && f < fMax) grid.push(f);
+      }
+    }
+  }
+  grid.sort((a, b) => a - b);
+  let prevF = fMin;
+  let prev = H(fMin);
+  if (!prev) return { error: `ノード ${inN} / ${outN} の AC 電圧を求められませんでした（入力の振幅が 0 か、ノードが回路にありません）。` };
+  for (let k = 1; k < grid.length; k++) {
+    const f = grid[k];
+    if (!(f > prevF)) continue;
+    const cur = H(f);
+    if (!cur) return { error: `${f.toPrecision(4)}Hz で AC 解析に失敗しました。` };
+    scan(prevF, prev, f, cur, 0);
+    if (failed) return { error: `${failed.toPrecision(4)}Hz で AC 解析に失敗しました。` };
+    prevF = f;
+    prev = cur;
+  }
+  return { crossings };
+}
+
+/** acImpedance 判定から ac.impedances のキーを作ります。 */
+export function acImpedanceKey(check) {
+  const exclude = Array.isArray(check?.exclude) ? [...check.exclude].map(String).sort() : [];
+  return JSON.stringify([check?.node ?? "", check?.nodeRef ?? "gnd", exclude]);
 }
 
 /* ==========================================================================
    公開 API
    ========================================================================== */
 
-export function runAc(circuit, options = {}) {
+export function runAc(circuitIn, options = {}) {
   const errors = [];
   const warnings = [];
 
-  const frequencies = extractFrequencies(circuit, options);
+  // 未配線ピン・TP だけのネット・浮いたネットの前処理（netlist.js）
+  const prep = prepareNetlist(applyModelDefaults(circuitIn.components, options));
+  const circuit = { ...circuitIn, components: prep.components };
+  warnings.push(...prep.warnings);
+  const excludedNets = new Set(prep.unconnectedNets);
+
+  const { frequencies, primary } = extractFrequencies(circuit, options);
 
   if (frequencies.length === 0) {
     return {
@@ -416,11 +744,32 @@ export function runAc(circuit, options = {}) {
     };
   }
 
+  // --- 非線形素子があれば DC 動作点を求める ---
+  let ops = {};
+  let operatingPoints = null;
+  if (circuit.components.some((c) => NONLINEAR_TYPES.has(c.type))) {
+    const opComponents = circuit.components.map((c) =>
+      c.type === "V_PULSE"
+        ? { ...c, type: "V_DC", params: { V: getNumericParam(c, "Vlow", 0) } }
+        : c
+    );
+    const dcRes = runDc({ ...circuit, components: opComponents });
+    for (const w of dcRes.warnings || []) {
+      if (!prep.warnings.includes(w)) warnings.push(`動作点: ${w}`);
+    }
+    if (!dcRes.ok) {
+      errors.push("AC解析の前に DC 動作点を求められませんでした。" + (dcRes.errors || []).join(" "));
+      return { ok: false, ac: { frequencies, primaryFrequency: primary, nodes: {}, elements: {} }, errors, warnings };
+    }
+    ops = dcRes.dc.operatingPoints || {};
+    operatingPoints = ops;
+  }
+
   const allNodes = {};
   const allElements = {};
 
   for (const freq of frequencies) {
-    const res = solveAtFrequency(circuit, freq, warnings);
+    const res = solveAtFrequency(circuit.components, freq, warnings, excludedNets, { ops });
     if (!res) {
       errors.push(
         `AC シミュレーションに失敗しました（${freq} Hz）。浮遊ノードや短絡がないか確認してください。`
@@ -437,13 +786,68 @@ export function runAc(circuit, options = {}) {
     }
   }
 
+  // --- 判定用の追加解析 ---
+  const variants = {};
+  const impedances = {};
+  const loopGains = {};
+  const checks = Array.isArray(options?.checks) ? options.checks : [];
+  for (const chk of checks) {
+    if (chk?.type === "loopGain") {
+      const key = loopGainKey(chk);
+      if (!loopGains[key]) loopGains[key] = sweepLoopGain(circuit.components, chk, warnings, excludedNets, ops);
+    }
+  }
+  const checkFreqs = (chk) => (Number.isFinite(chk?.frequencyHz) && chk.frequencyHz > 0 ? [chk.frequencyHz] : [primary]);
+  for (const chk of checks) {
+    if (chk?.sources && typeof chk.sources === "object") {
+      const key = acVariantKey(chk.sources);
+      const v = (variants[key] ??= { nodes: {} });
+      for (const freq of checkFreqs(chk)) {
+        const res = solveAtFrequency(circuit.components, freq, warnings, excludedNets, { ops, overrides: chk.sources, quiet: true });
+        if (!res) continue;
+        for (const [net, freqMap] of Object.entries(res.nodes)) {
+          v.nodes[net] = { ...(v.nodes[net] || {}), ...freqMap };
+        }
+      }
+      v.nodes = filterNodeResults(v.nodes, prep);
+    }
+    if (chk?.type === "acImpedance" && typeof chk.node === "string") {
+      const key = acImpedanceKey(chk);
+      const exclude = new Set(Array.isArray(chk.exclude) ? chk.exclude : []);
+      const comps = circuit.components.filter((c) => !exclude.has(c.id));
+      const ref = chk.nodeRef ?? "gnd";
+      const entry = (impedances[key] ??= {});
+      const present = (net) => isGroundNet(net) || comps.some((c) => c.type !== "TP" && (c.connect || []).includes(net));
+      for (const freq of checkFreqs(chk)) {
+        if (!present(chk.node) || !present(ref) || excludedNets.has(chk.node)) {
+          entry[freq] = null;
+          continue;
+        }
+        const res = solveAtFrequency(comps, freq, warnings, excludedNets, {
+          ops, zeroSources: true, inject: { node: chk.node, ref }, quiet: true,
+        });
+        if (!res) { entry[freq] = null; continue; }
+        const vn = res.nodes[chk.node]?.[freq] ?? { re: 0, im: 0 };
+        const vr = isGroundNet(ref) ? { re: 0, im: 0 } : (res.nodes[ref]?.[freq] ?? { re: 0, im: 0 });
+        const z = { re: vn.re - vr.re, im: vn.im - vr.im };
+        entry[freq] = { re: z.re, im: z.im, magnitude: C.abs(z), phaseDeg: (C.arg(z) * 180) / Math.PI };
+      }
+    }
+  }
+
   return {
     ok: errors.length === 0,
     ac: {
       frequencies,
-      primaryFrequency: frequencies[0],
-      nodes: allNodes,
+      primaryFrequency: primary,
+      nodes: filterNodeResults(allNodes, prep),
+      unconnectedNets: prep.unconnectedNets,
+      floatingNets: prep.floatingNets,
       elements: allElements,
+      operatingPoints,
+      variants,
+      impedances,
+      loopGains,
     },
     errors,
     warnings,

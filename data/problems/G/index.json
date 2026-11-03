@@ -1,0 +1,104 @@
+{
+  "problems": [
+    {
+      "id": "G-01",
+      "title": "AND・OR・NOT ゲートを置いてつなぐ",
+      "difficulty": 1
+    },
+    {
+      "id": "G-02",
+      "title": "NAND と NOR ―「0 で点く」ランプを動かす",
+      "difficulty": 1
+    },
+    {
+      "id": "G-03",
+      "title": "XOR と XNOR ― 2つのセンサの不一致・一致を検出する",
+      "difficulty": 2
+    },
+    {
+      "id": "G-04",
+      "title": "ド・モルガンの法則 ― AND と NOT だけで OR を作る",
+      "difficulty": 2
+    },
+    {
+      "id": "G-05",
+      "title": "NAND だけで NOT を作る ― 余ったゲートの活用",
+      "difficulty": 2
+    },
+    {
+      "id": "G-06",
+      "title": "NAND だけで AND と OR を作る",
+      "difficulty": 2
+    },
+    {
+      "id": "G-07",
+      "title": "NOR だけでモータの速度指令を作る",
+      "difficulty": 3
+    },
+    {
+      "id": "G-08",
+      "title": "NAND 4 個で XOR を作る",
+      "difficulty": 3
+    },
+    {
+      "id": "G-09",
+      "title": "真理値表から回路を作る（積和形）",
+      "difficulty": 3
+    },
+    {
+      "id": "G-10",
+      "title": "カルノー図で簡単化して 3 個のゲートで作る",
+      "difficulty": 4
+    },
+    {
+      "id": "G-11",
+      "title": "多数決回路: 3つのセンサーのうち2つ以上が異常なら止める",
+      "difficulty": 3
+    },
+    {
+      "id": "G-12",
+      "title": "奇数パリティビットを作る（XOR をつなぐ）",
+      "difficulty": 3
+    },
+    {
+      "id": "G-13",
+      "title": "半加算器: 1ビットどうしの足し算",
+      "difficulty": 2
+    },
+    {
+      "id": "G-14",
+      "title": "全加算器: 下の桁からの桁上げも足す",
+      "difficulty": 3
+    },
+    {
+      "id": "G-15",
+      "title": "2ビット加算器: 半加算器と全加算器をつなぐ",
+      "difficulty": 4
+    },
+    {
+      "id": "G-16",
+      "title": "2:1 マルチプレクサ（データセレクタ）",
+      "difficulty": 3
+    },
+    {
+      "id": "G-17",
+      "title": "4:1 マルチプレクサ（2 ビットの選択信号）",
+      "difficulty": 4
+    },
+    {
+      "id": "G-18",
+      "title": "イネーブル付き 2→4 デコーダ",
+      "difficulty": 4
+    },
+    {
+      "id": "G-19",
+      "title": "プライオリティエンコーダ（優先順位つきの番号化）",
+      "difficulty": 4
+    },
+    {
+      "id": "G-20",
+      "title": "総合: 2 ビット大小比較器をゲート 10 個以内で",
+      "difficulty": 5
+    }
+  ]
+}

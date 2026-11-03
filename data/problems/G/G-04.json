@@ -1,0 +1,142 @@
+{
+  "id": "G-04",
+  "category": "G",
+  "title": "ド・モルガンの法則 ― AND と NOT だけで OR を作る",
+  "difficulty": 2,
+  "prerequisites": [
+    "G-02"
+  ],
+  "learningGoal": "ド・モルガンの法則 $\\overline{A+B} = \\overline{A}\\cdot\\overline{B}$ を真理値表で確かめ、手元にないゲートを別のゲートの組み合わせで作れるようになる。",
+  "judge": "digital",
+  "statement": "### 状況\nG-01 の呼び出しランプ（a と b の**どちらかを**押したら 1 になる信号）を、試作基板の上で作ろうとしています。ところが部品箱を見ると OR ゲートの IC が品切れで、**AND ゲートと NOT ゲートしかありません**。\n\nそこで、まず「**どちらのボタンも押されていない**」ことを表す信号 `idle` を作り、それを使って呼び出し信号 `call` を作ることにしました。\n\n| 出力ネット | 意味 | いつ 1 にするか |\n|---|---|---|\n| `idle` | 待機中 | a も b も押されていない（a=0 かつ b=0）とき |\n| `call` | 呼び出し | a と b のどちらか（両方でもよい）を押しているとき |\n\n### やること\n1. 「a が 0 **かつ** b が 0」を NOT と AND で表して、`idle` を作る。\n2. 「どちらかを押している」は「どちらも押されていない」の**ちょうど反対**であることを使って、`idle` から `call` を作る。\n3. 出力をテストポイント IDLE（`idle`）・CALL（`call`）につなぎ、「チェック」を押す。\n\n### 条件\n- 使えるゲート: **AND と NOT だけ**（何個使ってもよい）。\n- ゲートは理想的な論理素子とします（電圧・電流・遅延は考えません）。入力を変えて出力が落ち着いた後の値で判定します。\n- ゲートの入力ピンは必ずどこかにつなぐ。1つの出力から複数のゲート入力へ配線してよい（`idle` は TP と次のゲートの両方につなげる）。\n- 判定: a・b の 4 通りすべてで `idle`・`call` が上の表のとおりになること。",
+  "hints": [
+    "「a が 0」は「$\\overline{a}$ が 1」と同じです。だから「a が 0 かつ b が 0」は、a と b をそれぞれ NOT で反転してから AND すれば作れます。",
+    "$idle = \\overline{a}\\cdot\\overline{b}$。`call` はその反転なので $call = \\overline{\\overline{a}\\cdot\\overline{b}}$ です。これが $a+b$ と等しい、というのがド・モルガンの法則です。",
+    "NOT を3個、AND を1個使います。NOT① の A を `a`、NOT② の A を `b` につなぎ、2つの NOT の出力を AND の A・B へ、AND の Y を `idle` へ。最後に NOT③ の A を `idle`、Y を `call` へ。"
+  ],
+  "availableComponents": [
+    "U_AND",
+    "U_NOT"
+  ],
+  "fixedComponents": [
+    {
+      "id": "A",
+      "type": "LOGIC_IN",
+      "params": {
+        "value": 0
+      },
+      "connect": [
+        "a"
+      ],
+      "locked": true,
+      "position": {
+        "x": 40,
+        "y": 140
+      }
+    },
+    {
+      "id": "B",
+      "type": "LOGIC_IN",
+      "params": {
+        "value": 0
+      },
+      "connect": [
+        "b"
+      ],
+      "locked": true,
+      "position": {
+        "x": 40,
+        "y": 320
+      }
+    },
+    {
+      "id": "IDLE",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "idle"
+      ],
+      "locked": true,
+      "position": {
+        "x": 460,
+        "y": 100
+      }
+    },
+    {
+      "id": "CALL",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "call"
+      ],
+      "locked": true,
+      "position": {
+        "x": 680,
+        "y": 260
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "truthTable",
+      "inputs": [
+        "a",
+        "b"
+      ],
+      "outputs": [
+        "idle",
+        "call"
+      ],
+      "expect": {
+        "idle": "1000",
+        "call": "0111"
+      }
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "UNOT1",
+      "type": "U_NOT",
+      "params": {},
+      "connect": [
+        "a",
+        "na"
+      ]
+    },
+    {
+      "id": "UNOT2",
+      "type": "U_NOT",
+      "params": {},
+      "connect": [
+        "b",
+        "nb"
+      ]
+    },
+    {
+      "id": "UAND1",
+      "type": "U_AND",
+      "params": {},
+      "connect": [
+        "na",
+        "nb",
+        "idle"
+      ]
+    },
+    {
+      "id": "UNOT3",
+      "type": "U_NOT",
+      "params": {},
+      "connect": [
+        "idle",
+        "call"
+      ]
+    }
+  ],
+  "explanation": {
+    "solution": "**1. `idle` を論理式にする**\n\n「a が 0」は「$\\overline{a}$ が 1」と言いかえられます。よって\n\n$$idle = \\overline{a}\\cdot\\overline{b}$$\n\n**2. `call` を論理式にする**\n\n「どちらかを押している」は「どちらも押されていない」の否定なので\n\n$$call = \\overline{idle} = \\overline{\\overline{a}\\cdot\\overline{b}}$$\n\n**3. 真理値表で確かめる**\n\n| a | b | $\\overline{a}$ | $\\overline{b}$ | `idle` | `call` | $a+b$ |\n|---|---|---|---|---|---|---|\n| 0 | 0 | 1 | 1 | 1 | 0 | 0 |\n| 0 | 1 | 1 | 0 | 0 | 1 | 1 |\n| 1 | 0 | 0 | 1 | 0 | 1 | 1 |\n| 1 | 1 | 0 | 0 | 0 | 1 | 1 |\n\n`call` の列は OR（$a+b$）の列と完全に一致します。OR ゲートがなくても OR が作れました。\n\n**4. 配線（NOT 3個 ＋ AND 1個）**\n- NOT①: A→`a`（出力は途中のネット $\\overline{a}$）\n- NOT②: A→`b`（出力は途中のネット $\\overline{b}$）\n- AND: A→NOT① の出力、B→NOT② の出力、Y→`idle`\n- NOT③: A→`idle`、Y→`call`",
+    "why": "**ド・モルガンの法則**（2つの形）\n\n$$\\overline{A+B} = \\overline{A}\\cdot\\overline{B} \\qquad \\overline{A\\cdot B} = \\overline{A}+\\overline{B}$$\n\n言葉にすると「『A または B』でない ＝ A でなく、かつ B でない」「『A かつ B』でない ＝ A でないか、または B でない」です。全体にかかる否定を中へ配ると、**AND と OR が入れかわり、各入力が反転する**、と覚えます。\n\n- 1つ目の式から、`idle` $= \\overline{a}\\cdot\\overline{b}$ は $\\overline{a+b}$、つまり NOR と同じです（G-02 の `led2_n` と同じ真理値表 1, 0, 0, 0）。\n- これを NOT で反転すると、二重否定 $\\overline{\\overline{X}} = X$ により $call = a + b$ になります。\n- 証明は真理値表で十分です。入力は 4 通りしかないので、全部の行で両辺が一致すれば、2つの式は等しいといえます。\n- 回路記号でも表せます。NOR（OR ＋ 出力の丸）は「入力に丸の付いた AND」と同じ働きで、NAND（AND ＋ 出力の丸）は「入力に丸の付いた OR」と同じ働きです。負論理の信号を扱う回路図では、こちらの描き方もよく使われます。",
+    "mistakes": "- **否定を配るときに AND と OR を入れかえ忘れる**: $\\overline{a+b}$ を $\\overline{a}+\\overline{b}$ としてしまうと、それは NAND（1, 1, 1, 0）で、`idle` が (0,1)・(1,0) の行で不合格になります。この問題では AND しか使えないので起こりにくいですが、式を変形するときに最も多い間違いです。\n- **入力を反転しないで AND する**: `idle` $= a\\cdot b$（0, 0, 0, 1）になり、(0,0) と (1,1) の行で不合格です。「押されていない」の「ない」を入れ忘れています。\n- **最後の NOT を忘れる**: `call` を AND の出力から直接取ると、`call` は `idle` と同じ 1, 0, 0, 0 になり、OR とちょうど逆なので 4 行とも不合格です。\n- **NOT① の入力と出力を逆につなぐ**: NOT の出力が論理入力 A のネット `a` とぶつかって衝突になり、不合格です。",
+    "practice": "- 実際の基板設計でも「あと OR が1個ほしいが、載っている IC の空きゲートは AND と NOT（または NAND）だけ」ということはよくあります。新しい IC を1個増やすより、空いているゲートをド・モルガンの法則で組み替える方が、部品代と基板の面積を節約できます。\n- ド・モルガンの法則は、プログラムの条件式を書きかえるとき（C 言語の `!(x || y)` は `!x && !y`）や、論理合成ツールが回路を NAND・NOR 中心の形に変換するときにも使われています。\n- ただし、ゲートを何段も通すと、1段ごとに伝搬遅延（74HC 系で数 ns〜十数 ns）が加わります。この問題の回路は NOT→AND→NOT の3段で、OR ゲート1個（1段）より遅くなります。速さが重要な回路では段数にも注意します。",
+    "next": "- **G-05**: NAND だけで NOT を作る。ド・モルガンの法則と組み合わせると、NAND だけで AND・OR も作れます（G-06）。\n- **G-07**: NOR だけで組む回路。この問題の `idle` が NOR と同じだったことが手がかりになります。\n- **G-10**: カルノー図を使った論理式の簡単化。ド・モルガンの法則は式を変形する基本の道具です。"
+  }
+}

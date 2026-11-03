@@ -23,9 +23,29 @@
  *   接続（ネット名）は変化しない。
  */
 
-import { CONFIG } from "../config.js";
+import { CONFIG, getStorageKey } from "../config.js";
 import { eventBus } from "../core/eventBus.js";
-import { getSymbolBody, getSymbolDefinition, getSymbolPins } from "./symbols.js";
+import { getSymbolBody, getSymbolDefinition } from "./symbols.js";
+import {
+  COMP_H,
+  COMP_SCALE,
+  COMP_W,
+  SNAP,
+  componentValueText,
+  computeFixedLayout,
+  computeLabelLayout,
+  getComponentRect,
+  getFixedContentExtent,
+  getInnerRotationTransform,
+  getLabelRects,
+  getPinPoint as geoGetPinPoint,
+  getRotatedBox,
+  getRotatedPinGeometry as geoGetRotatedPinGeometry,
+  inflateRect,
+  normalizeRotation,
+  rectsOverlap,
+  segmentCrossesRect,
+} from "./geometry.js";
 import {
   loadGameData,
   loadProblem,
@@ -36,9 +56,22 @@ import { simulate } from "../sim/simulator.js";
 import { runChecks, summarizeCheckResults } from "../checks/runner.js";
 import { formatMetricValue } from "../core/units.js";
 import {
+  bindLearningEvents,
+  collectAnswers,
+  countSolved,
+  getModal,
+  getProblemProgress,
+  markSolved,
+  openModal,
+  renderModalHtml,
+  renderProblemPanelHtml,
+  resetProblemView,
+} from "./learning.js";
+import {
   addComponent,
   addWire,
   clearBoard,
+  clearSelection,
   getComponentById,
   getState,
   removeComponent,
@@ -91,19 +124,11 @@ let wireDraft = null; // { componentId, pin }
 /** パレットからボードへのドラッグ中にクリックを抑制するフラグ。 */
 let suppressPaletteClick = false;
 
-/** 部品シンボルのサイズ（設計座標）。 */
-const COMP_W = 96;
-const COMP_H = 52;
-
-/**
- * 部品の表示倍率。
- * ボードを固定サイズ（スクロールなし）にしたため、
- * 記号・ピン・ラベルをまとめて少し小さめに描画する。
+/*
+ * 部品シンボルのサイズ（COMP_W / COMP_H）、表示倍率（COMP_SCALE）、スナップ間隔（SNAP）、
+ * ピン位置・回転・ラベル配置・ガイド線の計算は src/ui/geometry.js（DOM 非依存）にまとめてある。
+ * tools/check_layout.mjs も同じモジュールを使うので、描画と検査の結果が一致する。
  */
-const COMP_SCALE = 0.75;
-
-/** グリッドスナップ間隔。 */
-const SNAP = 10;
 
 /** アプリ外殻テンプレート。 */
 const APP_SHELL = `
@@ -132,6 +157,7 @@ const APP_SHELL = `
     </main>
 
     <footer class="app-status" id="status"></footer>
+    <div id="modal-root"></div>
   </div>
 `;
 
@@ -156,15 +182,6 @@ function safeGetParamUnit(type, key) {
   }
 }
 
-function formatParamValueForDisplay(component, key, value) {
-  if (typeof value === "number") {
-    const unit = safeGetParamUnit(component.type, key);
-    return formatMetricValue(value, unit);
-  }
-
-  return String(value ?? "");
-}
-
 function forceRender() {
   eventBus.emit("state:changed", getState());
 }
@@ -181,240 +198,91 @@ function safePinNames(type) {
 }
 
 /**
- * 部品種別のピン座標（ローカル座標）を返します。
- *
- * ピンの配置ルール:
- * - 1ピン: 下中央（GND想定）
- * - 2ピン: 左右
- * - 3ピン: 上（p0）/ 左（p1）/ 下（p2）
- * - 4ピン: 左2本 / 右2本
- * - 5ピン以上: 左2本 / 右1本 / 上下 / 残りは右に分散
- *
- * @param {string} type
- * @returns {Array<{x:number, y:number}>}
- */
-function getPinGeometry(type) {
-  // シンボル側が独自ピン位置を持つ場合はそれを優先します。
-  const symbolPins = getSymbolPins(type);
-
-  if (symbolPins) {
-    return symbolPins;
-  }
-
-  const names = safePinNames(type);
-  const n = names.length;
-  const points = [];
-
-  if (n === 1) {
-    points.push({ x: COMP_W / 2, y: COMP_H });
-  } else if (n === 2) {
-    points.push({ x: 0, y: COMP_H / 2 }, { x: COMP_W, y: COMP_H / 2 });
-  } else if (n === 3) {
-    points.push(
-      { x: COMP_W / 2, y: 0 },
-      { x: 0, y: COMP_H / 2 },
-      { x: COMP_W / 2, y: COMP_H }
-    );
-  } else if (n === 4) {
-    points.push(
-      { x: 0, y: COMP_H * 0.3 },
-      { x: 0, y: COMP_H * 0.7 },
-      { x: COMP_W, y: COMP_H * 0.3 },
-      { x: COMP_W, y: COMP_H * 0.7 }
-    );
-  } else if (n >= 5) {
-    points.push(
-      { x: 0, y: COMP_H * 0.28 },
-      { x: 0, y: COMP_H * 0.72 },
-      { x: COMP_W, y: COMP_H * 0.5 },
-      { x: COMP_W / 2, y: 0 },
-      { x: COMP_W / 2, y: COMP_H }
-    );
-    for (let i = 5; i < n; i += 1) {
-      const ratio = (i - 4) / (n - 4 + 1);
-      points.push({ x: COMP_W, y: COMP_H * ratio });
-    }
-  }
-
-  return points;
-}
-
-/**
- * 部品の回転角を正規化します（0 / 90 / 180 / 270 のいずれかに丸める）。
- *
- * @param {unknown} rotation
- * @returns {number}
- */
-function normalizeRotation(rotation) {
-  const value = Number(rotation);
-
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-
-  const rounded = Math.round(value / 90) * 90;
-
-  return ((rounded % 360) + 360) % 360;
-}
-
-/**
- * 部品の回転角を取得します。
- *
- * @param {object | null} component
- * @returns {number} 0 / 90 / 180 / 270
+ * 部品の回転角を取得します（0 / 90 / 180 / 270）。
  */
 function getRotation(component) {
   return normalizeRotation(component?.rotation ?? 0);
 }
 
 /**
- * 回転後の部品外接ボックス（設計座標）を返します。
- *
- * @param {number} rotation
- * @returns {{w:number, h:number}}
- */
-function getRotatedBox(rotation) {
-  if (rotation === 90 || rotation === 270) {
-    return { w: COMP_H, h: COMP_W };
-  }
-
-  return { w: COMP_W, h: COMP_H };
-}
-
-/**
- * 部品ローカル座標上の点を回転後に変換します。
- * 回転は外接ボックスの中心周りで、結果は正の座標に収まるように補正します。
- *
- * @param {number} px
- * @param {number} py
- * @param {number} rotation
- * @returns {{x:number, y:number}}
- */
-function rotatePointInBox(px, py, rotation) {
-  switch (rotation) {
-    case 90:
-      return { x: COMP_H - py, y: px };
-    case 180:
-      return { x: COMP_W - px, y: COMP_H - py };
-    case 270:
-      return { x: py, y: COMP_W - px };
-    default:
-      return { x: px, y: py };
-  }
-}
-
-/**
- * 記号本体を回転させるための内側 transform を返します。
- * 外接ボックスの左上原点を保ったまま回転します。
- *
- * @param {number} rotation
- * @returns {string} SVG transform 属性の値（0 度は空文字）
- */
-function getInnerRotationTransform(rotation) {
-  switch (rotation) {
-    case 90:
-      return `translate(${COMP_H}, 0) rotate(90)`;
-    case 180:
-      return `translate(${COMP_W}, ${COMP_H}) rotate(180)`;
-    case 270:
-      return `translate(0, ${COMP_W}) rotate(270)`;
-    default:
-      return "";
-  }
-}
-
-/**
- * 回転を考慮したピン座標（ローカル設計座標）を返します。
- *
- * @param {string} type
- * @param {number} rotation
- * @returns {Array<{x:number, y:number}>}
+ * 回転を考慮したピン座標（設計座標）を返します。
  */
 function getRotatedPinGeometry(type, rotation) {
-  const geo = getPinGeometry(type);
-
-  if (!rotation) {
-    return geo;
-  }
-
-  return geo.map((point) => rotatePointInBox(point.x, point.y, rotation));
+  return geoGetRotatedPinGeometry(type, rotation, safePinNames(type));
 }
 
 /**
  * 部品上のピンの絶対座標（キャンバス座標）を返します。
- * 部品が回転している場合はピン位置も回転させます。
- *
- * @param {object} component
- * @param {string} pinName
- * @returns {{x:number, y:number}}
  */
 function getPinPoint(component, pinName) {
-  const rotation = getRotation(component);
-  const geo = getRotatedPinGeometry(component.type, rotation);
-  const names = safePinNames(component.type);
-
-  let index = names.indexOf(String(pinName));
-
-  if (index < 0) {
-    const numeric = Number(pinName);
-    if (Number.isInteger(numeric) && numeric >= 0 && numeric < geo.length) {
-      index = numeric;
-    }
-  }
-
-  const x = component.position?.x ?? 40;
-  const y = component.position?.y ?? 40;
-
-  if (index < 0 || index >= geo.length) {
-    const box = getRotatedBox(rotation);
-
-    return {
-      x: x + (box.w * COMP_SCALE) / 2,
-      y: y + (box.h * COMP_SCALE) / 2,
-    };
-  }
-
-  return {
-    x: x + geo[index].x * COMP_SCALE,
-    y: y + geo[index].y * COMP_SCALE,
-  };
+  return geoGetPinPoint(component, pinName, safePinNames(component.type));
 }
 
-/**
- * ピン位置のラベル表示位置を返します。
- *
- * @param {{x:number, y:number}} point ローカル座標（回転後）
- * @param {number} [boxW] 回転後の外接ボックス幅
- * @param {number} [boxH] 回転後の外接ボックス高さ
- * @returns {{x:number, y:number, anchor:string}}
- */
-function getPinLabelPosition(point, boxW = COMP_W, boxH = COMP_H) {
-  if (point.y <= 1) {
-    return { x: boxW / 2, y: -6, anchor: "middle" };
-  }
-
-  if (point.y >= boxH - 1) {
-    return { x: boxW / 2, y: boxH + 12, anchor: "middle" };
-  }
-
-  if (point.x <= 1) {
-    return { x: -7, y: point.y + 3, anchor: "end" };
-  }
-
-  return { x: boxW + 7, y: point.y + 3, anchor: "start" };
+/** パラメータの単位（未登録なら空文字）。 */
+function unitOfParam(type, key) {
+  return safeGetParamUnit(type, key);
 }
 
 /**
  * ワイヤのパス d 属性を生成します（マンハッタン配線）。
  */
-function wirePathD(a, b) {
+function wirePathD(a, b, avoid = []) {
   if (Math.abs(a.x - b.x) < 1 || Math.abs(a.y - b.y) < 1) {
     return `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
   }
 
-  const mx = Math.round((a.x + b.x) / 2);
+  const mx = pickWireBendX(a, b, avoid);
 
   return `M ${a.x} ${a.y} L ${mx} ${a.y} L ${mx} ${b.y} L ${b.x} ${b.y}`;
+}
+
+/**
+ * ワイヤの縦線の x を決めます。既存の縦線（ガイド線・引き出し線・ほかのワイヤ）と
+ * 同じ x で重なって「つながって見える」ことを避けるため、重なるときは 6px ずつずらします。
+ *
+ * @param {{x:number,y:number}} a
+ * @param {{x:number,y:number}} b
+ * @param {Array<{x:number, y1:number, y2:number}>} avoid 避ける縦線
+ */
+function pickWireBendX(a, b, avoid) {
+  const mid = Math.round((a.x + b.x) / 2);
+  const lo = Math.min(a.y, b.y);
+  const hi = Math.max(a.y, b.y);
+  const clash = (x) =>
+    avoid.some((seg) => Math.abs(seg.x - x) < 4 && seg.y1 < hi + 1 && seg.y2 > lo - 1);
+
+  if (!clash(mid)) return mid;
+
+  const limit = Math.abs(a.x - b.x) / 2;
+  for (let offset = 6; offset <= limit; offset += 6) {
+    for (const x of [mid + offset, mid - offset]) {
+      if (!clash(x)) return x;
+    }
+  }
+  return mid;
+}
+
+/** 固定配線のガイド線・GND 記号にある縦線を集めます。 */
+function collectVerticalSegments(fixedLayout) {
+  const segments = [];
+  const add = (x1, y1, x2, y2) => {
+    if (Math.abs(x1 - x2) < 0.5 && Math.abs(y1 - y2) > 0.5) {
+      segments.push({ x: x1, y1: Math.min(y1, y2), y2: Math.max(y1, y2) });
+    }
+  };
+
+  for (const net of fixedLayout?.guides?.nets ?? []) {
+    for (const pl of net.polylines ?? []) {
+      for (let i = 1; i < pl.length; i += 1) {
+        add(pl[i - 1].x, pl[i - 1].y, pl[i].x, pl[i].y);
+      }
+    }
+  }
+  for (const mark of fixedLayout?.guides?.groundMarks ?? []) {
+    for (const [x1, y1, x2, y2] of mark.lines ?? []) add(x1, y1, x2, y2);
+  }
+
+  return segments;
 }
 
 function snapValue(value) {
@@ -437,6 +305,91 @@ function getBoardSize() {
   return { width, height };
 }
 
+/* ==========================================================================
+   ボードの表示倍率（フィット / 手動ズーム）と座標変換
+   ========================================================================== */
+
+/** ボードの基準サイズ（layout_spec.md と同じ）。 */
+const BOARD_BASE_W = 960;
+const BOARD_BASE_H = 560;
+/** これ以下には縮小しない（文字が読めなくなるため。これ以下はスクロール）。 */
+const BOARD_MIN_SCALE = 0.6;
+const BOARD_MAX_SCALE = 1.5;
+/** フィットの基準にする最小の範囲（固定部品がごく小さくまとまっていても、これ以上は拡大しない）。 */
+const BOARD_FIT_MIN_W = 640;
+const BOARD_FIT_MIN_H = 400;
+
+/** null = 自動フィット。数値 = 手動で指定した倍率。 */
+let boardZoom = null;
+let boardResizeObserver = null;
+/** 固定部品の描画範囲（右端・下端）。自動フィットはこれがスクロールなしで見える倍率にする。 */
+let boardContentExtent = null;
+
+function clampScale(value) {
+  return Math.min(BOARD_MAX_SCALE, Math.max(BOARD_MIN_SCALE, value));
+}
+
+/** 現在の表示倍率（画面 px / ボード px）。canvas の実寸から求めるので、変換は常にこれと一致する。 */
+function getBoardScale() {
+  const canvas = document.getElementById("board-canvas");
+  if (!canvas || !canvas.offsetWidth) return 1;
+  const rect = canvas.getBoundingClientRect();
+  return rect.width / canvas.offsetWidth || 1;
+}
+
+/**
+ * 画面座標（clientX / clientY）をボード座標へ変換します（座標変換はここ 1 か所）。
+ * @returns {{x:number, y:number}}
+ */
+function clientToBoard(clientX, clientY) {
+  const canvas = document.getElementById("board-canvas");
+  if (!canvas) return { x: clientX, y: clientY };
+  const rect = canvas.getBoundingClientRect();
+  const scale = getBoardScale();
+  return { x: (clientX - rect.left) / scale, y: (clientY - rect.top) / scale };
+}
+
+/**
+ * 表示領域に合わせて倍率を決め、canvas / stage のサイズを更新します。
+ * 自動フィットは「拡大しない・最小 0.6」。0.6 でも収まらないときはコンテナがスクロールします。
+ */
+function applyBoardFit(root = document) {
+  const container = root.querySelector(".board-container");
+  const stage = root.querySelector("#board-stage");
+  const canvas = root.querySelector("#board-canvas");
+  if (!container || !stage || !canvas) return;
+
+  const cw = container.clientWidth;
+  const ch = container.clientHeight;
+  if (!cw || !ch) return;
+
+  // 固定部品が基準サイズより小さくまとまっているときはそれに合わせる（右端・下端に 20px の余白）
+  const needW = Math.min(BOARD_BASE_W, Math.max(BOARD_FIT_MIN_W, (boardContentExtent?.right ?? BOARD_BASE_W) + 20));
+  const needH = Math.min(BOARD_BASE_H, Math.max(BOARD_FIT_MIN_H, (boardContentExtent?.bottom ?? BOARD_BASE_H) + 20));
+  const fit = Math.min(1, cw / needW, ch / needH);
+  const scale = boardZoom === null ? clampScale(fit) : clampScale(boardZoom);
+
+  // 論理サイズ: 表示領域いっぱいに広がり、固定部品の範囲より小さくはならない（足りなければスクロール）
+  const logicalW = Math.max(needW, Math.floor(cw / scale));
+  const logicalH = Math.max(needH, Math.floor(ch / scale));
+
+  canvas.style.width = `${logicalW}px`;
+  canvas.style.height = `${logicalH}px`;
+  canvas.style.transform = `scale(${scale})`;
+  stage.style.width = `${Math.floor(logicalW * scale)}px`;
+  stage.style.height = `${Math.floor(logicalH * scale)}px`;
+
+  const label = root.querySelector("#zoom-label");
+  if (label) {
+    label.textContent = `${Math.round(scale * 100)}%${boardZoom === null ? "（自動）" : ""}`;
+  }
+}
+
+function setBoardZoom(next, root = document) {
+  boardZoom = next === null ? null : clampScale(next);
+  applyBoardFit(root);
+}
+
 /**
  * 部品位置がボードの外に出ないようクランプします。
  * 回転している部品は回転後の外接ボックスサイズで判定します。
@@ -445,8 +398,12 @@ function getBoardSize() {
  * @param {number} [rotation=0]
  * @returns {{x:number, y:number}}
  */
-function clampPositionToBoard(position, rotation = 0) {
-  const { width, height } = getBoardSize();
+function clampPositionToBoard(position, rotation = 0, minBoard = null) {
+  const size = getBoardSize();
+  // 問題データの固定部品は、読み込み時のキャンバス実寸ではなく基準ボード（960 x 560）に対して判定する
+  // （読み込み直後はキャンバスが基準より狭く、右寄りの部品が勝手に左へ寄せられるため）
+  const width = Math.max(size.width, minBoard?.width ?? 0);
+  const height = Math.max(size.height, minBoard?.height ?? 0);
   const box = getRotatedBox(rotation);
   const maxX = Math.max(0, width - box.w * COMP_SCALE);
   const maxY = Math.max(0, height - box.h * COMP_SCALE);
@@ -563,6 +520,42 @@ function render(root) {
   renderBoard(root, state);
   renderInspector(root, state);
   renderStatus(root, state);
+  renderLearningModal(root, state);
+
+  bindLearningEvents(root, {
+    rerender: forceRender,
+    onNext: () => {
+      const next = getNextProblem(state.currentProblem?.id);
+      if (next) void handleProblemSelect(next.id);
+    },
+  });
+}
+
+function getParamDefsForType(type) {
+  return componentRegistry.has(type) ? componentRegistry.getParamDefinitions(type) : [];
+}
+
+function renderLearningModal(root, state) {
+  const modalRoot = root.querySelector("#modal-root");
+  if (!modalRoot) return;
+  modalRoot.innerHTML = renderModalHtml(state.currentProblem, {
+    nextProblem: getNextProblem(state.currentProblem?.id),
+    getParamDefs: getParamDefsForType,
+  });
+}
+
+/**
+ * 同じ分野の次の問題（index.json の順）を返します。
+ */
+function getNextProblem(problemId) {
+  if (!problemId) return null;
+  const i = problemIndex.findIndex((p) => p.id === problemId);
+  return i >= 0 && i + 1 < problemIndex.length ? problemIndex[i + 1] : null;
+}
+
+function isCategoryActive(categoryId) {
+  const active = CONFIG.ui.activeCategories;
+  return !Array.isArray(active) || active.includes(categoryId);
 }
 
 /* ==========================================================================
@@ -638,10 +631,12 @@ function renderProblemMenu(root) {
 
     const buttons = categories
       .map((category) => {
+        const active = isCategoryActive(category.id);
         return `
-          <button class="problem-menu-cat" data-menu-category="${escapeHtml(category.id)}" title="${escapeHtml(category.description ?? category.nameJa ?? "")}">
+          <button class="problem-menu-cat ${active ? "" : "is-disabled"}" ${active ? `data-menu-category="${escapeHtml(category.id)}"` : "disabled"} title="${escapeHtml(category.description ?? category.nameJa ?? "")}">
             <span class="cat-id">${escapeHtml(category.id)}</span>
             <span class="cat-name">${escapeHtml(category.nameJa ?? "")}</span>
+            ${active ? "" : `<span class="cat-soon">準備中</span>`}
           </button>
         `;
       })
@@ -694,12 +689,17 @@ function renderProblemMenu(root) {
         ${problemIndex
           .map((problem) => {
             const activeClass = problem.id === currentId ? "active" : "";
+            const record = getProblemProgress(problem.id);
+            const mark = record?.solved
+              ? `<span class="solved-mark" title="クリア済み">✓</span>`
+              : `<span class="solved-mark is-empty"></span>`;
             const difficulty = Number.isFinite(problem.difficulty)
               ? `<span class="badge">Lv.${escapeHtml(problem.difficulty)}</span>`
               : "";
 
             return `
               <button class="problem-menu-item ${activeClass}" data-menu-problem="${escapeHtml(problem.id)}">
+                ${mark}
                 <span class="pid">${escapeHtml(problem.id)}</span>
                 <span class="ptitle">${escapeHtml(problem.title ?? "")}</span>
                 ${difficulty}
@@ -716,6 +716,7 @@ function renderProblemMenu(root) {
       <div class="problem-menu-head">
         <button data-menu-back>← カテゴリ</button>
         <span class="problem-menu-title">カテゴリ ${escapeHtml(categoryId ?? "")} の問題</span>
+        ${problemIndex.length ? `<span class="problem-menu-progress">クリア ${countSolved(problemIndex.map((p) => p.id))} / ${problemIndex.length}</span>` : ""}
       </div>
       ${listHtml}
     </div>
@@ -853,6 +854,82 @@ function bindComponentButtons(root) {
 }
 
 /**
+ * クリック追加する部品の置き場所を探します。
+ *
+ * 既存の部品（固定・配置済み）の外接ボックスとラベル、固定部品のガイド線に重ならない位置のうち、
+ * ボード中央にいちばん近い格子点（SNAP 単位）を返します。空きが無いときは中央付近へ重ねて置きます。
+ *
+ * @param {object} draft 追加する部品（type, rotation を持つ）
+ * @returns {{x:number, y:number}}
+ */
+function findFreePosition(draft) {
+  const state = getState();
+  const { width, height } = getBoardSize();
+  const rotation = normalizeRotation(draft.rotation ?? 0);
+  const box = getRotatedBox(rotation);
+  const w = box.w * COMP_SCALE;
+  const h = box.h * COMP_SCALE;
+  const MARGIN = 14; // 新しい部品の周囲に残す空き（ID・値ラベルとピンの引き出し線の分）
+
+  // 障害物: 既存部品の外接ボックス + ラベル
+  const obstacles = [];
+  for (const component of state.board.components) {
+    try {
+      obstacles.push(getComponentRect(component));
+      const layout = computeLabelLayout(component, {
+        pinNames: safePinNames(component.type),
+        showPinNets: Boolean(component.locked),
+        valueText: componentValueText(component, unitOfParam),
+      });
+      for (const item of getLabelRects(component, layout)) {
+        obstacles.push(item.rect);
+      }
+    } catch {
+      // 配置の補助なので、計算に失敗した部品は無視する
+    }
+  }
+
+  // 固定部品のガイド線（水平・垂直の線分）
+  const segments = [];
+  const guides = getFixedLayout(state)?.guides;
+  for (const net of guides?.nets ?? []) {
+    for (const polyline of net.polylines ?? []) {
+      for (let i = 1; i < polyline.length; i += 1) {
+        segments.push([polyline[i - 1], polyline[i]]);
+      }
+    }
+  }
+
+  const isFree = (x, y) => {
+    const rect = inflateRect({ x, y, w, h }, MARGIN);
+    return (
+      !obstacles.some((o) => rectsOverlap(rect, o)) &&
+      !segments.some(([a, b]) => segmentCrossesRect(a, b, inflateRect({ x, y, w, h }, 4)))
+    );
+  };
+
+  const cx = width / 2 - w / 2;
+  const cy = height / 2 - h / 2;
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (let y = SNAP; y <= height - h - SNAP; y += SNAP) {
+    for (let x = SNAP; x <= width - w - SNAP; x += SNAP) {
+      const distance = Math.hypot(x - cx, y - cy);
+      if (distance < bestDistance && isFree(x, y)) {
+        best = { x, y };
+        bestDistance = distance;
+      }
+    }
+  }
+
+  return clampPositionToBoard(
+    best ?? { x: snapValue(cx), y: snapValue(cy) },
+    rotation
+  );
+}
+
+/**
  * パレットから部品を追加します。
  *
  * @param {string} type
@@ -870,18 +947,8 @@ function addComponentFromPalette(type, position) {
   if (position) {
     draft.position = clampPositionToBoard(position);
   } else {
-    // クリック追加の場合はボードの中央付近にカスケード配置する。
-    // （画面外に生成されないようにするため）
-    const count = getState().board.components.length;
-    const { width, height } = getBoardSize();
-    const slot = count % 12;
-    const offsetX = (slot % 4) * 60 - 90;
-    const offsetY = Math.floor(slot / 4) * 50 - 50;
-
-    draft.position = clampPositionToBoard({
-      x: snapValue(width / 2 - (COMP_W * COMP_SCALE) / 2 + offsetX),
-      y: snapValue(height / 2 - (COMP_H * COMP_SCALE) / 2 + offsetY),
-    });
+    // クリック追加の場合は、既存の部品・ラベル・固定配線と重ならない、ボード中央に最も近い空き位置に置く。
+    draft.position = findFreePosition(draft);
   }
 
   addComponent(draft);
@@ -971,9 +1038,10 @@ function bindPaletteDrag(button, type) {
         return;
       }
 
+      const dropPoint = clientToBoard(upEvent.clientX, upEvent.clientY);
       const position = clampPositionToBoard({
-        x: snapValue(upEvent.clientX - rect.left - (COMP_W * COMP_SCALE) / 2),
-        y: snapValue(upEvent.clientY - rect.top - (COMP_H * COMP_SCALE) / 2),
+        x: snapValue(dropPoint.x - (COMP_W * COMP_SCALE) / 2),
+        y: snapValue(dropPoint.y - (COMP_H * COMP_SCALE) / 2),
       });
 
       addComponentFromPalette(type, position);
@@ -1085,17 +1153,25 @@ async function handleProblemSelect(problemId) {
         connect: Array.isArray(fc.connect) ? [...fc.connect] : [],
         locked: true,
         rotation,
+        // 問題データに position があればそれを使う（回路の形が分かる配置にするため）
         position: clampPositionToBoard(
-          {
-            x: snapValue(30 + col * stepX),
-            y: snapValue(30 + row * 110),
-          },
-          rotation
+          fc.position && Number.isFinite(fc.position.x) && Number.isFinite(fc.position.y)
+            ? { x: snapValue(fc.position.x), y: snapValue(fc.position.y) }
+            : {
+                x: snapValue(30 + col * stepX),
+                y: snapValue(30 + row * 110),
+              },
+          rotation,
+          { width: BOARD_BASE_W, height: BOARD_BASE_H }
         ),
       });
     });
 
+    resetProblemView(problem);
     setCurrentProblem(problem);
+
+    // addComponent は追加した部品を選択状態にするので、読み込み直後は何も選択していない状態に戻す。
+    clearSelection();
 
     wireMode = false;
     wireDraft = null;
@@ -1140,17 +1216,30 @@ function renderBoard(root, state) {
         </span>
       </div>
       <div class="board-toolbar-right">
+        <span class="board-zoom" role="group" aria-label="表示倍率">
+          <button type="button" id="zoom-out" title="縮小（最小 60%）">−</button>
+          <span id="zoom-label" class="zoom-label"></span>
+          <button type="button" id="zoom-in" title="拡大">＋</button>
+          <button type="button" id="zoom-fit" title="表示領域に合わせる">フィット</button>
+        </span>
         <span class="board-stats">部品 ${components.length} / ワイヤ ${wires.length}</span>
       </div>
     </div>
   `;
 
   // --- 問題パネル ---
-  const problemPanelHtml = problem ? renderProblemPanel(problem) : "";
+  const problemPanelHtml = problem
+    ? renderProblemPanelHtml(problem, {
+        solved: Boolean(getProblemProgress(problem.id)?.solved),
+      })
+    : "";
 
-  // --- SVG（ワイヤ + 部品） ---
-  const wiresSvg = buildWiresSvg(state);
-  const componentsSvg = buildComponentsSvg(state);
+  // --- SVG（ガイド線 + ワイヤ + 部品） ---
+  const fixedLayout = getFixedLayout(state);
+  boardContentExtent = getFixedContentExtent(fixedLayout);
+  const guidesSvg = buildGuidesSvg(fixedLayout);
+  const wiresSvg = buildWiresSvg(state, fixedLayout);
+  const componentsSvg = buildComponentsSvg(state, fixedLayout);
   const draftSvg = buildDraftSvg(state);
 
   const emptyHtml =
@@ -1162,56 +1251,292 @@ function renderBoard(root, state) {
 
   board.innerHTML = `
     ${toolbarHtml}
-    ${problemPanelHtml}
+    <div class="board-work" id="board-work">
+    ${
+      problemPanelHtml
+        ? `<div class="problem-frame" id="problem-frame">
+             ${problemPanelHtml}
+             <div class="panel-resize panel-resize-e" data-panel-resize="e" title="ドラッグで幅を変更（ダブルクリックで元に戻す）"></div>
+             <div class="panel-resize panel-resize-s" data-panel-resize="s" title="ドラッグで高さを変更（ダブルクリックで元に戻す）"></div>
+             <div class="panel-resize panel-resize-se" data-panel-resize="se" title="ドラッグで幅と高さを変更（ダブルクリックで元に戻す）"></div>
+           </div>`
+        : ""
+    }
     <div class="board-container">
+     <div class="board-stage" id="board-stage">
       <div class="board-canvas ${wireMode ? "wire-mode" : ""}" id="board-canvas">
         <svg class="board-svg" id="board-svg">
+          <g id="guide-layer">${guidesSvg}</g>
           <g id="wire-layer">${wiresSvg}</g>
           <g id="component-layer">${componentsSvg}</g>
           ${draftSvg}
         </svg>
         ${emptyHtml}
       </div>
+     </div>
+    </div>
     </div>
   `;
 
   bindBoardEvents(root, state);
+  setupProblemPanelResize(root);
+  setupBoardFit(root);
 }
 
-function renderProblemPanel(problem) {
-  const hintHtml = problem.hint
-    ? `
-      <details>
-        <summary>ヒント</summary>
-        <p>${escapeHtml(problem.hint)}</p>
-      </details>
-    `
-    : "";
+/** 初回の倍率を決め、表示領域の大きさが変わったら（パネルの開閉・リサイズ・ウィンドウ）倍率を更新する。 */
+function setupBoardFit(root) {
+  applyBoardFit(root);
 
-  const goalHtml = problem.learningGoal
-    ? `<p class="muted">学習目標: ${escapeHtml(problem.learningGoal)}</p>`
-    : "";
+  if (boardResizeObserver) {
+    boardResizeObserver.disconnect();
+    boardResizeObserver = null;
+  }
 
-  const difficultyHtml = Number.isFinite(problem.difficulty)
-    ? ` <span class="muted">Lv.${escapeHtml(problem.difficulty)}</span>`
-    : "";
+  const container = root.querySelector(".board-container");
+  if (container && typeof ResizeObserver === "function") {
+    boardResizeObserver = new ResizeObserver(() => applyBoardFit(root));
+    boardResizeObserver.observe(container);
+  }
 
-  return `
-    <div class="board-problem-panel">
-      <h2 class="panel-title">
-        ${escapeHtml(problem.id)}: ${escapeHtml(problem.title)}${difficultyHtml}
-      </h2>
-      <p>${escapeHtml(problem.statement)}</p>
-      ${hintHtml}
-      ${goalHtml}
-    </div>
-  `;
+  const zoomBy = (factor) => setBoardZoom(getBoardScale() * factor, root);
+  root.querySelector("#zoom-out")?.addEventListener("click", () => zoomBy(1 / 1.25));
+  root.querySelector("#zoom-in")?.addEventListener("click", () => zoomBy(1.25));
+  root.querySelector("#zoom-fit")?.addEventListener("click", () => setBoardZoom(null, root));
+}
+
+/* ==========================================================================
+   問題文パネルのリサイズ
+   ========================================================================== */
+
+/** 問題文パネルの最小サイズ（px）。 */
+const PANEL_MIN_W = 280;
+const PANEL_MIN_H = 90;
+
+/** 問題文パネルの右にボードを並べるのに必要な最小のボード幅（px）。 */
+const PANEL_SIDE_MIN_BOARD = 360;
+
+/**
+ * 問題文パネルのサイズ（ユーザーがドラッグで決めたもの）。
+ * width / height が null なら既定（幅いっぱい / 最大 46vh）。
+ */
+let panelSize = readPanelSize();
+
+function readPanelSize() {
+  try {
+    const raw = localStorage.getItem(getStorageKey("problemPanelSize"));
+    const parsed = raw ? JSON.parse(raw) : null;
+    const num = (v) => (Number.isFinite(v) && v > 0 ? v : null);
+    return { width: num(parsed?.width), height: num(parsed?.height) };
+  } catch {
+    return { width: null, height: null };
+  }
+}
+
+function writePanelSize() {
+  try {
+    if (panelSize.width === null && panelSize.height === null) {
+      localStorage.removeItem(getStorageKey("problemPanelSize"));
+    } else {
+      localStorage.setItem(getStorageKey("problemPanelSize"), JSON.stringify(panelSize));
+    }
+  } catch {
+    /* 保存できなくても動作は続ける */
+  }
+}
+
+/**
+ * 保存済みのサイズをパネルに当て、並べ方（上 / 横）を決めます。
+ * - 幅を狭めてボードの右側に PANEL_SIDE_MIN_BOARD 以上の余白ができたら、パネルの右にボードを並べる（is-side）。
+ * - それ以外はパネルの下にボード（従来どおり）。
+ */
+function applyPanelLayout(root) {
+  const work = root.querySelector("#board-work");
+  const frame = root.querySelector("#problem-frame");
+  if (!work || !frame) return;
+
+  const collapsed = Boolean(frame.querySelector(".board-problem-panel.is-collapsed"));
+  const workW = work.clientWidth;
+  const workH = work.clientHeight;
+
+  const width =
+    panelSize.width === null
+      ? null
+      : Math.max(PANEL_MIN_W, Math.min(panelSize.width, Math.max(PANEL_MIN_W, workW)));
+  const side = width !== null && workW - width >= PANEL_SIDE_MIN_BOARD;
+
+  work.classList.toggle("is-side", side);
+  frame.style.width = width === null ? "" : `${width}px`;
+
+  if (collapsed || panelSize.height === null) {
+    frame.style.height = "";
+    frame.classList.remove("has-height");
+  } else {
+    const maxH = side ? workH : Math.max(PANEL_MIN_H, workH - 120);
+    frame.style.height = `${Math.max(PANEL_MIN_H, Math.min(panelSize.height, maxH))}px`;
+    frame.classList.add("has-height");
+  }
+}
+
+/** ウィンドウサイズ変更時にパネルの並べ方を見直す（登録は1回だけ）。 */
+let panelResizeListenerRoot = null;
+
+function setupProblemPanelResize(root) {
+  const frame = root.querySelector("#problem-frame");
+
+  if (!panelResizeListenerRoot) {
+    panelResizeListenerRoot = root;
+    window.addEventListener("resize", () => applyPanelLayout(panelResizeListenerRoot));
+  }
+
+  if (!frame) return;
+
+  applyPanelLayout(root);
+
+  frame.querySelectorAll("[data-panel-resize]").forEach((handle) => {
+    const mode = handle.dataset.panelResize;
+
+    handle.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      if (mode.includes("e")) panelSize.width = null;
+      if (mode.includes("s")) panelSize.height = null;
+      writePanelSize();
+      applyPanelLayout(root);
+    });
+
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const rect = frame.getBoundingClientRect();
+      const startW = rect.width;
+      const startH = rect.height;
+
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch {
+        /* 古いブラウザでは無視 */
+      }
+      frame.classList.add("is-resizing");
+
+      const onMove = (moveEvent) => {
+        if (mode.includes("e")) {
+          panelSize.width = Math.max(PANEL_MIN_W, Math.round(startW + moveEvent.clientX - startX));
+        }
+        if (mode.includes("s")) {
+          panelSize.height = Math.max(PANEL_MIN_H, Math.round(startH + moveEvent.clientY - startY));
+        }
+        applyPanelLayout(root);
+      };
+
+      const onUp = () => {
+        handle.removeEventListener("pointermove", onMove);
+        handle.removeEventListener("pointerup", onUp);
+        handle.removeEventListener("pointercancel", onUp);
+        frame.classList.remove("is-resizing");
+        writePanelSize();
+      };
+
+      handle.addEventListener("pointermove", onMove);
+      handle.addEventListener("pointerup", onUp);
+      handle.addEventListener("pointercancel", onUp);
+    });
+  });
+}
+
+/* ==========================================================================
+   固定配線のガイド線（描画専用）
+   ========================================================================== */
+
+/** computeFixedLayout の結果のキャッシュ（固定部品の位置・回転・接続が変わったときだけ再計算）。 */
+let fixedLayoutCache = { key: null, value: null };
+
+/**
+ * 固定部品（locked）のラベル配置・ガイド線・自動 GND 記号を計算します。
+ * ガイド線は描画専用で、state の wires には入りません（電気的な意味はネット名で決まる）。
+ */
+function getFixedLayout(state) {
+  const fixed = state.board.components.filter((c) => c.locked);
+  const layout = state.currentProblem?.layout ?? {};
+  const key = JSON.stringify([
+    layout,
+    fixed.map((c) => [c.id, c.type, c.position, c.rotation, c.connect, c.params]),
+  ]);
+
+  if (fixedLayoutCache.key === key) {
+    return fixedLayoutCache.value;
+  }
+
+  let value;
+  try {
+    value = computeFixedLayout(fixed, {
+      pinNamesOf: safePinNames,
+      unitOf: unitOfParam,
+      layout,
+    });
+  } catch (error) {
+    console.warn("ガイド線の計算に失敗しました。", error);
+    value = { guides: { nets: [], groundMarks: [], failures: [] }, hiddenPinsById: new Map() };
+  }
+
+  fixedLayoutCache = { key, value };
+  return value;
+}
+
+/**
+ * ガイド線・分岐点・自動 GND 記号の SVG を生成します。
+ * 自動 GND 記号は、配線モードでクリックするとそのピンへの配線になります（data-pin-comp）。
+ */
+function buildGuidesSvg(fixedLayout) {
+  const guides = fixedLayout?.guides;
+  if (!guides) return "";
+
+  const toD = (pl) => pl.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+
+  const netsSvg = guides.nets
+    .map((net) => {
+      const paths = net.polylines
+        .filter((pl) => pl.length >= 2)
+        .map(
+          (pl) =>
+            `<path class="board-guide${pl.fallback ? " is-fallback" : ""}" d="${toD(pl)}"></path>`
+        )
+        .join("");
+      const dots = net.junctions
+        .map((p) => `<circle class="board-guide-dot" cx="${p.x}" cy="${p.y}" r="2.6"></circle>`)
+        .join("");
+      return `<g class="board-guide-net" data-guide-net="${escapeHtml(net.net)}"><title>固定配線: ネット ${escapeHtml(net.net)}</title>${paths}${dots}</g>`;
+    })
+    .join("");
+
+  const groundSvg = guides.groundMarks
+    .map((mark) => {
+      const lines = mark.lines
+        .map(
+          ([x1, y1, x2, y2]) =>
+            `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>`
+        )
+        .join("");
+      const r = mark.rect;
+      return `
+        <g class="board-guide-gnd" data-pin-comp="${escapeHtml(mark.componentId)}" data-pin-name="${escapeHtml(mark.pin)}">
+          <rect class="board-guide-gnd-hit" x="${r.x - 4}" y="${r.y - 4}" width="${r.w + 8}" height="${r.h + 8}"></rect>
+          ${lines}
+          <title>${escapeHtml(mark.componentId)}.${escapeHtml(mark.pin)} は gnd（接地）につながっています</title>
+        </g>`;
+    })
+    .join("");
+
+  return netsSvg + groundSvg;
 }
 
 /**
  * ワイヤのSVGを生成します。
  */
-function buildWiresSvg(state) {
+function buildWiresSvg(state, fixedLayout) {
+  const avoid = collectVerticalSegments(fixedLayout);
   const compsById = new Map(
     state.board.components.map((component) => [component.id, component])
   );
@@ -1227,7 +1552,13 @@ function buildWiresSvg(state) {
 
       const a = getPinPoint(from, wire.from.pin);
       const b = getPinPoint(to, wire.to.pin);
-      const d = wirePathD(a, b);
+      const d = wirePathD(a, b, avoid);
+
+      // 次のワイヤが、このワイヤの縦線とも重ならないようにする
+      if (Math.abs(a.x - b.x) >= 1 && Math.abs(a.y - b.y) >= 1) {
+        const bendX = pickWireBendX(a, b, avoid);
+        avoid.push({ x: bendX, y1: Math.min(a.y, b.y), y2: Math.max(a.y, b.y) });
+      }
 
       const isSelected =
         state.selection.kind === "wire" && state.selection.id === wire.id;
@@ -1244,6 +1575,8 @@ function buildWiresSvg(state) {
 
       return `
         <path class="board-wire ${isSelected ? "is-selected" : ""}" d="${d}" pointer-events="none"></path>
+        <circle class="board-wire-end" cx="${a.x}" cy="${a.y}" r="3.6" pointer-events="none"></circle>
+        <circle class="board-wire-end" cx="${b.x}" cy="${b.y}" r="3.6" pointer-events="none"></circle>
         <path class="board-wire-hit" data-wire-hit="${escapeHtml(wire.id)}" d="${d}"><title>ワイヤ ${escapeHtml(wire.id)}</title></path>
         ${deleteButton}
       `;
@@ -1255,8 +1588,11 @@ function buildWiresSvg(state) {
  * 部品のSVGを生成します。
  * 部品が回転している場合は、記号本体・選択枠・当たり判定を回転させ、
  * ピンと ID / パラメータ表示は回転後の外接ボックスに合わせて配置します。
+ * ラベルの位置は geometry.js の computeLabelLayout（check_layout.mjs と共通）で決めます。
  */
-function buildComponentsSvg(state) {
+function buildComponentsSvg(state, fixedLayout) {
+  const hiddenPinsById = fixedLayout?.hiddenPinsById ?? new Map();
+
   return state.board.components
     .map((component) => {
       const definition = componentRegistry.has(component.type)
@@ -1278,25 +1614,28 @@ function buildComponentsSvg(state) {
         state.selection.kind === "component" &&
         state.selection.id === component.id;
 
-      const paramsText = Object.entries(component.params ?? {})
-        .slice(0, 2)
-        .map(([key, value]) => {
-          return `${key}=${formatParamValueForDisplay(component, key, value)}`;
-        })
-        .join("  ")
-        .slice(0, 18);
+      const labels = computeLabelLayout(component, {
+        pinNames: names,
+        showPinNets: wireMode || Boolean(component.locked),
+        hiddenPins: component.locked
+          ? (hiddenPinsById.get(component.id) ?? new Set())
+          : new Set(),
+        valueText: componentValueText(component, unitOfParam),
+      });
 
       const pinTitle = (pinName, index) => {
         const net = connect[index];
         return `${pinName} ← ${net ? net : "未接続"}`;
       };
 
+      const textSvg = (label, cls) =>
+        label
+          ? `<text class="${cls}" x="${label.x}" y="${label.y}" text-anchor="${label.anchor}">${escapeHtml(label.text)}</text>`
+          : "";
+
       const pinsSvg = names
         .map((pinName, index) => {
           const point = geo[index] ?? { x: box.w / 2, y: box.h / 2 };
-          const labelPos = getPinLabelPosition(point, box.w, box.h);
-          const netText = wireMode ? connect[index] || "-" : null;
-          const labelText = netText !== null ? `${pinName}:${netText}` : pinName;
 
           return `
             <circle class="board-pin-hit" cx="${point.x}" cy="${point.y}" r="10"
@@ -1305,7 +1644,7 @@ function buildComponentsSvg(state) {
               data-pin-comp="${escapeHtml(component.id)}" data-pin-name="${escapeHtml(pinName)}">
               <title>${escapeHtml(pinTitle(pinName, index))}</title>
             </circle>
-            <text class="board-pin-label" x="${labelPos.x}" y="${labelPos.y}" text-anchor="${labelPos.anchor}">${escapeHtml(labelText)}</text>
+            ${textSvg(labels.pins[index], "board-pin-label")}
           `;
         })
         .join("");
@@ -1327,32 +1666,12 @@ function buildComponentsSvg(state) {
         </g>
       `;
 
-      // ID / パラメータラベルは常に水平に保つ。
-      // 未回転時はシンボル定義の位置（未定義なら既定位置）を使う。
-      const idLabel =
-        rotation === 0
-          ? (symbolDef?.idLabel ?? {
-              x: COMP_W / 2,
-              y: -6,
-              anchor: "middle",
-            })
-          : { x: box.w / 2, y: -6, anchor: "middle" };
-      const valueLabel =
-        rotation === 0
-          ? (symbolDef?.valueLabel ?? {
-              x: COMP_W / 2,
-              y: COMP_H + 12,
-              anchor: "middle",
-            })
-          : { x: box.w / 2, y: box.h + 12, anchor: "middle" };
-
-      const idText = `${component.id}${component.locked ? " 🔒" : ""}`;
-
-      // 選択中の部品には回転ハンドル（右上）を表示する。
+      // 選択中の部品には回転ハンドル（左上の角の外側）を表示する。
+      // 右上は縦置き部品の上ピンのラベルと重なるため、ラベルを置かない左上に出す。
       const rotateHandle = isSelected
         ? `
           <g class="comp-rotate-handle" data-rotate-comp="${escapeHtml(component.id)}"
-             transform="translate(${box.w}, 0)">
+             transform="translate(-10, -10)">
             <circle r="9"></circle>
             <text text-anchor="middle" dy="3.5">⟳</text>
             <title>回転する（R キー / Shift+R で逆回転）</title>
@@ -1363,10 +1682,11 @@ function buildComponentsSvg(state) {
       return `
         <g class="board-component ${isSelected ? "is-selected" : ""}"
            transform="translate(${x}, ${y}) scale(${COMP_SCALE})"
-           data-comp-id="${escapeHtml(component.id)}">
+           data-comp-id="${escapeHtml(component.id)}"
+           data-comp-type="${escapeHtml(component.type)}">
           ${rotatedBody}
-          ${idLabel ? `<text class="board-comp-id" x="${idLabel.x}" y="${idLabel.y}" text-anchor="${idLabel.anchor}">${escapeHtml(idText)}</text>` : ""}
-          ${valueLabel && paramsText ? `<text class="board-comp-params" x="${valueLabel.x}" y="${valueLabel.y}" text-anchor="${valueLabel.anchor}">${escapeHtml(paramsText)}</text>` : ""}
+          ${textSvg(labels.id, "board-comp-id")}
+          ${textSvg(labels.value, "board-comp-params")}
           ${rotateHandle}
           ${pinsSvg}
           <title>${escapeHtml(component.id)}（${escapeHtml(component.type)}）</title>
@@ -1423,12 +1743,8 @@ function bindBoardEvents(root, state) {
 
     if (!from) return;
 
-    const rect = canvas.getBoundingClientRect();
     const a = getPinPoint(from, wireDraft.pin);
-    const b = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    };
+    const b = clientToBoard(event.clientX, event.clientY);
 
     draftLine.setAttribute("d", wirePathD(a, b));
   });
@@ -1473,11 +1789,13 @@ function bindBoardEvents(root, state) {
       const origY = component.position?.y ?? 40;
       let moved = false;
 
-      const onMove = (moveEvent) => {
-        const dx = moveEvent.clientX - startX;
-        const dy = moveEvent.clientY - startY;
+      const dragScale = getBoardScale();
 
-        if (!moved && Math.hypot(dx, dy) > 3) {
+      const onMove = (moveEvent) => {
+        const dx = (moveEvent.clientX - startX) / dragScale;
+        const dy = (moveEvent.clientY - startY) / dragScale;
+
+        if (!moved && Math.hypot(dx, dy) * dragScale > 3) {
           moved = true;
           group.classList.add("is-dragging");
         }
@@ -1497,8 +1815,8 @@ function bindBoardEvents(root, state) {
         group.classList.remove("is-dragging");
 
         if (moved) {
-          const dx = upEvent.clientX - startX;
-          const dy = upEvent.clientY - startY;
+          const dx = (upEvent.clientX - startX) / dragScale;
+          const dy = (upEvent.clientY - startY) / dragScale;
 
           updateComponent(componentId, {
             position: clampPositionToBoard(
@@ -1511,6 +1829,11 @@ function bindBoardEvents(root, state) {
           });
         } else {
           selectComponent(componentId);
+
+          // 論理入力はクリックで 0/1 を切り替える（固定部品でも値の切替だけは許可）
+          if (component.type === "LOGIC_IN") {
+            setLogicInputValue(componentId);
+          }
         }
       };
 
@@ -1856,6 +2179,48 @@ function renderInspector(root, state) {
 
   bindRotateSelected(root);
   bindDeleteSelected(root);
+  bindLogicInputToggle(root);
+}
+
+/**
+ * 論理入力（LOGIC_IN）の値を 0/1 に設定します。value を省略すると反転します。
+ * 固定部品（locked）でも値の切替だけは許可します（シミュレーションで動作を試すため）。
+ * 動作結果（ネットの論理値）を表示中なら、新しい値で解析し直します。
+ *
+ * @param {string} id
+ * @param {0|1} [value]
+ */
+function setLogicInputValue(id, value) {
+  const component = getComponentById(id);
+
+  if (!component || component.type !== "LOGIC_IN") return;
+
+  const current = Number(component.params?.value) >= 0.5 ? 1 : 0;
+  const next = value === undefined ? 1 - current : value;
+
+  updateComponent(id, { params: { ...component.params, value: next } });
+  setStatus(`${id} を ${next} にしました。`, "info");
+
+  const shown = getState().simulation.result?.digital?.netValues;
+  if (shown && Object.keys(shown).length > 0) {
+    handleSimulate();
+  }
+}
+
+/**
+ * インスペクタの論理値トグル（LOGIC_IN 用）のイベントをバインドします。
+ *
+ * @param {HTMLElement} root
+ */
+function bindLogicInputToggle(root) {
+  root.querySelectorAll("[data-logic-set]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setLogicInputValue(
+        button.dataset.logicId,
+        Number(button.dataset.logicSet) >= 0.5 ? 1 : 0
+      );
+    });
+  });
 }
 
 /**
@@ -1926,6 +2291,25 @@ function renderComponentInspector(component, knownNets = []) {
 
   const connectFields = renderConnectFields(component, isLocked);
 
+  const logicValue = Number(component.params?.value) >= 0.5 ? 1 : 0;
+  const logicSection =
+    component.type === "LOGIC_IN"
+      ? `
+    <div class="inspector-section">
+      <h3 class="inspector-title">論理値</h3>
+      <div class="logic-toggle" role="group" aria-label="論理入力の値">
+        ${[0, 1]
+          .map(
+            (v) => `<button type="button" class="logic-toggle-button ${v === logicValue ? "is-active" : ""}"
+          data-logic-id="${escapeHtml(component.id)}" data-logic-set="${v}"
+          aria-pressed="${v === logicValue}">${v}</button>`
+          )
+          .join("")}
+      </div>
+      <div class="field-help">シミュレーションで動作を試すときの値です（ボード上の記号をクリックしても切り替わります）。チェックでは判定が自動で 0/1 を与えます。</div>
+    </div>`
+      : "";
+
   const rotationDeg = getRotation(component);
   const rotationText = `${rotationDeg}°`;
 
@@ -1991,6 +2375,8 @@ function renderComponentInspector(component, knownNets = []) {
       <h3 class="inspector-title">接続</h3>
       ${connectFields}
     </div>
+
+    ${logicSection}
 
     <div class="inspector-section">
       <h3 class="inspector-title">パラメータ</h3>
@@ -2316,6 +2702,248 @@ function simValue(value, unit) {
   return escapeHtml(formatMetricValue(value, unit));
 }
 
+/** 論理値（0 / 1 / x）を表示用の文字に直します。 */
+function logicChar(value) {
+  const text = String(value ?? "x").toLowerCase();
+  return text === "0" || text === "1" ? text : "X";
+}
+
+/** 論理値のセル（<td> の中身）。expected が与えられて食い違うときは赤く「正 n」を添える。 */
+function buildLogicCell(actual, expected) {
+  const a = logicChar(actual);
+  const known = expected !== undefined && expected !== null && String(expected).toLowerCase() !== "x";
+  const mismatch = known && logicChar(expected) !== a;
+
+  return {
+    mismatch,
+    html: mismatch
+      ? `<span class="logic-cell logic-ng v${a.toLowerCase()}" title="期待値は ${logicChar(expected)}">${a}<small>正 ${logicChar(expected)}</small></span>`
+      : `<span class="logic-cell v${a.toLowerCase()}">${a}</span>`,
+  };
+}
+
+/**
+ * 表に出す行番号を選びます。上限を超えるときは、不一致の行を優先して残します。
+ *
+ * @param {number} total
+ * @param {Set<number>} mismatched
+ * @param {number} limit
+ * @returns {number[]}
+ */
+function pickLogicRows(total, mismatched, limit) {
+  if (total <= limit) return Array.from({ length: total }, (_, i) => i);
+
+  const picked = new Set([...mismatched].slice(0, limit));
+  for (let i = 0; i < total && picked.size < limit; i += 1) picked.add(i);
+
+  return [...picked].sort((a, b) => a - b);
+}
+
+/** 真理値表の判定（check）から、入力の組に対する期待出力を返します。 */
+function expectedTruthRow(check, inputNames, outputNames, inputValues) {
+  if (!check) return null;
+
+  if (Array.isArray(check.table)) {
+    const row = check.table.find((r) =>
+      Array.isArray(r) && inputNames.every((_, j) => Number(r[j]) === Number(inputValues[j]))
+    );
+
+    return row ? outputNames.map((_, j) => row[inputNames.length + j]) : null;
+  }
+
+  if (check.expect && typeof check.expect === "object") {
+    // 入力を 2 進数で数えた順（inputs[0] が最上位ビット）
+    const index = inputValues.reduce((acc, v) => acc * 2 + (Number(v) >= 0.5 ? 1 : 0), 0);
+
+    return outputNames.map((name) => check.expect[name]?.[index]);
+  }
+
+  return null;
+}
+
+const LOGIC_TABLE_MAX_ROWS = 64;
+
+/**
+ * digital 解析の結果 HTML を生成します。
+ * - ネットの論理値（LOGIC_IN の現在値で評価）
+ * - 真理値表（入力列→出力列。期待値と違う行は赤）
+ * - 順序回路の出力系列（ステップごとの表。期待値と違うセルは赤）
+ *
+ * チェックの文章メッセージ（「a=1, b=1 のとき s=1（正しくは 0）」など）は「チェック結果」欄に出る。
+ *
+ * @param {object} state
+ * @param {object} digital result.digital
+ * @returns {string}
+ */
+function buildDigitalResultHtml(state, digital) {
+  if (!digital) return "";
+
+  const checks = state.currentProblem?.checks ?? [];
+  let html = "";
+
+  /* --- ネットの論理値 --- */
+  const nets = Object.entries(digital.netValues ?? {});
+
+  if (nets.length > 0) {
+    const shown = nets.slice(0, 40);
+    const chips = shown
+      .map(
+        ([net, value]) =>
+          `<span class="logic-chip v${logicChar(value).toLowerCase()}"><b>${escapeHtml(net)}</b><i>${logicChar(value)}</i></span>`
+      )
+      .join("");
+
+    html += `
+      <h4 class="sim-table-title">ネットの論理値（論理入力の現在値で評価）</h4>
+      <div class="logic-chips">${chips}</div>
+      ${nets.length > shown.length ? `<p class="sim-more">＋ 他 ${nets.length - shown.length} 件</p>` : ""}
+    `;
+  }
+
+  /* --- 真理値表 --- */
+  const rows = Array.isArray(digital.truthTable) ? digital.truthTable : [];
+
+  if (rows.length > 0) {
+    const check = checks.find((c) => c?.type === "truthTable");
+    const inputNames = digital.inputs?.length ? digital.inputs : (check?.inputs ?? []);
+    const outputNames = digital.outputs?.length ? digital.outputs : (check?.outputs ?? []);
+    const bad = new Set();
+
+    const cells = rows.map((row, index) => {
+      const inputValues = inputNames.map((_, j) => row[j]);
+      const expected = expectedTruthRow(check, inputNames, outputNames, inputValues);
+      const outputCells = outputNames.map((_, j) =>
+        buildLogicCell(row[inputNames.length + j], expected?.[j])
+      );
+
+      if (outputCells.some((cell) => cell.mismatch)) bad.add(index);
+
+      return {
+        index,
+        html: [
+          ...inputValues.map((v) => `<span class="logic-cell logic-input v${logicChar(v).toLowerCase()}">${logicChar(v)}</span>`),
+          ...outputCells.map((cell) => cell.html),
+        ],
+      };
+    });
+
+    const picked = pickLogicRows(cells.length, bad, LOGIC_TABLE_MAX_ROWS);
+    const verdict = check
+      ? bad.size > 0
+        ? `<p class="logic-verdict is-ng">期待と違う行: ${bad.size} / ${rows.length} 行（赤い行）</p>`
+        : `<p class="logic-verdict is-ok">全 ${rows.length} 行が期待どおりです。</p>`
+      : "";
+
+    const table = `
+      <table class="sim-table logic-table">
+        <thead>
+          <tr>
+            ${inputNames.map((n) => `<th class="logic-in-head">${escapeHtml(n)}</th>`).join("")}
+            ${outputNames.map((n) => `<th class="logic-out-head">${escapeHtml(n)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${picked
+            .map(
+              (i) =>
+                `<tr class="${bad.has(i) ? "is-mismatch" : ""}">${cells[i].html
+                  .map((cell, j) => `<td class="${j === inputNames.length - 1 ? "logic-split" : ""}">${cell}</td>`)
+                  .join("")}</tr>`
+            )
+            .join("")}
+        </tbody>
+      </table>
+      ${rows.length > picked.length ? `<p class="sim-more">＋ 他 ${rows.length - picked.length} 行</p>` : ""}
+    `;
+
+    html += `
+      <h4 class="sim-table-title">真理値表（左: 入力 → 右: 出力）</h4>
+      ${verdict}
+      ${table}
+    `;
+  }
+
+  /* --- 順序回路の出力系列 --- */
+  const sequence = digital.sequence && typeof digital.sequence === "object" ? digital.sequence : null;
+  const outputNets = sequence ? Object.keys(sequence) : [];
+
+  if (outputNets.length > 0) {
+    const check = checks.find((c) => c?.type === "sequence");
+    const inputSeqs = check?.inputs && typeof check.inputs === "object" ? Object.entries(check.inputs) : [];
+    const steps = Math.max(...outputNets.map((n) => String(sequence[n]).length));
+    const bad = new Set();
+
+    const body = Array.from({ length: steps }, (_, k) => {
+      const inputCells = inputSeqs.map(
+        ([, seq]) => `<td><span class="logic-cell logic-input v${logicChar(seq?.[k]).toLowerCase()}">${logicChar(seq?.[k])}</span></td>`
+      );
+      const outputCells = outputNets.map((net) => {
+        const cell = buildLogicCell(String(sequence[net])[k], check?.outputs?.[net]?.[k]);
+        if (cell.mismatch) bad.add(k);
+        return `<td>${cell.html}</td>`;
+      });
+
+      return { k, html: `<td class="logic-step">${k + 1}</td>${inputCells.join("")}${outputCells.join("")}` };
+    });
+
+    const picked = pickLogicRows(steps, bad, LOGIC_TABLE_MAX_ROWS);
+    const stepLabel = check?.clock ? `クロック(${escapeHtml(check.clock)})` : "ステップ";
+    const verdict = check
+      ? bad.size > 0
+        ? `<p class="logic-verdict is-ng">期待と違うステップ: ${bad.size} / ${steps}（赤いセル）</p>`
+        : `<p class="logic-verdict is-ok">全 ${steps} ステップが期待どおりです。</p>`
+      : "";
+
+    html += `
+      <h4 class="sim-table-title">出力系列（上から順に ${check?.clock ? "立ち上がり" : "ステップ"}ごと）</h4>
+      ${verdict}
+      <table class="sim-table logic-table">
+        <thead>
+          <tr>
+            <th class="logic-step">${stepLabel}</th>
+            ${inputSeqs.map(([n]) => `<th class="logic-in-head">${escapeHtml(n)}</th>`).join("")}
+            ${outputNets.map((n) => `<th class="logic-out-head">${escapeHtml(n)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${picked
+            .map((i) => `<tr class="${bad.has(i) ? "is-mismatch" : ""}">${body[i].html}</tr>`)
+            .join("")}
+        </tbody>
+      </table>
+      ${steps > picked.length ? `<p class="sim-more">＋ 他 ${steps - picked.length} ステップ</p>` : ""}
+    `;
+  }
+
+  return html;
+}
+
+/** デジタル解析で扱う部品（アナログ解析の警告「未対応の部品」を出さない対象）。 */
+const DIGITAL_COMPONENT_TYPES = new Set([
+  "LOGIC_IN", "DFF", "DFF_R",
+  "U_NOT", "U_AND", "U_OR", "U_NAND", "U_NOR", "U_XOR", "U_XNOR", "U_AND3", "U_OR3",
+]);
+
+/**
+ * 表示する警告を選びます。
+ * judge に digital を含む問題では、デジタル部品についての「アナログ解析では未対応」の警告は
+ * 意図どおり（デジタル解析が扱う）なので表示しない。
+ *
+ * @param {string[]} warnings
+ * @param {object|null} problem
+ * @returns {string[]}
+ */
+function filterSimWarnings(warnings, problem) {
+  if (!Array.isArray(warnings)) return [];
+  const judge = problem?.judge;
+  const isDigital = Array.isArray(judge) ? judge.includes("digital") : judge === "digital";
+  if (!isDigital) return warnings;
+  return warnings.filter((message) => {
+    const match = /\(([A-Z0-9_]+)\)\s*$/.exec(String(message));
+    return !(match && DIGITAL_COMPONENT_TYPES.has(match[1]));
+  });
+}
+
 /**
  * シミュレーション結果パネルの HTML を生成します。
  *
@@ -2323,6 +2951,7 @@ function simValue(value, unit) {
  * - エラー / 警告（バリデーションエラーや未実装モードの警告など）
  * - DC: ノード電圧・素子の電圧 / 電流 / 電力
  * - AC: ノード電圧の振幅と位相・素子電流
+ * - digital: ネットの論理値・真理値表・出力系列
  * - 過渡解析: 概要とノードの最終電圧
  *
  * @param {object} state
@@ -2353,11 +2982,11 @@ function renderSimulationResults(state) {
 
   const errorsHtml = buildSimMessageList(result.errors, "sim-messages-error");
   const warningsHtml = buildSimMessageList(
-    result.warnings,
+    filterSimWarnings(result.warnings, state.currentProblem),
     "sim-messages-warning"
   );
 
-  let dataHtml = "";
+  let dataHtml = buildDigitalResultHtml(state, result.digital);
 
   /* --- DC 解析 --- */
   const dcNodes = Object.entries(result.dc?.nodes ?? {});
@@ -2638,9 +3267,10 @@ async function handleSimulate() {
       );
     } else {
       const errorCount = Array.isArray(result.errors) ? result.errors.length : 0;
-      const warningCount = Array.isArray(result.warnings)
-        ? result.warnings.length
-        : 0;
+      const warningCount = filterSimWarnings(
+        result.warnings,
+        getState().currentProblem
+      ).length;
 
       setStatus(
         `シミュレーション完了（エラー ${errorCount} 件 / 警告 ${warningCount} 件）。詳細は右のインスペクタを確認してください。`,
@@ -2676,18 +3306,32 @@ async function handleCheck() {
 
     setSimulationResult(simulationResult);
 
+    const { answers, errors: answerErrors } = collectAnswers(state.currentProblem);
+
+    if (answerErrors.length > 0) {
+      setCheckResults([]);
+      setStatus(answerErrors.join(" / "), "warning");
+      return;
+    }
+
     const results = await runChecks(
       state.currentProblem,
       simulationResult,
-      state.board
+      state.board,
+      { answers }
     );
-
-    setCheckResults(results);
 
     const summary = summarizeCheckResults(results);
 
     if (summary.ok) {
-      setStatus("すべてのチェックに合格しました。", "success");
+      markSolved(state.currentProblem.id);
+      openModal("clear");
+    }
+
+    setCheckResults(results);
+
+    if (summary.ok) {
+      setStatus("すべてのチェックに合格しました。クリア！", "success");
     } else {
       setStatus(
         `${summary.failed} 件のチェックに不合格です。`,
@@ -2755,7 +3399,10 @@ function bindGlobalKeyboard() {
     }
 
     if (event.key === "Escape") {
-      if (wireDraft) {
+      if (getModal()) {
+        openModal(null);
+        forceRender();
+      } else if (wireDraft) {
         wireDraft = null;
         setStatus("配線を取り消しました。", "info");
         forceRender();

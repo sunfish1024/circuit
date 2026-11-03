@@ -1,0 +1,273 @@
+{
+  "id": "C-07",
+  "category": "C",
+  "title": "負荷をつなぐと利得が下がる：RC ∥ RL で設計し直す",
+  "difficulty": 3,
+  "prerequisites": [
+    "C-06"
+  ],
+  "learningGoal": "増幅回路の出力に負荷 RL をつなぐと、交流的に RC と RL が並列になって利得が $-g_m(R_C \\parallel R_L)$ に下がることを理解し、負荷込みで目標の利得になる RC を設計できる。出力結合コンデンサで直流を切る理由を説明できる。",
+  "judge": [
+    "dc",
+    "ac"
+  ],
+  "statement": "### 状況\nC-06 の増幅回路（RC = 2.6 kΩ で利得 100 倍）の出力に、次の段の回路をつないだところ、利得が 100 倍より小さくなってしまいました。次の段の入力は **10 kΩ の抵抗 RL**（`load`–`gnd`）として表します。このように出力につながる回路を**負荷**といいます。\n\n出力を次の段につなぐときは、コレクタの直流電圧（約 9 V）が次の段に流れ込まないように、**出力結合コンデンサ COUT** を間に入れます。\n\n### やること\n1. 抵抗（コレクタ抵抗 RC）を 1 個置き、`vcc` と `out`（TPO）の間につなぐ。\n2. コンデンサ（COUT）を 1 個置き、`out` と `load`（TPL）の間につなぐ。値は **10 µF** にする。\n3. RL をつないだ状態で、`vin` → `load` の電圧利得が **100 倍（40 dB）** になるように RC の値を決める。\n\n### 条件\n- V1 = 12 V。RB1 = 47 kΩ、RB2 = 10 kΩ、RE = 1.3 kΩ、CIN = 10 µF、CE = 100 µF（C-06 と同じ）。トランジスタ Q は固定。\n- コレクタ電流は RC によらず **IC ≈ 1.0 mA**（シミュレーションでは 1.007 mA）。\n- COUT = 10 µF は 10 kHz で 1.6 Ω。RL（10 kΩ）に比べて十分小さいので、交流では短絡とみなしてよい。\n- VS: 振幅 1 mV、10 kHz（`vin`）。\n- トランジスタのモデル（Q の β と Vbe は変えない）:\n  - 直流: $V_{BE} = 0.7$ V、$I_C = \\beta I_B$、$\\beta = 100$（ベース内部に 10 Ω の抵抗があるが、影響は無視できる）\n  - 交流（小信号）: **ハイブリッドπモデル**。相互コンダクタンス $g_m = I_C/V_T$、ベース-エミッタ間の入力抵抗 $r_\\pi = \\beta/g_m$、エミッタから見た内部抵抗 $r_e = V_T/I_E$、**熱電圧 $V_T = 26$ mV**\n  - アーリー効果なし（コレクタの出力抵抗 $r_o = \\infty$）、接合容量なし（高い周波数で利得が下がる効果は考えない）\n- 判定:\n  - `vin` → `load` の利得が 40 dB（±0.5 dB）、位相が 180°（±3°）（AC 解析、10 kHz）\n  - `out` の直流電圧が、上の条件で正しく設計したときの値 8.46 V（±3%）\n  - トランジスタが活性領域\n  - `out`–`load` 間のコンデンサが 10 µF（±10%）",
+  "hints": [
+    "交流だけを考えると、RC の上端（`vcc`）も RL の下端も gnd です。COUT も短絡なので、コレクタから見ると RC と RL は**並列**につながっています。コレクタ電流の変化 $i_c$ はこの並列抵抗に流れます。",
+    "$A_v = -g_m (R_C \\parallel R_L)$。100 倍にするには $R_C \\parallel R_L = 100/g_m = 2.6\\,\\mathrm{k\\Omega}$ が必要です。並列の式 $\\dfrac{1}{R_C} + \\dfrac{1}{R_L} = \\dfrac{1}{2.6\\,\\mathrm{k\\Omega}}$ を RC について解きます。",
+    "$\\dfrac{1}{R_C} = \\dfrac{1}{2600} - \\dfrac{1}{10000}$ より $R_C \\approx 3.51\\,\\mathrm{k\\Omega}$。COUT（10 µF）を `out`–`load` に入れます。約 3.3〜3.7 kΩ なら合格。"
+  ],
+  "availableComponents": [
+    "R",
+    "C"
+  ],
+  "fixedComponents": [
+    {
+      "id": "V1",
+      "type": "V_DC",
+      "params": {
+        "V": 12
+      },
+      "connect": [
+        "vcc",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 40,
+        "y": 200
+      }
+    },
+    {
+      "id": "VS",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 0.001,
+        "freqHz": 10000,
+        "phaseDeg": 0
+      },
+      "connect": [
+        "vin",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 160,
+        "y": 300
+      }
+    },
+    {
+      "id": "CIN",
+      "type": "C",
+      "params": {
+        "C": 1e-05
+      },
+      "connect": [
+        "vin",
+        "base"
+      ],
+      "locked": true,
+      "position": {
+        "x": 280,
+        "y": 230
+      }
+    },
+    {
+      "id": "RB1",
+      "type": "R",
+      "params": {
+        "R": 47000
+      },
+      "connect": [
+        "vcc",
+        "base"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 440,
+        "y": 70
+      }
+    },
+    {
+      "id": "RB2",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "base",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 440,
+        "y": 330
+      }
+    },
+    {
+      "id": "Q",
+      "type": "Q_NPN",
+      "params": {
+        "beta": 100
+      },
+      "connect": [
+        "out",
+        "base",
+        "emit"
+      ],
+      "locked": true,
+      "position": {
+        "x": 560,
+        "y": 230
+      }
+    },
+    {
+      "id": "RE",
+      "type": "R",
+      "params": {
+        "R": 1300
+      },
+      "connect": [
+        "emit",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 580,
+        "y": 330
+      }
+    },
+    {
+      "id": "CE",
+      "type": "C",
+      "params": {
+        "C": 0.0001
+      },
+      "connect": [
+        "emit",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 700,
+        "y": 330
+      }
+    },
+    {
+      "id": "TPO",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "out"
+      ],
+      "locked": true,
+      "position": {
+        "x": 660,
+        "y": 100
+      }
+    },
+    {
+      "id": "TPL",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "load"
+      ],
+      "locked": true,
+      "position": {
+        "x": 790,
+        "y": 120
+      }
+    },
+    {
+      "id": "RL",
+      "type": "R",
+      "params": {
+        "R": 10000
+      },
+      "connect": [
+        "load",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 840,
+        "y": 250
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "bodePoint",
+      "input": "vin",
+      "output": "load",
+      "frequencyHz": 10000,
+      "gainDB": 40,
+      "phaseDeg": 180,
+      "gainToleranceDB": 0.5,
+      "phaseToleranceDeg": 3
+    },
+    {
+      "type": "dcVoltage",
+      "node": "out",
+      "expected": 8.462,
+      "tolerancePct": 3,
+      "unit": "V"
+    },
+    {
+      "type": "operatingRegion",
+      "element": "Q",
+      "region": "active"
+    },
+    {
+      "type": "componentValue",
+      "match": {
+        "type": "C",
+        "nets": [
+          "out",
+          "load"
+        ]
+      },
+      "expected": 1e-05,
+      "tolerancePct": 10
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "R1",
+      "type": "R",
+      "params": {
+        "R": 3513.5
+      },
+      "connect": [
+        "vcc",
+        "out"
+      ]
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "params": {
+        "C": 1e-05
+      },
+      "connect": [
+        "out",
+        "load"
+      ]
+    }
+  ],
+  "explanation": {
+    "solution": "**1. 小信号の回路を描く**: 交流では V1・CIN・CE・COUT がすべて短絡なので、コレクタには\n- RC（コレクタ → `vcc` = 交流の gnd）\n- RL（コレクタ → COUT → `load` → gnd）\n\nの 2 本がつながり、**並列**になります。\n\n**2. 利得の式**: コレクタ電流の変化 $i_c = g_m v_{in}$ が並列抵抗に流れるので\n\n$$\nv_{load} = -g_m (R_C \\parallel R_L)\\, v_{in}\n$$\n\n**3. 必要な並列抵抗**: $g_m = 1.0\\,\\mathrm{mA}/26\\,\\mathrm{mV}$（$1/g_m = 26\\,\\Omega$）なので\n\n$$\nR_C \\parallel R_L = \\frac{100}{g_m} = 2600\\,\\Omega\n$$\n\n**4. RC を求める**:\n\n$$\n\\frac{1}{R_C} = \\frac{1}{2600} - \\frac{1}{10000} = 3.846 \\times 10^{-4} - 1.0 \\times 10^{-4} = 2.846 \\times 10^{-4}\\,\\mathrm{S}\n\\quad\\Rightarrow\\quad R_C \\approx 3514\\,\\Omega\n$$\n\n**5. 確かめ**\n- 交流: $3514 \\parallel 10000 = 2600\\,\\Omega$、利得 $38.73\\,\\mathrm{mS} \\times 2600 = 100.7$ 倍 = 40.06 dB（シミュレーションも 40.06 dB、位相 −179.6°）。\n- 直流: COUT が直流を止めるので RL には直流が流れず、$V_C = 12 - 1.007\\,\\mathrm{mA} \\times 3514\\,\\Omega \\approx 8.46$ V。$V_{CE} \\approx 7.1$ V で活性領域です。",
+    "why": "- **出力をテブナン等価で見る**（A-10）: コレクタから見た増幅回路は「電圧 $-g_m R_C v_{in}$ の電源に、内部抵抗 RC が直列」と等価です（トランジスタのコレクタは理想電流源で、その出力抵抗は無限大なので、出力抵抗は RC だけ）。RL をつなぐと、この内部抵抗 RC と RL で分圧されます:\n$$\nv_{load} = -g_m R_C v_{in} \\cdot \\frac{R_L}{R_C + R_L} = -g_m \\frac{R_C R_L}{R_C + R_L} v_{in} = -g_m (R_C \\parallel R_L) v_{in}\n$$\n  C-06 の利得 100 倍は「何もつながない（RL = ∞）」ときの値（**無負荷利得**）でした。\n- **RC を大きくすれば取り戻せる理由**: 並列抵抗は小さい方に近づくので、RL = 10 kΩ に対して RC を 2.6 kΩ → 3.5 kΩ に上げると、並列値が 2.06 kΩ → 2.6 kΩ に戻ります。ただし RL より大きな並列値は作れない（$R_C \\to \\infty$ でも $R_C \\parallel R_L \\to R_L$）ので、RL が小さいと CE 増幅 1 段では利得が足りなくなります。\n- **COUT が必要な理由**: COUT が無いと RL を通って直流も流れ、コレクタの直流電圧が下がります（下の「よくある間違い」）。次段の動作点も狂わせてしまいます。コンデンサは直流では開放、10 kHz では 1.6 Ω の短絡に近いので、交流だけを通します。",
+    "mistakes": "- **C-06 のまま RC = 2.6 kΩ にする**: $2.6\\,\\mathrm{k} \\parallel 10\\,\\mathrm{k} = 2.06\\,\\mathrm{k\\Omega}$ で利得 79.4 倍（38.05 dB）。2 dB 足りず不合格です。\n- **RC + RL のように直列で考える**: 並列の 2.6 kΩ を「RC + RL」と考えると RC が負になってしまい、解けません。交流では `vcc` も gnd と同じなので、RC と RL はコレクタと gnd の間に並んでいます。\n- **COUT を使わず `out` と `load` をワイヤで直結する**: 交流の利得は同じでも、RL に直流が流れて $V_C$ が 8.46 V → 約 6.26 V に下がり、判定の直流電圧で不合格になります。実際の回路では、次段のバイアスが 6 V 前後の直流で大きく狂います。\n- **COUT を `out`–`gnd` 間につなぐ**: コレクタが 1.6 Ω で交流的に gnd に短絡され、`out` の利得は約 0.06 倍（−24 dB）しかなく、`load` には信号が届きません。結合コンデンサは信号の通り道に**直列**に入れます。\n- **RC を大きくしすぎる**: RC を 2 倍の 7 kΩ にすると利得は約 44 dB で不合格。さらに大きくすると $V_C$ が下がり、最後は飽和します。",
+    "practice": "- **出力インピーダンス**: CE 増幅の出力インピーダンスはほぼ RC（数 kΩ）で、スピーカ（8 Ω）や長いケーブルのような軽い（低い抵抗の）負荷は直接駆動できません。間に**エミッタフォロワ**（C-11）などのバッファを入れて出力インピーダンスを下げるのが定番です。\n- **設計の順番**: 実務では「負荷の最小値」を先に調べ、その負荷込みで利得を設計します。次段の入力インピーダンスは、C-09 で扱うように RB1∥RB2∥rπ のような値になります。\n- **トレードオフ**: RC を大きくすると $V_C$ が下がり、出力が下側に振れる余裕が減ります（この設計では $V_C \\approx 8.5$ V、$V_E \\approx 1.3$ V）。利得と出力振幅は同時に検討します。\n- **COUT の部品**: 10 µF ならアルミ電解コンデンサが一般的で、直流電圧が高いコレクタ側に + 端子を向けます。値の決め方（低い周波数をどこまで通すか）は C-10 で扱います。",
+    "next": "- **C-08**: RE をバイパスしないと利得は $-R_C/(r_e + R_E)$。負荷がある場合は RC を $R_C \\parallel R_L$ に置き換えれば同じ式が使える。\n- **C-09**: 今度は入力側。信号源の内部抵抗と増幅回路の入力インピーダンスによる損失。\n- **C-11**: 出力インピーダンスの小さいエミッタフォロワで負荷を駆動する。\n- **C-20**: 2 段増幅では、後段の入力インピーダンスが前段の負荷 RL になる。"
+  }
+}

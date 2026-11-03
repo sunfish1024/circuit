@@ -365,7 +365,7 @@
       "type": "D",
       "nameJa": "ダイオード",
       "description": "一般的な整流ダイオード",
-      "category": ["B", "C", "E", "F", "J", "K", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "K", "M"],
       "symbol": "diode",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -394,7 +394,7 @@
       "type": "ZD",
       "nameJa": "ツェナーダイオード",
       "description": "定電圧ダイオード",
-      "category": ["B", "C", "F", "J", "K", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "K", "M"],
       "symbol": "zener",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -432,7 +432,7 @@
       "type": "LED",
       "nameJa": "LED",
       "description": "発光ダイオード",
-      "category": ["B", "C", "F", "K", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "K", "M"],
       "symbol": "led",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -470,7 +470,7 @@
       "type": "SD",
       "nameJa": "ショットキーバリアダイオード",
       "description": "順方向電圧が低い（約0.3V）ショットキーバリアダイオード",
-      "category": ["B", "C", "E", "F", "J", "K", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "K", "M"],
       "symbol": "schottky",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -499,7 +499,7 @@
       "type": "TVS",
       "nameJa": "TVSダイオード",
       "description": "ESD・サージ保護用のクランプダイオード",
-      "category": ["B", "F", "J", "M"],
+      "category": ["B", "F", "I", "J", "M"],
       "symbol": "tvs",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -557,7 +557,7 @@
       "type": "D_VC",
       "nameJa": "バリキャップダイオード",
       "description": "逆バイアス電圧で静電容量が変化する可変容量ダイオード",
-      "category": ["B", "K", "L", "M"],
+      "category": ["B", "D", "E", "K", "L", "M"],
       "symbol": "varicap",
       "pinCount": 2,
       "pinNames": ["anode", "cathode"],
@@ -595,7 +595,7 @@
       "type": "Q_NPN",
       "nameJa": "NPNトランジスタ",
       "description": "NPNバイポーラトランジスタ",
-      "category": ["B", "C", "D", "F", "J", "M"],
+      "category": ["B", "C", "D", "E", "F", "H", "I", "J", "M"],
       "symbol": "npn",
       "pinCount": 3,
       "pinNames": ["collector", "base", "emitter"],
@@ -633,7 +633,7 @@
       "type": "Q_PNP",
       "nameJa": "PNPトランジスタ",
       "description": "PNPバイポーラトランジスタ",
-      "category": ["B", "C", "D", "F", "J", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "M"],
       "symbol": "pnp",
       "pinCount": 3,
       "pinNames": ["collector", "base", "emitter"],
@@ -671,7 +671,7 @@
       "type": "M_N",
       "nameJa": "NチャネルMOSFET",
       "description": "NチャネルエンハンスメントMOSFET",
-      "category": ["B", "C", "F", "J", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "M"],
       "symbol": "nmos",
       "pinCount": 3,
       "pinNames": ["drain", "gate", "source"],
@@ -718,7 +718,7 @@
       "type": "M_P",
       "nameJa": "PチャネルMOSFET",
       "description": "PチャネルエンハンスメントMOSFET",
-      "category": ["B", "C", "F", "J", "M"],
+      "category": ["B", "C", "D", "E", "F", "I", "J", "M"],
       "symbol": "pmos",
       "pinCount": 3,
       "pinNames": ["drain", "gate", "source"],
@@ -765,7 +765,7 @@
       "type": "J_N",
       "nameJa": "NチャネルJFET",
       "description": "Nチャネル接合形FET（自己バイアスで使用）",
-      "category": ["B", "C", "K", "M"],
+      "category": ["B", "C", "D", "E", "K", "M"],
       "symbol": "jfetN",
       "pinCount": 3,
       "pinNames": ["drain", "gate", "source"],
@@ -831,8 +831,8 @@
     {
       "type": "OPAMP",
       "nameJa": "オペアンプ",
-      "description": "汎用オペアンプ",
-      "category": ["C", "D", "E", "K", "M"],
+      "description": "汎用オペアンプ（入力電流0・出力抵抗0。出力 = Aol×(V+−V−) を電源電圧で頭打ち。電源ピン v_plus/v_minus を配線するとそのノード電圧がレール、未配線なら Vpos/Vneg。GBP は AC 解析だけで使う。0 なら周波数特性なし）",
+      "category": ["C", "D", "E", "F", "I", "J", "K", "M"],
       "symbol": "opamp",
       "pinCount": 5,
       "pinNames": ["in_plus", "in_minus", "out", "v_plus", "v_minus"],
@@ -848,16 +848,16 @@
         },
         {
           "key": "GBP",
-          "labelJa": "利得帯域幅積",
+          "labelJa": "利得帯域幅積（0=理想）",
           "unit": "Hz",
           "default": 1000000,
-          "min": 1,
+          "min": 0,
           "max": 10000000000,
           "editable": true
         },
         {
           "key": "Vpos",
-          "labelJa": "正側電源",
+          "labelJa": "正側電源（v_plus 未配線時）",
           "unit": "V",
           "default": 15,
           "min": 0,
@@ -866,11 +866,20 @@
         },
         {
           "key": "Vneg",
-          "labelJa": "負側電源",
+          "labelJa": "負側電源（v_minus 未配線時）",
           "unit": "V",
           "default": -15,
           "min": -100,
           "max": 0,
+          "editable": true
+        },
+        {
+          "key": "Vdrop",
+          "labelJa": "出力の電源電圧からの落差",
+          "unit": "V",
+          "default": 0,
+          "min": 0,
+          "max": 10,
           "editable": true
         }
       ],
@@ -912,6 +921,149 @@
       }
     },
     {
+      "type": "SW_V",
+      "nameJa": "電圧制御スイッチ",
+      "description": "制御端子間の電圧（ctrl_p − ctrl_n）がしきい値 Vth を超えると 1−2 間が閉じる理想スイッチ（PWM で駆動する半導体スイッチの理想化）。制御端子に電流は流れない",
+      "category": ["D", "E", "F", "J"],
+      "symbol": "switch_v",
+      "pinCount": 4,
+      "pinNames": ["1", "2", "ctrl_p", "ctrl_n"],
+      "params": [
+        { "key": "Ron", "labelJa": "オン抵抗", "unit": "ohm", "default": 0.01, "min": 0.000001, "max": 1000, "editable": true },
+        { "key": "Roff", "labelJa": "オフ抵抗", "unit": "ohm", "default": 1000000000, "min": 1, "max": 1000000000000, "editable": true },
+        { "key": "Vth", "labelJa": "しきい値電圧", "unit": "V", "default": 2.5, "min": -100, "max": 100, "editable": true },
+        { "key": "invert", "labelJa": "反転（制御が Vth 未満で閉）", "unit": "", "default": false, "editable": true }
+      ],
+      "simulation": {
+        "model": "voltageControlledSwitch"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "XTAL",
+      "nameJa": "水晶振動子",
+      "description": "直列共振枝（Rm・Lm・Cm）と並列容量 Cp の等価回路。直列共振 fs = 1/(2π√(Lm·Cm)) でインピーダンス最小、並列共振 fp = fs·√(1+Cm/Cp) で最大。既定値は教育用に Q を下げた値（fs = 100kHz、Q ≈ 628）",
+      "category": ["D", "E"],
+      "symbol": "crystal",
+      "pinCount": 2,
+      "pinNames": ["1", "2"],
+      "params": [
+        { "key": "Lm", "labelJa": "等価インダクタンス", "unit": "H", "default": 0.1, "min": 1e-09, "max": 1000, "editable": true },
+        { "key": "Cm", "labelJa": "等価直列容量", "unit": "F", "default": 2.533029591e-11, "min": 1e-18, "max": 1e-06, "editable": true },
+        { "key": "Rm", "labelJa": "等価直列抵抗", "unit": "ohm", "default": 100, "min": 0.001, "max": 1000000, "editable": true },
+        { "key": "Cp", "labelJa": "並列容量（電極間容量）", "unit": "F", "default": 1e-09, "min": 0, "max": 0.001, "editable": true }
+      ],
+      "simulation": {
+        "model": "crystal"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "V_AM",
+      "nameJa": "AM信号源",
+      "description": "振幅変調波 v = Vc·(1 + m·sin 2πfm·t)·sin 2πfc·t を出す信号源（過渡解析専用。DC・AC では 0V）",
+      "category": ["D", "E"],
+      "symbol": "source_am",
+      "pinCount": 2,
+      "pinNames": ["p", "n"],
+      "params": [
+        { "key": "Vc", "labelJa": "搬送波の振幅（ピーク）", "unit": "V", "default": 1, "min": 0, "max": 1000, "editable": true },
+        { "key": "fcHz", "labelJa": "搬送波周波数", "unit": "Hz", "default": 10000, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "fmHz", "labelJa": "変調（信号）周波数", "unit": "Hz", "default": 500, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "m", "labelJa": "変調度", "unit": "", "default": 0.5, "min": 0, "max": 2, "editable": true }
+      ],
+      "simulation": {
+        "model": "amSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "V_FM",
+      "nameJa": "FM信号源",
+      "description": "周波数変調波 v = Vpk·sin(2πfc·t + β·sin 2πfm·t)、β = Δf/fm（瞬時周波数 fc + Δf·cos 2πfm·t）を出す信号源（過渡解析専用。DC・AC では 0V）",
+      "category": ["D", "E"],
+      "symbol": "source_fm",
+      "pinCount": 2,
+      "pinNames": ["p", "n"],
+      "params": [
+        { "key": "Vpk", "labelJa": "振幅（ピーク）", "unit": "V", "default": 1, "min": 0, "max": 1000, "editable": true },
+        { "key": "fcHz", "labelJa": "搬送波周波数", "unit": "Hz", "default": 10000, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "fmHz", "labelJa": "変調（信号）周波数", "unit": "Hz", "default": 500, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "deviationHz", "labelJa": "最大周波数偏移 Δf", "unit": "Hz", "default": 1000, "min": 0, "max": 1000000000.0, "editable": true }
+      ],
+      "simulation": {
+        "model": "fmSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "V_VCO",
+      "nameJa": "電圧制御発振器（VCO）",
+      "description": "制御電圧 vc = V(ctrl_p) − V(ctrl_n) で周波数が f = f0 + Kv·vc に変わる信号源（p−n 間に出力。制御端子に電流は流れない。過渡解析専用）。square で方形波（Voffset ± Vpk、デューティ 50%）",
+      "category": ["D", "E"],
+      "symbol": "vco",
+      "pinCount": 4,
+      "pinNames": ["p", "n", "ctrl_p", "ctrl_n"],
+      "params": [
+        { "key": "f0Hz", "labelJa": "制御電圧 0V のときの周波数", "unit": "Hz", "default": 1000, "min": 0, "max": 1000000000.0, "editable": true },
+        { "key": "KvHzPerV", "labelJa": "感度 Kv", "unit": "Hz/V", "default": 100, "min": -1000000000.0, "max": 1000000000.0, "editable": true },
+        { "key": "Vpk", "labelJa": "振幅（ピーク）", "unit": "V", "default": 1, "min": 0, "max": 1000, "editable": true },
+        { "key": "Voffset", "labelJa": "直流分", "unit": "V", "default": 0, "min": -1000, "max": 1000, "editable": true },
+        { "key": "square", "labelJa": "方形波で出力", "unit": "", "default": false, "editable": true },
+        { "key": "fMaxHz", "labelJa": "想定する最高周波数（刻みの決定用）", "unit": "Hz", "default": 2000, "min": 0, "max": 1000000000.0, "editable": true }
+      ],
+      "simulation": {
+        "model": "vcoSource"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
+      "type": "MULT",
+      "nameJa": "乗算器",
+      "description": "出力 V(out) = k·V(x)·V(y)（gnd 基準）の理想乗算器（ミキサ・同期検波・DSB 変調用）。入力電流 0、出力抵抗 0。AC 解析では DC 動作点で線形化",
+      "category": ["D", "E"],
+      "symbol": "multiplier",
+      "pinCount": 3,
+      "pinNames": ["x", "y", "out"],
+      "params": [
+        { "key": "k", "labelJa": "係数 k", "unit": "1/V", "default": 1, "min": -1000, "max": 1000, "editable": true }
+      ],
+      "simulation": {
+        "model": "multiplier"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": true,
+        "deletable": true
+      }
+    },
+    {
       "type": "TP",
       "nameJa": "テストポイント",
       "description": "電圧観測点",
@@ -934,21 +1086,11 @@
       "type": "U_NOT",
       "nameJa": "NOTゲート",
       "description": "論理反転ゲート",
-      "category": ["G", "H", "I"],
+      "category": ["D", "E", "G", "H", "I"],
       "symbol": "gate_not",
       "pinCount": 2,
       "pinNames": ["A", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "NOT"
@@ -964,21 +1106,11 @@
       "type": "U_AND",
       "nameJa": "ANDゲート",
       "description": "2入力ANDゲート",
-      "category": ["G", "H", "I"],
+      "category": ["D", "E", "G", "H", "I"],
       "symbol": "gate_and",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "AND"
@@ -994,21 +1126,11 @@
       "type": "U_OR",
       "nameJa": "ORゲート",
       "description": "2入力ORゲート",
-      "category": ["G", "H", "I"],
+      "category": ["D", "E", "G", "H", "I"],
       "symbol": "gate_or",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "OR"
@@ -1024,21 +1146,11 @@
       "type": "U_NAND",
       "nameJa": "NANDゲート",
       "description": "2入力NANDゲート",
-      "category": ["G", "H", "I"],
+      "category": ["D", "E", "G", "H", "I"],
       "symbol": "gate_nand",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "NAND"
@@ -1054,21 +1166,11 @@
       "type": "U_NOR",
       "nameJa": "NORゲート",
       "description": "2入力NORゲート",
-      "category": ["G", "H", "I"],
+      "category": ["D", "E", "G", "H", "I"],
       "symbol": "gate_nor",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "NOR"
@@ -1084,21 +1186,11 @@
       "type": "U_XOR",
       "nameJa": "XORゲート",
       "description": "2入力XORゲート",
-      "category": ["G", "H", "I"],
+      "category": ["D", "E", "G", "H", "I"],
       "symbol": "gate_xor",
       "pinCount": 3,
       "pinNames": ["A", "B", "Y"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "digitalGate",
         "gate": "XOR"
@@ -1114,21 +1206,11 @@
       "type": "DFF",
       "nameJa": "Dフリップフロップ",
       "description": "エッジトリガDフリップフロップ",
-      "category": ["H", "I"],
+      "category": ["D", "E", "H", "I"],
       "symbol": "dff",
       "pinCount": 4,
       "pinNames": ["D", "CLK", "Q", "Q_NOT"],
-      "params": [
-        {
-          "key": "delaySec",
-          "labelJa": "伝搬遅延",
-          "unit": "s",
-          "default": 1e-9,
-          "min": 0,
-          "max": 1,
-          "editable": true
-        }
-      ],
+      "params": [],
       "simulation": {
         "model": "dff"
       },
@@ -1140,9 +1222,117 @@
       }
     },
     {
+      "type": "U_XNOR",
+      "nameJa": "XNORゲート",
+      "description": "2入力XNORゲート（一致回路）",
+      "category": ["D", "E", "G", "H", "I"],
+      "symbol": "gate_xnor",
+      "pinCount": 3,
+      "pinNames": ["A", "B", "Y"],
+      "params": [],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "XNOR"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_AND3",
+      "nameJa": "3入力ANDゲート",
+      "description": "3入力ANDゲート",
+      "category": ["D", "E", "G", "H", "I"],
+      "symbol": "gate_and3",
+      "pinCount": 4,
+      "pinNames": ["A", "B", "C", "Y"],
+      "params": [],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "AND3"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "U_OR3",
+      "nameJa": "3入力ORゲート",
+      "description": "3入力ORゲート",
+      "category": ["D", "E", "G", "H", "I"],
+      "symbol": "gate_or3",
+      "pinCount": 4,
+      "pinNames": ["A", "B", "C", "Y"],
+      "params": [],
+      "simulation": {
+        "model": "digitalGate",
+        "gate": "OR3"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "DFF_R",
+      "nameJa": "Dフリップフロップ（クリア付き）",
+      "description": "立ち上がりエッジで D を取り込む DFF。CLR は負論理の非同期クリア（CLR=0 の間 Q=0）",
+      "category": ["D", "E", "H", "I"],
+      "symbol": "dff_r",
+      "pinCount": 5,
+      "pinNames": ["D", "CLK", "CLR", "Q", "Q_NOT"],
+      "params": [],
+      "simulation": {
+        "model": "dff"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
+      "type": "LOGIC_IN",
+      "nameJa": "論理入力",
+      "description": "論理値 0/1 を出す入力端子。判定（truthTable / sequence）では判定側が値を自動で切り替える",
+      "category": ["D", "E", "G", "H", "I"],
+      "symbol": "logic_in",
+      "pinCount": 1,
+      "pinNames": ["Y"],
+      "params": [
+        {
+          "key": "value",
+          "labelJa": "出力値（0/1）",
+          "unit": "",
+          "default": 0,
+          "min": 0,
+          "max": 1,
+          "editable": true
+        }
+      ],
+      "simulation": {
+        "model": "logicInput"
+      },
+      "ui": {
+        "palette": true,
+        "rotatable": true,
+        "flippable": false,
+        "deletable": true
+      }
+    },
+    {
       "type": "XFMR",
       "nameJa": "トランス",
-      "description": "理想トランスに近い簡易トランス",
+      "description": "理想トランス（過渡解析）。巻数比 turnsRatio = Np/Ns で二次電圧 = 一次電圧 / turnsRatio。結合係数は使わない（漏れ・巻線抵抗なし）。Lm > 0 で一次に並列の励磁インダクタンス（フライバック用）。DC 解析では各巻線が短絡",
       "category": ["F", "J"],
       "symbol": "transformer",
       "pinCount": 4,
@@ -1165,7 +1355,8 @@
           "min": 0,
           "max": 1,
           "editable": true
-        }
+        },
+        { "key": "Lm", "labelJa": "励磁インダクタンス（0 = 理想）", "unit": "H", "default": 0, "min": 0, "max": 100, "editable": true }
       ],
       "simulation": {
         "model": "transformer"
@@ -1180,8 +1371,8 @@
     {
       "type": "SCR",
       "nameJa": "サイリスタ（SCR）",
-      "description": "ゲートでトリガして導通する整流素子",
-      "category": ["B", "J", "M"],
+      "description": "ゲートでトリガして導通する整流素子。点弧後はゲート電流が無くても A→K 電流が保持電流 Ih 以上の間は導通を続ける（ラッチ）",
+      "category": ["B", "F", "J", "M"],
       "symbol": "scr",
       "pinCount": 3,
       "pinNames": ["anode", "gate", "cathode"],
@@ -1194,7 +1385,9 @@
           "min": 0,
           "max": 5,
           "editable": true
-        }
+        },
+        { "key": "Vt", "labelJa": "オン電圧", "unit": "V", "default": 1, "min": 0, "max": 5, "editable": true },
+        { "key": "Ih", "labelJa": "保持電流", "unit": "A", "default": 0.005, "min": 0, "max": 10, "editable": true }
       ],
       "simulation": {
         "model": "scr"
@@ -1209,7 +1402,7 @@
     {
       "type": "TRIAC",
       "nameJa": "トライアック",
-      "description": "双方向をトリガできる交流負荷制御用素子",
+      "description": "双方向をトリガできる交流負荷制御用素子。ゲート電流（どちらの向きでも）で点弧し、主電流が保持電流 Ih を下回るまで導通する",
       "category": ["B", "J", "M"],
       "symbol": "triac",
       "pinCount": 3,
@@ -1223,7 +1416,9 @@
           "min": 0,
           "max": 10,
           "editable": true
-        }
+        },
+        { "key": "Vt", "labelJa": "オン電圧", "unit": "V", "default": 1, "min": 0, "max": 5, "editable": true },
+        { "key": "Ih", "labelJa": "保持電流", "unit": "A", "default": 0.005, "min": 0, "max": 10, "editable": true }
       ],
       "simulation": {
         "model": "triac"
@@ -1238,7 +1433,7 @@
     {
       "type": "DIAC",
       "nameJa": "ダイアック",
-      "description": "ブレークオーバー電圧で双方向に導通するトリガ素子",
+      "description": "ブレークオーバー電圧で双方向に導通するトリガ素子。導通中の端子電圧は Vbo − dV（ブレークバック）",
       "category": ["B", "J", "M"],
       "symbol": "diac",
       "pinCount": 2,
@@ -1252,7 +1447,9 @@
           "min": 0,
           "max": 100,
           "editable": true
-        }
+        },
+        { "key": "dV", "labelJa": "ブレークバック電圧", "unit": "V", "default": 5, "min": 0, "max": 100, "editable": true },
+        { "key": "Ih", "labelJa": "保持電流", "unit": "A", "default": 0.005, "min": 0, "max": 10, "editable": true }
       ],
       "simulation": {
         "model": "diac"

@@ -1,0 +1,194 @@
+{
+  "id": "I-09",
+  "category": "I",
+  "title": "負論理のチップセレクト ― /MREQ とド・モルガンの法則",
+  "difficulty": 4,
+  "prerequisites": [
+    "I-08"
+  ],
+  "judge": "digital",
+  "learningGoal": "0 で有効な（負論理の）制御信号 /MREQ と、0 で IC を選ぶ /CS を扱い、「0 にする条件の AND は、出力で見ると OR になる」（ド・モルガンの法則）を使って負論理のチップセレクトを作れる。",
+  "statement": "### 状況\n実際のメモリ IC や周辺 IC のチップセレクト入力は、ほとんどが **負論理**（アクティブ Low: **0 のときに有効**）です。負論理の信号は、名前の前に「/」を付けるか、末尾に `_n` を付けて表します（例: /CS = `cs_n`）。\n\nまた CPU は、アドレス線の値が確定して本当にメモリを読み書きしている間だけ、**/MREQ**（メモリ要求、負論理）を 0 にします。/MREQ = 1 の間は、アドレス線が切り替わる途中だったり、メモリ以外の動作をしていたりするので、**どの IC も選んではいけません**。\n\nメモリマップ:\n\n| 番地（16 進） | 割り当て |\n|---|---|\n| 0x0000〜0x7FFF | ROM（32 KB） |\n| 0x8000〜0xBFFF | RAM（16 KB） |\n| 0xC000〜0xFFFF | LCD コントローラ（16 KB） |\n\n### やること\n入力 `mreq_n`（/MREQ）, `a15`, `a14` から、負論理のチップセレクト `rom_cs_n`, `ram_cs_n`, `lcd_cs_n` を作ってください。\n\n- /MREQ = 0 で、番地がその IC の範囲にあるとき → その IC の /CS だけを **0**（選択）\n- それ以外（/MREQ = 1 のときはすべて）→ **1**（非選択）\n\n| mreq_n | a15 | a14 | rom_cs_n | ram_cs_n | lcd_cs_n |\n|---|---|---|---|---|---|\n| 1 | x | x | 1 | 1 | 1 |\n| 0 | 0 | x | 0 | 1 | 1 |\n| 0 | 1 | 0 | 1 | 0 | 1 |\n| 0 | 1 | 1 | 1 | 1 | 0 |\n\n（x は 0 でも 1 でも同じ、という意味です。）\n\n使えるゲート: NOT、2 入力の AND・OR・NAND・NOR、3 入力の AND（AND3）・OR（OR3）。\n\n### 条件\n- ゲートは**理想論理素子**: 値は 0 / 1 だけで、電圧・電流・遅延は考えない。判定は入力を変えて回路が落ち着いた後の値で行う。\n- 入力端子（LOGIC_IN）の値は、判定が**全組み合わせを自動で切り替えて**与える。手で 0/1 を切り替える必要はない。\n- ゲートの入力ピンを開放（未配線）のままにしない（値が不定 X になり不合格）。ゲートの出力どうしを同じネットにつながない（衝突で不合格）。\n- 判定: mreq_n, a15, a14 の 8 通りすべてで、3 本の /CS が上の表のとおりになること。\n\n### ボードの配置\n- 左に入力 /MREQ（`mreq_n`）・A15・A14、右に出力 ROM_CS・RAM_CS・LCD_CS（いずれも負論理）の TP。間にゲートを置きます。",
+  "hints": [
+    "/CS が 0 になる条件は「/MREQ = 0 **かつ** 番地が範囲内」です。逆に言えば、条件が **1 つでも外れたら** /CS = 1。「どれか 1 つでも」は OR です。それぞれの条件が外れたときに 1 になる信号を作って OR しましょう。",
+    "ROM の条件は「mreq_n = 0 かつ a15 = 0」なので、外れるのは「mreq_n = 1 または a15 = 1」→ $\\overline{CS}_{rom} = mreq\\_n + a_{15}$。RAM は「a15 = 1 かつ a14 = 0」なので → $\\overline{CS}_{ram} = mreq\\_n + \\overline{a_{15}} + a_{14}$。LCD は → $mreq\\_n + \\overline{a_{15}} + \\overline{a_{14}}$。",
+    "NOT: `a15`→`n15`、`a14`→`n14`。OR: (`mreq_n`, `a15`)→`rom_cs_n`。OR3: (`mreq_n`, `n15`, `a14`)→`ram_cs_n`、(`mreq_n`, `n15`, `n14`)→`lcd_cs_n`。"
+  ],
+  "explanation": {
+    "solution": "**1. 「選ぶ条件」を正論理で書く**（I-08 と同じ考え方。1 のとき選ぶ）\n\n/MREQ が 0 のとき、つまり $\\overline{mreq\\_n}$ = 1 のときだけ選ぶので、それを AND に加えます。\n\n$$sel_{rom} = \\overline{mreq\\_n}\\cdot\\overline{a_{15}},\\quad sel_{ram} = \\overline{mreq\\_n}\\cdot a_{15}\\cdot\\overline{a_{14}},\\quad sel_{lcd} = \\overline{mreq\\_n}\\cdot a_{15}\\cdot a_{14}$$\n\n**2. 負論理の出力は、その反転**\n\n$$rom\\_cs\\_n = \\overline{sel_{rom}} = \\overline{\\overline{mreq\\_n}\\cdot\\overline{a_{15}}}$$\n\n**3. ド・モルガンの法則で OR に直す**: $\\overline{X\\cdot Y} = \\overline{X} + \\overline{Y}$。反転の反転は元に戻るので、\n\n$$rom\\_cs\\_n = mreq\\_n + a_{15}$$\n$$ram\\_cs\\_n = mreq\\_n + \\overline{a_{15}} + a_{14}$$\n$$lcd\\_cs\\_n = mreq\\_n + \\overline{a_{15}} + \\overline{a_{14}}$$\n\n**4. ゲートにする**: NOT 2 個（$\\overline{a_{15}}$, $\\overline{a_{14}}$）、OR 1 個、OR3 2 個の合計 5 個。\n\n**別解（NAND を使う）**: $mreq = \\overline{mreq\\_n}$ を NOT で作り、rom_cs_n = NAND($mreq$, $\\overline{a_{15}}$)、ram_cs_n = NAND(AND($mreq$, $a_{15}$), $\\overline{a_{14}}$) のように「選ぶ条件の AND を最後に反転する」形でも同じ動作です。式 2 そのままの形で、ゲートの数は少し増えます。\n\n**確かめ**: mreq_n = 1 なら、3 つの OR すべてに 1 が入るので 3 本とも 1（非選択）。mreq_n = 0, a15 = 1, a14 = 0 なら、rom_cs_n = 0 + 1 = 1、ram_cs_n = 0 + 0 + 0 = **0**、lcd_cs_n = 0 + 0 + 1 = 1 で、RAM だけが選ばれます。",
+    "why": "- **負論理どうしの AND は OR ゲート**: 「/MREQ が有効（0）かつ A15 が 0」のように、すべての信号を「0 が有効」と見ると、出力が 0（有効）になるのは入力がすべて 0 のときだけ。これは OR ゲートの動作そのものです。正論理で見れば OR、負論理で見れば AND——同じゲートが見方によって違う働きをします。回路図では、負論理で使う OR を「入力に丸の付いた AND」の記号で描くこともあります（意図が伝わりやすい）。\n- **ド・モルガンの法則**: $\\overline{X\\cdot Y} = \\overline{X} + \\overline{Y}$、$\\overline{X + Y} = \\overline{X}\\cdot\\overline{Y}$。「すべてそろったら選ぶ」の否定は「どれか 1 つでも欠けたら選ばない」です（G-04 で扱った法則）。\n- **なぜ /MREQ が必要か**: アドレス線の値は、CPU が次の番地へ切り替える途中で一瞬だけ中途半端な値になります。そのときに CS が出ると、関係ない IC に読み書きしてしまいます。CPU は値が確定している間だけ /MREQ を 0 にするので、これを CS の条件に入れておけば安全です。",
+    "mistakes": "- **I-08 のように正論理で作って終わる**（例: rom_cs_n = AND($\\overline{mreq\\_n}$, $\\overline{a_{15}}$)）: 選ぶときに 1、選ばないときに 0 になるので、極性が反対です。判定は「mreq_n=1, a15=0, a14=0 のとき rom_cs_n=0（正しくは 1）」で不合格。実機では、選んでいないはずの IC がすべて選ばれ、データ線で衝突します。\n- **/MREQ を入れ忘れる**（rom_cs_n = a15）: mreq_n = 1 のときも ROM が選ばれます。「mreq_n=1, a15=0, a14=0 のとき rom_cs_n=0（正しくは 1）」で不合格。\n- **OR の代わりに AND を使う**（rom_cs_n = mreq_n·a15）: 入力のどちらかが 0 なら出力が 0 になるので、mreq_n = 1 でも a15 = 0 なら ROM が選ばれます（同じく不合格）。負論理の「かつ」は OR、と覚えます。\n- **OR の代わりに NOR を使う**: 出力の極性が反転し、選ばれた IC 以外の /CS が 0 になります。\n- **ram_cs_n の a14 を反転してしまう**: RAM と LCD の範囲が入れ替わり、「mreq_n=0, a15=1, a14=0 のとき ram_cs_n=1（正しくは 0）」で不合格。「選ぶ条件で 0 であるべきビットは、OR にそのまま入れる」と整理すると間違えません。",
+    "practice": "- **なぜ負論理が多いのか**: 昔の TTL は Low を出す力が強く High を出す力が弱かったこと、そしてプルアップ抵抗を付けておけば、CPU がリセット中で信号線を駆動していない（ハイインピーダンス）間も /CS が 1＝非選択に保たれて安全なことが理由です。電源投入時やリセット中に IC が勝手に選ばれないのは、実務では大切な性質です。\n- **デコーダ IC**: 3→8 デコーダ **74HC138** は、イネーブル入力のうち 2 本（/E1, /E2）が負論理、出力 /Y0〜/Y7 も負論理です。/MREQ を /E1 に直接つなぎ、A15〜A13 を選択入力に入れるだけで、8 KB ずつの負論理 CS が 8 本できます。\n- **読み出しと書き込み**: 実際の基板では、さらに /RD（読み出し）・/WR（書き込み）と組み合わせて、IC の /OE（出力許可）や /WE（書き込み許可）を作ります。これらもすべて負論理で、考え方はこの問題と同じです。\n- **信号名の書き方**: 回路図やデータシートでは $\\overline{CS}$（上線）、/CS、CS#、nCS、CS_n、CSB などと書きます。どれも「0 で有効」の印です。",
+    "next": "- **I-10**: オープンドレイン出力と共通プルアップ。負論理の信号を 1 本の線にまとめる「ワイヤード AND」。\n- **I-12**: 複数の割り込み要因（負論理）をゲートで 1 本にまとめる。この問題と同じド・モルガンの考え方を使います。\n- **I-18 / I-20**: アドレスデコーダの出力で出力ポートに書き込む回路、CPU ボード全体の総合問題。"
+  },
+  "availableComponents": [
+    "U_NOT",
+    "U_AND",
+    "U_OR",
+    "U_NAND",
+    "U_NOR",
+    "U_AND3",
+    "U_OR3"
+  ],
+  "fixedComponents": [
+    {
+      "id": "MREQ_N",
+      "type": "LOGIC_IN",
+      "params": {
+        "value": 0
+      },
+      "connect": [
+        "mreq_n"
+      ],
+      "locked": true,
+      "position": {
+        "x": 40,
+        "y": 60
+      }
+    },
+    {
+      "id": "A15",
+      "type": "LOGIC_IN",
+      "params": {
+        "value": 0
+      },
+      "connect": [
+        "a15"
+      ],
+      "locked": true,
+      "position": {
+        "x": 40,
+        "y": 220
+      }
+    },
+    {
+      "id": "A14",
+      "type": "LOGIC_IN",
+      "params": {
+        "value": 0
+      },
+      "connect": [
+        "a14"
+      ],
+      "locked": true,
+      "position": {
+        "x": 40,
+        "y": 380
+      }
+    },
+    {
+      "id": "ROM_CS",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "rom_cs_n"
+      ],
+      "locked": true,
+      "position": {
+        "x": 600,
+        "y": 60
+      },
+      "rotation": 90
+    },
+    {
+      "id": "RAM_CS",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "ram_cs_n"
+      ],
+      "locked": true,
+      "position": {
+        "x": 600,
+        "y": 220
+      },
+      "rotation": 90
+    },
+    {
+      "id": "LCD_CS",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "lcd_cs_n"
+      ],
+      "locked": true,
+      "position": {
+        "x": 600,
+        "y": 380
+      },
+      "rotation": 90
+    }
+  ],
+  "checks": [
+    {
+      "type": "truthTable",
+      "inputs": [
+        "mreq_n",
+        "a15",
+        "a14"
+      ],
+      "outputs": [
+        "rom_cs_n",
+        "ram_cs_n",
+        "lcd_cs_n"
+      ],
+      "expect": {
+        "rom_cs_n": "00111111",
+        "ram_cs_n": "11011111",
+        "lcd_cs_n": "11101111"
+      }
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "U1",
+      "type": "U_NOT",
+      "params": {},
+      "connect": [
+        "a15",
+        "n15"
+      ]
+    },
+    {
+      "id": "U2",
+      "type": "U_NOT",
+      "params": {},
+      "connect": [
+        "a14",
+        "n14"
+      ]
+    },
+    {
+      "id": "U3",
+      "type": "U_OR",
+      "params": {},
+      "connect": [
+        "mreq_n",
+        "a15",
+        "rom_cs_n"
+      ]
+    },
+    {
+      "id": "U4",
+      "type": "U_OR3",
+      "params": {},
+      "connect": [
+        "mreq_n",
+        "n15",
+        "a14",
+        "ram_cs_n"
+      ]
+    },
+    {
+      "id": "U5",
+      "type": "U_OR3",
+      "params": {},
+      "connect": [
+        "mreq_n",
+        "n15",
+        "n14",
+        "lcd_cs_n"
+      ]
+    }
+  ]
+}
