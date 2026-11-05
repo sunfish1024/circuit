@@ -1,0 +1,244 @@
+{
+  "id": "E-05",
+  "category": "E",
+  "title": "DSB-SC 変調：搬送波を抑圧して電力を側帯波に集める",
+  "difficulty": 3,
+  "prerequisites": [
+    "E-04",
+    "E-03"
+  ],
+  "learningGoal": "直流バイアスを入れずに音声と搬送波を掛けると搬送波の無い DSB-SC（両側波帯・搬送波抑圧）波になり、同じピーク電圧の AM に比べて側帯波（情報）に何倍もの電力を使えることを、乗算器の係数を設計して確かめる。",
+  "judge": "transient",
+  "simulation": {
+    "tStop": 0.008
+  },
+  "statement": "### 状況\nE-03 で、AM では送信電力の 2/3 以上が情報を運ばない**搬送波**に使われることを学びました。そこで、搬送波を消して**側帯波だけ**を送る方式 **DSB-SC**（Double SideBand - Suppressed Carrier: 両側波帯・搬送波抑圧）を作ります。\n\nボードの上半分には、E-04 で組んだ AM 変調器（変調度 0.5）が固定で置いてあります。下半分に DSB-SC 変調器を組み、比べます。\n\n### ボード上の部品\n| 部品 | 役割 | つながっているネット |\n|---|---|---|\n| VM | 音声の試験信号: 振幅 1.0 V（ピーク）、250 Hz | `aud`（+）、`gnd` |\n| VB | 直流バイアス 2.0 V | `x`（+）、`aud`（−） |\n| VC | 搬送波: 振幅 2.0 V（ピーク）、10 kHz | `car`（+）、`gnd` |\n| MA | AM 用の乗算器（$k$ = 0.5 /V） | x 入力 `x`、y 入力 `car`、出力 `am` |\n| RA, TPA | AM 出力のダミーロード 50 Ω と測定点 | `am` |\n| RD, TPD | DSB-SC 出力のダミーロード 50 Ω と測定点 | `dsb` |\n\nAM 出力 `am` は $0.5 \\times (2 + \\sin\\omega_m t) \\times 2\\sin\\omega_c t$ で、包絡線の最大は 3.0 V です。\n\n### やること\n1. **乗算器**（MULT）を 1 個置き、出力 out を `dsb` につなぐ。入力 x と y には、`aud`・`x`・`car` のうち **DSB-SC になる 2 つ**を選んでつなぐ。\n2. 送信機の最終段（電力増幅器）は**ピーク 3.0 V までしかひずみなく出せない**ので、`dsb` の最大値が AM と同じ **3.0 V** になるように係数 $k$ を計算して入力する。\n\n### 条件\n- 乗算器は理想: 出力 $v_{out} = k \\cdot v_x \\cdot v_y$（$k$ の単位は 1/V）。入力に電流は流れず、出力抵抗は 0。\n- 電源はすべて理想。過渡解析 0〜8 ms（変調信号の 2 周期）。\n\n### 判定（0〜8 ms の波形で測る）\n- `dsb` の 10 kHz 成分（搬送波）が 0（0.01 V 以下）、250 Hz 成分（音声の漏れ）も 0（0.01 V 以下）\n- `dsb` の 9.75 kHz・10.25 kHz 成分（側帯波）が判定値（±2%）\n- `dsb` の最大値が 3.0 V（±2%）\n- RD の平均電力が判定値（±2%）",
+  "hints": [
+    "E-04 で搬送波を生んでいたのは、`x` に含まれる直流バイアス（2 V）でした。直流を含まない音声 `aud` と搬送波 `car` を掛けると、出力はどうなるでしょうか。",
+    "$v_{dsb} = k A_m\\sin\\omega_m t \\cdot A_c\\sin\\omega_c t = \\dfrac{kA_mA_c}{2}\\{\\cos(\\omega_c-\\omega_m)t - \\cos(\\omega_c+\\omega_m)t\\}$。最大値は $kA_mA_c$、側帯波は 1 本 $kA_mA_c/2$。",
+    "$k = 3.0/(1.0 \\times 2.0) = 1.5$ /V。MULT を x=`aud`、y=`car`（逆でもよい）、out=`dsb` に置き、$k$ = 1.5 にします。側帯波は 1.5 V ずつ、RD の電力は $2 \\times 1.5^2/(2 \\times 50) = 0.045$ W。"
+  ],
+  "explanation": {
+    "solution": "**1. つなぐ入力を選ぶ**\n\n搬送波成分は「直流 × 搬送波」から生まれます（E-04）。直流を含まない `aud`（$A_m\\sin\\omega_m t$, $A_m$ = 1.0 V）と `car`（$A_c\\sin\\omega_c t$, $A_c$ = 2.0 V）を掛けます。\n\n$$v_{dsb} = k A_m A_c \\sin\\omega_m t\\,\\sin\\omega_c t = \\frac{kA_mA_c}{2}\\bigl\\{\\cos(\\omega_c-\\omega_m)t - \\cos(\\omega_c+\\omega_m)t\\bigr\\}$$\n\n（積和の公式 $\\sin A\\sin B = \\frac{1}{2}\\{\\cos(A-B) - \\cos(A+B)\\}$）。$f_c$ = 10 kHz の成分も、音声 250 Hz の成分もありません。\n\n**2. 最大値から $k$**\n\n$|\\sin\\omega_m t\\,\\sin\\omega_c t|$ の最大は 1 なので、最大値は $kA_mA_c$ です。\n\n$$kA_mA_c = 3.0 \\ \\Rightarrow\\ k = \\frac{3.0}{1.0 \\times 2.0} = 1.5\\,\\mathrm{V^{-1}}$$\n\n**3. 側帯波と電力**\n\n側帯波は 1 本 $kA_mA_c/2 = 1.5$ V（9.75 kHz と 10.25 kHz）。RD の平均電力は 2 本の和で\n\n$$P_{DSB} = 2 \\times \\frac{1.5^2}{2 \\times 50} = 0.045\\,\\mathrm{W}$$\n\n**4. AM と比べる**\n\nAM 側（`am`）は搬送波 2.0 V、側帯波 0.5 V ずつ（$m$ = 0.5）です。\n\n| | 搬送波の電力 | 側帯波の電力（情報） | 合計 |\n|---|---|---|---|\n| AM（RA） | $2.0^2/100$ = 0.040 W | $2 \\times 0.5^2/100$ = 0.005 W | 0.045 W |\n| DSB-SC（RD） | 0 | $2 \\times 1.5^2/100$ = 0.045 W | 0.045 W |\n\n同じピーク電圧 3.0 V で、**情報を運ぶ電力が 9 倍**（側帯波の電圧が 3 倍）になりました。（平均電力の合計がたまたま同じ 0.045 W なのは $m$ = 0.5 のときだけの偶然です。）\n\n**シミュレーション結果**: `dsb` の 10 kHz 成分・250 Hz 成分はともに 10⁻¹⁵ V 程度（0）、側帯波 1.500 V、最大値 3.00 V、RD の平均電力 0.0450 W。",
+    "why": "- **搬送波が消える理由**: 音声 $\\sin\\omega_m t$ は平均 0 で、正と負を等しく行き来します。正の間は搬送波がそのまま、負の間は搬送波の符号が反転して出るので、長い時間で平均すると搬送波の成分（10 kHz と同じ位相で揺れる部分）が打ち消し合います。スペクトルで見ると、AM の 3 本のうち中央の搬送波だけが無くなった 2 本になります。\n- **包絡線が音声の形ではない**: DSB-SC の振幅（包絡線）は $|kA_mA_c\\sin\\omega_m t|$ で、音声が 0 を横切るたびに 0 になり、そこで搬送波の位相が 180° 反転します。包絡線は音声を全波整流した形（周波数 2 倍）なので、**ダイオードの包絡線検波では音声に戻せません**。受信機で同じ周波数・同じ位相の搬送波を作り直して掛ける**同期検波**（E-09）が必要です。\n- **ピーク電圧で比べる意味**: 増幅器がひずみなく出せるのは電圧のピーク（瞬間の最大）までです。AM はピークのうち 2/3（2 V）を搬送波に取られ、音声には 1/3（1 V 分）しか使えません。DSB-SC はピークの全部を音声に使えます。",
+    "mistakes": "- **入力 x を `x`（バイアス入り）につなぐ**: E-04 と同じ AM になり、10 kHz の搬送波（$k$ = 1.5 なら 6.0 V）が出て不合格です。\n- **$k$ を AM と同じ 0.5 にする**: 側帯波は AM と同じ 0.5 V になり、搬送波の分の電力は節約できますが、最大値が 1.0 V で不合格です。増幅器の能力（3.0 V）を使い切っていません。\n- **最大値を $kA_mA_c/2$ と考えて $k$ = 3.0 にする**: 最大値は 6.0 V、側帯波 3.0 V で不合格です。$1/2$ が付くのは側帯波 1 本の振幅で、波形の最大値ではありません。\n- **入力 x と y を両方 `aud` にする**: $k\\sin^2\\omega_m t$ は直流と 500 Hz になり、側帯波が出ません。",
+    "practice": "- **平衡変調器**: 実際の DSB-SC 変調器は、ダイオード 4 個のリング変調器や、ギルバートセル（MC1496、SA612 など）の差動構造で、搬送波を打ち消すように作られています。素子のばらつきで搬送波がわずかに漏れる（キャリアリーク）ので、平衡を調整する半固定抵抗が付いていることがあります。\n- **SSB への入口**: DSB-SC からさらに片方の側帯波をフィルタで取り除くと **SSB**（単側波帯）になり、帯域も半分になります。短波のアマチュア無線・業務無線・船舶無線で使われています。\n- **FM ステレオ放送**: 左右の差の信号（L−R）は 38 kHz の副搬送波で DSB-SC 変調されて送られます。受信機は一緒に送られる 19 kHz の**パイロット信号**を 2 倍して 38 kHz を作り直し、同期検波します。搬送波を消して電力を節約しつつ、受信機が搬送波を再生できるよう手がかりを残す工夫です。",
+    "next": "- **E-06・E-07**: AM の受信（包絡線検波）。DSB-SC は包絡線検波では復調できないことも確かめられます。\n- **E-09・E-10**: 同期検波（乗算器 + ローパスフィルタ）で DSB-SC から音声を取り出し、受信側の搬送波の位相がずれると出力が $\\cos\\phi$ 倍に減ることを学びます。\n- **E-18**: データ（±1）を搬送波に掛ける BPSK は、DSB-SC の音声をデジタル信号に置き換えたものです。"
+  },
+  "availableComponents": [
+    "MULT",
+    "V_DC"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VB",
+      "type": "V_DC",
+      "params": {
+        "V": 2
+      },
+      "connect": [
+        "x",
+        "aud"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 60,
+        "y": 120
+      }
+    },
+    {
+      "id": "VM",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 1,
+        "freqHz": 250
+      },
+      "connect": [
+        "aud",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 60,
+        "y": 260
+      }
+    },
+    {
+      "id": "VC",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 2,
+        "freqHz": 10000
+      },
+      "connect": [
+        "car",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 240,
+        "y": 260
+      }
+    },
+    {
+      "id": "MA",
+      "type": "MULT",
+      "params": {
+        "k": 0.5
+      },
+      "connect": [
+        "x",
+        "car",
+        "am"
+      ],
+      "locked": true,
+      "position": {
+        "x": 380,
+        "y": 80
+      }
+    },
+    {
+      "id": "RA",
+      "type": "R",
+      "params": {
+        "R": 50
+      },
+      "connect": [
+        "am",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 560,
+        "y": 120
+      }
+    },
+    {
+      "id": "TPA",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "am"
+      ],
+      "locked": true,
+      "position": {
+        "x": 600,
+        "y": 40
+      }
+    },
+    {
+      "id": "RD",
+      "type": "R",
+      "params": {
+        "R": 50
+      },
+      "connect": [
+        "dsb",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 560,
+        "y": 400
+      }
+    },
+    {
+      "id": "TPD",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "dsb"
+      ],
+      "locked": true,
+      "position": {
+        "x": 600,
+        "y": 320
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "transientMeasure",
+      "node": "dsb",
+      "measure": "tone",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "frequencyHz": 10000,
+      "expected": 0,
+      "toleranceAbs": 0.01,
+      "unit": "V"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "dsb",
+      "measure": "tone",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "frequencyHz": 250,
+      "expected": 0,
+      "toleranceAbs": 0.01,
+      "unit": "V"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "dsb",
+      "measure": "tone",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "frequencyHz": 9750,
+      "expected": 1.5,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "dsb",
+      "measure": "tone",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "frequencyHz": 10250,
+      "expected": 1.5,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "dsb",
+      "measure": "max",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "expected": 3.0,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "transientMeasure",
+      "element": "RD",
+      "measure": "power",
+      "fromSec": 0,
+      "toSec": 0.008,
+      "expected": 0.045,
+      "tolerancePct": 2,
+      "unit": "W"
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "MULT1",
+      "type": "MULT",
+      "params": {
+        "k": 1.5
+      },
+      "connect": [
+        "aud",
+        "car",
+        "dsb"
+      ]
+    }
+  ]
+}

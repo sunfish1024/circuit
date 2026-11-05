@@ -207,7 +207,7 @@ const rawConfig = {
     /**
      * 選択できる分野。ここに無い分野はメニューで「準備中」と表示します。
      */
-    activeCategories: ["A", "B", "C", "F", "G", "H", "I", "J"],
+    activeCategories: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
 
     /**
      * パレット検索のデバウンス時間。ミリ秒。

@@ -1,0 +1,155 @@
+{
+  "id": "E-15",
+  "category": "E",
+  "title": "FM 変調器：VCO で周波数偏移 Δf を作る",
+  "difficulty": 3,
+  "prerequisites": [
+    "E-01",
+    "D-18"
+  ],
+  "learningGoal": "FM（周波数変調）は、音声の電圧に比例して搬送波の瞬時周波数を f = fc + Kv·vm と変える方式で、VCO にそのまま音声を入れれば作れることを理解する。最大周波数偏移 Δf = Kv·Vm と変調指数 β = Δf/fm を計算できる。",
+  "judge": "transient",
+  "simulation": {
+    "tStop": 0.005
+  },
+  "statement": "### 状況\nここから **FM**（Frequency Modulation、周波数変調）を扱います。AM は音声で搬送波の**振幅**を変えましたが、FM は音声で搬送波の**周波数**を変えます。振幅は一定のままです。\n\n- 音声の電圧が正のとき → 周波数が上がる\n- 音声の電圧が負のとき → 周波数が下がる\n- 周波数がいちばん大きく振れたときのずれの大きさを **最大周波数偏移** $\\Delta f$ といいます。\n\nD-18 で使った **VCO**（電圧制御発振器、周波数 $f = f_0 + K_v v_c$）の制御端子に音声をそのまま入れれば、FM 変調器になります。\n\n### 作る FM 波の仕様\n- 搬送波（音声が 0 V のときの周波数）: **10 kHz**、振幅 **1 V**（ピーク）\n- 音声: VA（**200 Hz**、振幅 **0.5 V** ピーク）\n- 最大周波数偏移: **Δf = 1 kHz**（周波数が 9 kHz〜11 kHz の間で振れる）\n\n### ボード上の部品\n| 部品 | 役割 | つながっているネット |\n|---|---|---|\n| VA | 音声信号 200 Hz・0.5 V（ピーク） | `audio`（上）、`gnd`（下） |\n| TPA | 音声の測定点 | `audio` |\n| TPF | FM 波の出力の測定点 | `fm` |\n\n### やること\n1. VCO（V_VCO）を1個置き、出力 + を `fm`（TPF）、出力 − をグラウンド、制御入力 + を `audio`、制御入力 − をグラウンドにつなぐ。\n2. VCO の自走周波数 f0、感度 Kv、振幅 Vpk を仕様に合わせて入力する。「想定する最高周波数」（fMaxHz）は計算の刻みを決めるだけの値なので、12 kHz 程度にしておく。\n3. 下の欄に、この FM 波の **変調指数** $\\beta = \\Delta f / f_m$ を答える。\n\n### 条件\n- VCO は理想（制御端子に電流は流れない、周波数は制御電圧に完全に比例して即座に変わる）。出力は正弦波。\n- 過渡解析 0〜5 ms（音声のちょうど 1 周期）。\n- 周波数は、区間内で波形が平均値を上向きに横切る間隔から測る。\n\n### 判定の内容（`fm` の波形）\n- 音声が最大（+0.5 V、t = 1.25 ms）付近の 1.0〜1.5 ms の周波数: 11.0 kHz（±1%）\n- 音声が最小（−0.5 V、t = 3.75 ms）付近の 3.5〜4.0 ms の周波数: 9.0 kHz（±1%）\n- 0〜5 ms 全体の平均の周波数: 10.0 kHz（±0.5%）\n- 振幅（最大 − 最小）: 2.0 V（±2%）\n- 変調指数 β の回答（±2%）",
+  "questions": [
+    {
+      "key": "beta",
+      "kind": "numeric",
+      "prompt": "この FM 波の変調指数 β = Δf / fm は？",
+      "unit": ""
+    }
+  ],
+  "hints": [
+    "VCO の周波数は $f = f_0 + K_v v_c$。音声 $v_c$ が 0 V のときが搬送波の周波数、音声が最大 $V_m$ のときに周波数が最大（$f_0 + \\Delta f$）になるように $K_v$ を決めます。",
+    "$f_0 = f_c$、$\\Delta f = K_v V_m$ より $K_v = \\Delta f / V_m$。変調指数は $\\beta = \\Delta f / f_m$（周波数偏移を音声の周波数で割った値、単位なし）。",
+    "f0 = 10000 Hz、Kv = 1000 / 0.5 = **2000 Hz/V**、Vpk = 1 V、fMaxHz = 12000。β = 1000 / 200 = **5**。"
+  ],
+  "explanation": {
+    "solution": "**1. VCO の設定**\n\nVCO の瞬時周波数は $f(t) = f_0 + K_v\\,v_{audio}(t)$、音声は $v_{audio} = V_m \\sin 2\\pi f_m t$（$V_m$ = 0.5 V、$f_m$ = 200 Hz）なので\n\n$$\nf(t) = f_0 + K_v V_m \\sin 2\\pi f_m t = f_c + \\Delta f \\sin 2\\pi f_m t\n$$\n\n- 音声 0 V のときの周波数 = 搬送波: $f_0$ = **10 kHz**\n- 最大周波数偏移: $\\Delta f = K_v V_m$ より $K_v = \\dfrac{\\Delta f}{V_m} = \\dfrac{1000}{0.5}$ = **2000 Hz/V**\n- 振幅: Vpk = **1 V**（pp = 2 V）\n\n**2. 判定の時刻での周波数**\n\n音声が最大になるのは $\\sin 2\\pi f_m t = 1$、つまり $t = \\dfrac{1}{4f_m}$ = 1.25 ms。このとき $f$ = 10 + 1 = 11 kHz。最小は $t$ = 3.75 ms で 9 kHz。\n\n判定は 0.5 ms の区間の平均的な周波数を測るので、ピークの前後で少し低めに出ます。区間 ±0.25 ms での $\\sin$ の平均は $\\dfrac{\\sin(2\\pi f_m \\times 0.25\\,\\text{ms})}{2\\pi f_m \\times 0.25\\,\\text{ms}} = \\dfrac{\\sin 0.314}{0.314} = 0.984$ なので、$10 + 1 \\times 0.984 = 10.98$ kHz。シミュレーション結果は 10.986 kHz と 9.008 kHz（許容 ±1% 以内）、全体の平均は 10.000 kHz です。\n\n**3. 変調指数**\n\n$$\n\\beta = \\frac{\\Delta f}{f_m} = \\frac{1000}{200} = 5\n$$",
+    "why": "- **FM 波の式**: 周波数は位相の変化の速さです。位相は周波数を積分したものなので\n\n$$\n\\theta(t) = \\int 2\\pi f(t)\\,dt = 2\\pi f_c t - \\frac{\\Delta f}{f_m}\\cos 2\\pi f_m t + \\text{一定}\n$$\n\nとなり、FM 波は $v = V_{pk}\\sin\\left(2\\pi f_c t - \\beta\\cos 2\\pi f_m t\\right)$ と書けます。位相の振れ幅（rad）がちょうど $\\beta = \\Delta f/f_m$ です。これが変調指数の意味で、音声の周波数が低いほど、同じ $\\Delta f$ でも位相が大きく振れます。分野 E の V_FM 信号源は $\\sin(2\\pi f_c t + \\beta \\sin 2\\pi f_m t)$（瞬時周波数 $f_c + \\Delta f\\cos 2\\pi f_m t$）で、音声の位相の取り方が違うだけで同じ FM 波です。\n- **情報は「周波数のずれ」にある**: 音声の大きさ（$V_m$）は $\\Delta f$ に、音声の高さ（$f_m$）は周波数が振れる速さに対応します。振幅は一定（pp = 2 V のまま）なので、雑音で振幅が乱されても、振幅を一定に切りそろえ（リミッタ）てから周波数だけを読めば、元の音声を取り出せます。これが FM が雑音に強い理由です。\n- **平均の周波数は f0**: 音声は正と負が対称なので、1 周期の平均の周波数は搬送波の 10 kHz に戻ります（音声に直流があると搬送波がずれます）。",
+    "mistakes": "- **$K_v = \\Delta f$ = 1000 Hz/V とする**（$V_m$ で割り忘れ）: 偏移は 500 Hz になり、1.0〜1.5 ms の周波数は 10.5 kHz で不合格。\n- **$K_v$ を 2 倍の 4000 Hz/V にする**: 偏移 2 kHz で、ピーク付近は 12.0 kHz（シミュレーション 11.98 kHz）、谷付近は 8.0 kHz となり不合格。\n- **制御入力の + と − を逆につなぐ**: 音声が正のときに周波数が下がり、1.0〜1.5 ms が 9.0 kHz、3.5〜4.0 ms が 11.0 kHz と逆になって不合格（逆向きでも FM 波ではありますが、仕様と違います）。\n- **f0 を Δf 分ずらして 11 kHz にする**: 平均の周波数が 11 kHz になり不合格。FM の搬送波周波数は「音声 0 V のとき」の周波数です。\n- **β を $f_m / \\Delta f$ = 0.2 や $\\Delta f / f_c$ = 0.1 と答える**: 変調指数は周波数偏移と**音声の周波数**の比です。$\\Delta f / f_c$ は「搬送波に対する偏移の割合」で、別の量です。",
+    "practice": "- **FM ラジオ放送**: 最大周波数偏移 Δf = 75 kHz、音声の最高周波数 15 kHz なので β = 5。この問題と同じ比です。搬送波は 76〜95 MHz（日本）。\n- 業務用無線・アマチュア無線の FM は Δf = 2.5〜5 kHz の**狭帯域 FM**（NBFM）で、β は 1〜2 程度です。\n- 実際の FM 変調器は、LC 発振器の C を**可変容量ダイオード**（バラクタ）で変えて作ったり、PLL シンセサイザの VCO の制御電圧に音声を足したりします。VCO の $K_v$ は温度や電源電圧で変わり、$f$ と $v_c$ の関係も完全な直線ではないので、偏移の大きさを調整したり、直線性の良い範囲で使ったりします。\n- FM は振幅が一定なので、効率の良い C 級増幅器（ひずみは大きいが振幅の情報がないので問題にならない）で送信でき、携帯無線機の電池が長持ちします。",
+    "next": "- **E-16**: FM 波は β によって、搬送波と多数の側帯波（$f_c \\pm n f_m$）に分かれます。その振幅はベッセル関数で決まり、帯域幅はおよそ $2(\\Delta f + f_m)$（カーソンの法則）。この問題の FM 波なら $2(1000 + 200)$ = 2.4 kHz です。\n- **E-19**: 音声の代わりに 0/1 のデジタル信号で VCO の周波数を切り替えると FSK になります。\n- **E-20**: 同調回路の傾斜や PLL を使って、周波数の変化を電圧に戻す（FM 復調）方法を扱います。PLL がロックしているとき、VCO の制御電圧は入力の周波数に比例するので、PLL の制御電圧がそのまま復調した音声になります（D-19）。"
+  },
+  "availableComponents": [
+    "V_VCO"
+  ],
+  "fixedComponents": [
+    {
+      "id": "VA",
+      "type": "V_AC",
+      "params": {
+        "Vpk": 0.5,
+        "freqHz": 200
+      },
+      "connect": [
+        "audio",
+        "gnd"
+      ],
+      "locked": true,
+      "rotation": 90,
+      "position": {
+        "x": 60,
+        "y": 170
+      }
+    },
+    {
+      "id": "TPA",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "audio"
+      ],
+      "locked": true,
+      "position": {
+        "x": 160,
+        "y": 60
+      }
+    },
+    {
+      "id": "TPF",
+      "type": "TP",
+      "params": {},
+      "connect": [
+        "fm"
+      ],
+      "locked": true,
+      "position": {
+        "x": 540,
+        "y": 90
+      }
+    }
+  ],
+  "checks": [
+    {
+      "type": "transientMeasure",
+      "node": "fm",
+      "measure": "frequency",
+      "fromSec": 0.001,
+      "toSec": 0.0015,
+      "expected": 11000,
+      "tolerancePct": 1,
+      "unit": "Hz"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "fm",
+      "measure": "frequency",
+      "fromSec": 0.0035,
+      "toSec": 0.004,
+      "expected": 9000,
+      "tolerancePct": 1,
+      "unit": "Hz"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "fm",
+      "measure": "frequency",
+      "fromSec": 0,
+      "toSec": 0.005,
+      "expected": 10000,
+      "tolerancePct": 0.5,
+      "unit": "Hz"
+    },
+    {
+      "type": "transientMeasure",
+      "node": "fm",
+      "measure": "pp",
+      "fromSec": 0,
+      "toSec": 0.005,
+      "expected": 2.0,
+      "tolerancePct": 2,
+      "unit": "V"
+    },
+    {
+      "type": "numericAnswer",
+      "key": "beta",
+      "expected": 5,
+      "tolerancePct": 2,
+      "unit": ""
+    }
+  ],
+  "referenceSolution": [
+    {
+      "id": "V1",
+      "type": "V_VCO",
+      "params": {
+        "f0Hz": 10000,
+        "KvHzPerV": 2000,
+        "Vpk": 1,
+        "fMaxHz": 12000
+      },
+      "connect": [
+        "fm",
+        "gnd",
+        "audio",
+        "gnd"
+      ]
+    }
+  ],
+  "referenceAnswers": {
+    "beta": 5
+  }
+}
